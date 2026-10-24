@@ -40,7 +40,20 @@ export class FakeSieveServer {
         this.puts.push(name);
         return Promise.resolve();
       },
+      deleteScript: (name) => {
+        if (name === this.active) {
+          return Promise.reject(new AdapterError("REJECTED", "cannot delete the active script"));
+        }
+        if (!this.scripts.delete(name)) {
+          return Promise.reject(new AdapterError("REJECTED", "no such script"));
+        }
+        return Promise.resolve();
+      },
       setActive: (name) => {
+        if (name === "") {
+          this.active = null;
+          return Promise.resolve();
+        }
         if (this.failSetActiveOnce) {
           this.failSetActiveOnce = false;
           return Promise.reject(new AdapterError("TRANSIENT", "connection dropped"));

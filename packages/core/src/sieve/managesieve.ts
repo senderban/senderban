@@ -314,7 +314,12 @@ class ManageSieveSession implements SieveSession {
   }
 
   async setActive(name: string): Promise<void> {
-    expectOk(await this.#command(`SETACTIVE ${quoted(name)}\r\n`), "SETACTIVE");
+    const arg = name === "" ? '""' : quoted(name);
+    expectOk(await this.#command(`SETACTIVE ${arg}\r\n`), "SETACTIVE");
+  }
+
+  async deleteScript(name: string): Promise<void> {
+    expectOk(await this.#command(`DELETESCRIPT ${quoted(name)}\r\n`), "DELETESCRIPT");
   }
 
   async close(): Promise<void> {

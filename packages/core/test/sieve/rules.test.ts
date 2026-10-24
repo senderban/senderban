@@ -5,6 +5,7 @@ import {
   DEFAULT_RENDER_OPTIONS,
   hasInclude,
   insertInclude,
+  removeInclude,
   renderMain,
   renderRules,
   scriptSha256,
@@ -151,5 +152,33 @@ describe("insertInclude", () => {
       'require ["include"];\n# senderban-managed\ninclude :personal "senderban-rules";\n',
     );
     expect(() => renderMain("Bad Name")).toThrow(AdapterError);
+  });
+});
+
+describe("removeInclude", () => {
+  const rules = "senderban-rules";
+  const original = 'require ["fileinto"];\r\nkeep;\r\n';
+
+  it("restores the original exactly when the script is what insertInclude produced", () => {
+    const edited = insertInclude(original, rules);
+    expect(removeInclude(edited, rules, original)).toBe('require ["fileinto"];\nkeep;\n');
+  });
+
+  it("falls back to dropping our lines when the script changed since", () => {
+    const edited = `${insertInclude(original, rules)}# later\n`;
+    const out = removeInclude(edited, rules, original);
+    expect(hasInclude(out, rules)).toBe(false);
+    expect(out).toContain("# later");
+    expect(out).toContain("keep;");
+  });
+
+  it("refuses when the include is not on a line of its own", () => {
+    expect(() =>
+      removeInclude(
+        'require "include";\nif true { include :personal "senderban-rules"; }\n',
+        rules,
+        null,
+      ),
+    ).toThrow(AdapterError);
   });
 });

@@ -16,6 +16,9 @@ export interface SieveSession {
   haveSpace(name: string, sizeBytes: number): Promise<boolean>;
   /** Replaces an existing script of that name atomically; the server validates the syntax. */
   putScript(name: string, content: string): Promise<void>;
+  /** An empty name deactivates the active script. */
   setActive(name: string): Promise<void>;
+  /** The server refuses to delete the active script. */
+  deleteScript(name: string): Promise<void>;
   close(): Promise<void>;
 }

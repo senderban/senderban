@@ -19,6 +19,7 @@ import {
   insertInclude,
   isOurMain,
   normalizeNewlines,
+  removeInclude,
   renderMain,
   renderRules,
   scriptBytes,
@@ -270,6 +271,50 @@ export class SieveAdapter implements BlockAdapter {
         failed: [],
         state: { adapterId: SIEVE_ADAPTER_ID, data: next },
       };
+    });
+  }
+
+  /**
+   * Takes the include out first, then deletes the rules script, so no moment exists where the
+   * user's script points at something that is gone. The user's own script gets back its original
+   * text; our own main script is deactivated and deleted.
+   */
+  async uninstall(state: OpaqueState): Promise<OpaqueState> {
+    const current = parseState(state);
+    return withSession(this.#options.connect, async (session) => {
+      const scripts = await session.listScripts();
+      const active = scripts.find((s) => s.active);
+
+      if (active?.name === current.mainName) {
+        const text = await session.getScript(current.mainName);
+        if (text === null || !isOurMain(text)) {
+          throw new AdapterError("REMOTE_CHANGED", `script "${current.mainName}" is not ours`);
+        }
+        await session.setActive("");
+        await session.deleteScript(current.mainName);
+      } else if (active !== undefined) {
+        const text = await session.getScript(active.name);
+        if (text !== null && hasInclude(text, current.rulesName)) {
+          const original =
+            current.includeBackup?.scriptName === active.name
+              ? current.includeBackup.content
+              : null;
+          await session.putScript(active.name, removeInclude(text, current.rulesName, original));
+          const after = await session.getScript(active.name);
+          if (after === null || hasInclude(after, current.rulesName)) {
+            throw new AdapterError("REJECTED", "server did not keep the include removal");
+          }
+        }
+      } else if (scripts.some((s) => s.name === current.mainName)) {
+        const text = await session.getScript(current.mainName);
+        if (text !== null && isOurMain(text)) await session.deleteScript(current.mainName);
+      }
+
+      if (scripts.some((s) => s.name === current.rulesName)) {
+        await session.deleteScript(current.rulesName);
+      }
+      const next: SieveState = { ...current, applied: [], rulesSha256: null, includeBackup: null };
+      return { adapterId: SIEVE_ADAPTER_ID, data: next };
     });
   }
 

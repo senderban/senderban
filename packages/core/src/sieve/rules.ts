@@ -130,3 +130,26 @@ export function insertInclude(script: string, rulesName: string): string {
   const after = text.slice(block.end);
   return `${before}${before === "" ? "" : "\n"}${lines.join("\n")}\n${after.replace(/^\n/, "")}`;
 }
+
+/**
+ * Undoes `insertInclude`. If the script is still exactly what we produced from `original`, the
+ * original comes back byte for byte (modulo newlines); otherwise only our two lines are dropped,
+ * so edits the user made since are kept.
+ */
+export function removeInclude(script: string, rulesName: string, original: string | null): string {
+  assertScriptName(rulesName);
+  const text = normalizeNewlines(script);
+  if (original !== null && text === insertInclude(original, rulesName)) {
+    return normalizeNewlines(original);
+  }
+  const ours = new RegExp(`^\\s*include\\s+(:[a-z]+\\s+)*"${rulesName}"\\s*;\\s*$`, "i");
+  const kept = text.split("\n").filter((line) => line !== MAIN_MARKER && !ours.test(line));
+  const result = kept.join("\n");
+  if (hasInclude(result, rulesName)) {
+    throw new AdapterError(
+      "REJECTED",
+      "include line is mixed into other commands; remove it by hand",
+    );
+  }
+  return result;
+}

@@ -263,3 +263,64 @@ describe("SieveAdapter failure handling", () => {
     );
   });
 });
+
+describe("SieveAdapter.uninstall", () => {
+  const userScript =
+    'require ["fileinto"];\nif header :contains "subject" "x" {\n  fileinto "X";\n}\n';
+
+  it("removes our scripts from a clean mailbox and resets the state", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    const next = await adapter.uninstall(result.state);
+    expect(server.scripts.size).toBe(0);
+    expect(server.active).toBeNull();
+    expect(next.data).toMatchObject({ applied: [], rulesSha256: null, includeBackup: null });
+    // and it can be installed again from the returned state
+    await sync(adapter, [entry(1, "exactAddress", "a@example.com")], next);
+    expect(server.active).toBe("senderban-main");
+  });
+
+  it("gives the user's script back byte for byte when nobody edited it since", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", userScript);
+    server.active = "roundcube";
+    const { result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    await adapter.uninstall(result.state);
+    expect(server.scripts.get("roundcube")).toBe(userScript);
+    expect(server.active).toBe("roundcube");
+    expect([...server.scripts.keys()]).toEqual(["roundcube"]);
+  });
+
+  it("keeps the user's later edits and drops only our two lines", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", userScript);
+    server.active = "roundcube";
+    const { result } = await sync(adapter, [], initialSieveState());
+    server.scripts.set(
+      "roundcube",
+      `${server.scripts.get("roundcube") ?? ""}# added later\nkeep;\n`,
+    );
+    await adapter.uninstall(result.state);
+    const after = server.scripts.get("roundcube") ?? "";
+    expect(hasInclude(after, "senderban-rules")).toBe(false);
+    expect(after).toContain("# added later");
+    expect(after).not.toContain("senderban-managed");
+    expect(server.scripts.has("senderban-rules")).toBe(false);
+  });
+
+  it("refuses to delete a main script that is not ours", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, [], initialSieveState());
+    server.scripts.set("senderban-main", "keep;\n");
+    expect(await failure(adapter.uninstall(result.state))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.has("senderban-rules")).toBe(true);
+  });
+});

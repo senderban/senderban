@@ -88,4 +88,6 @@ export interface BlockAdapter {
   apply(plan: Plan): Promise<ApplyResult>;
   verify(state: OpaqueState): Promise<Drift>;
   cleanup?(selector: { readonly address: string }): Promise<ApplyResult>;
+  /** Removes everything this adapter wrote and restores the user's own rules; returns the empty state. */
+  uninstall?(state: OpaqueState): Promise<OpaqueState>;
 }

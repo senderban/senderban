@@ -178,3 +178,47 @@ describe("SieveAdapter against Dovecot, user already has an active script", () =
     expect(await adapter.verify(state)).toMatchObject({ drifted: true });
   });
 });
+
+describe("SieveAdapter.uninstall against Dovecot", () => {
+  it("leaves the user's script as it was and stops blocking", async () => {
+    const user = "uninstall@example.test";
+    const original = 'require ["fileinto"];\n# user rule\nkeep;\n';
+    const setup = await dovecot.connect(user);
+    await setup.putScript("roundcube", original);
+    await setup.setActive("roundcube");
+    await setup.close();
+
+    const adapter = adapterFor(user);
+    const installed = await sync(
+      adapter,
+      [entry(1, "exactAddress", "spam@bad.example")],
+      initialSieveState(),
+    );
+    await dovecot.deliver(user, mail("spam@bad.example"));
+    expect(dovecot.count(user, "Junk")).toBe(1);
+
+    await adapter.uninstall(installed);
+
+    const session = await dovecot.connect(user);
+    expect(await session.listScripts()).toEqual([{ name: "roundcube", active: true }]);
+    expect((await session.getScript("roundcube"))?.replace(/\r\n/g, "\n")).toBe(original);
+    await session.close();
+
+    await dovecot.deliver(user, mail("spam@bad.example"));
+    expect([dovecot.count(user, "Junk"), dovecot.count(user, "INBOX")]).toEqual([1, 1]);
+  });
+
+  it("removes our own main script when the user had none", async () => {
+    const user = "uninstall-clean@example.test";
+    const adapter = adapterFor(user);
+    const installed = await sync(
+      adapter,
+      [entry(1, "exactDomain", "x.example")],
+      initialSieveState(),
+    );
+    await adapter.uninstall(installed);
+    const session = await dovecot.connect(user);
+    expect(await session.listScripts()).toEqual([]);
+    await session.close();
+  });
+});
