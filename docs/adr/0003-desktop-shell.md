@@ -51,8 +51,8 @@ not by choosing a page** (see list below). If native buttons do not fire, fallba
   launched the app is not lost.
 - The callback only receives `actionIndex` and a raw `arguments` string, not our sender. Pending
   notifications are therefore stored (`id → accountId, sender, createdAt`, bounded and expiring) and
-  the id is carried in `arguments` or `toastXml`. Whether a custom string survives to
-  `ActivationArguments.arguments` is **unmeasured**.
+  the id is the `Notification` `id`, which Windows returns as `tag=<id>` in
+  `ActivationArguments.arguments` (measured, item 5). One click can call the handler twice (item 3).
 - Click on [Block sender] only enqueues; the write goes through the sync engine, and the result
   (applied / failed / undo) is shown as a second notification. Default action stays reversible (Junk).
 
@@ -70,11 +70,11 @@ the store, never plaintext, never logs.
 
 ## Measure in Phase 5 (each one gets its result written here)
 
-1. `node:sqlite` opens the store file in the Electron **main process** (ADR 0002 only measured `ELECTRON_RUN_AS_NODE`).
-2. A notification with a [Block sender] button shows on Windows 11 from an unpackaged dev run with the pinned-shortcut workaround.
-3. Clicking the button calls `handleActivation` with `type: 'action'`, `actionIndex: 0`, while the app is running.
-4. Same click after the app was quit and relaunched by the toast (activation-launch path).
-5. A custom id in the notification reaches `ActivationArguments.arguments`.
+1. ~~`node:sqlite` opens the store file in the Electron **main process**~~ — **MEASURED 2026-10-24**: Electron 45.0.0 main process (real app run, not `ELECTRON_RUN_AS_NODE`), Node 24.22.0, `sqlite_version()` 3.53.4, `BEGIN IMMEDIATE` sets `isTransaction`. In-memory DB only; a file DB in WAL mode from the main process is still covered by ADR 0002's `ELECTRON_RUN_AS_NODE` run. Trap: the VS Code extension host sets `ELECTRON_RUN_AS_NODE=1`; launching `electron.exe` from there runs plain Node (`'electron' does not provide an export named 'app'`). Unset it (`env -u ELECTRON_RUN_AS_NODE`).
+2. ~~A notification with a [Block sender] button shows on Windows 11 from an unpackaged dev run~~ — **MEASURED 2026-10-24** (Windows 11 26200, `electron.exe` 45.0.0, native `actions: [{type:'button'}]`, AUMID `com.senderban.desktop`): shown and clicked by Ali. No manual pinned shortcut was needed: at the first `show()` Electron itself created `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Electron.lnk` (AUMID `com.senderban.desktop`). The first run went unseen (nobody was looking; Windows logged `delivered to com.senderban.desktop`), the second was seen. Not measured: toasts under Do Not Disturb, and a packaged app's shortcut.
+3. ~~Clicking the button calls `handleActivation` with `type: 'action'`, `actionIndex: 0`~~ — **MEASURED 2026-10-24**: `{"type":"action","arguments":"type=action&action=0&tag=spike-A-native","actionIndex":0}` while the app was running. **One click produced two `handleActivation` calls ~60 ms apart** (and the instance `action` event fired twice too). The handler must be idempotent: consume the pending id once.
+4. Same click after the app was quit and relaunched by the toast (activation-launch path). **NOT measured.**
+5. ~~A custom id in the notification reaches `ActivationArguments.arguments`~~ — **MEASURED 2026-10-24 for the native path**: the `Notification` `id` arrives as `tag=<id>` inside `arguments`, so `toastXml` is not needed to carry our pending id. `toastXml` (`launch=`/`<action arguments=>`) was shown in the same run but produced no activation record; **not measured**, not needed. Parse `arguments` with `URLSearchParams`, treat it as untrusted, and look the id up in the bounded pending map.
 6. IDLE `exists` event on contact@senderban.com delivers a notification within seconds; survives 29-min renewal and a sleep/resume.
 7. Installer: which tool creates the shortcut with AUMID + ToastActivatorCLSID (Squirrel sets it automatically per the tutorial; other tools do not). Chosen after 2–5, recorded in a new ADR.
 
