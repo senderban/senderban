@@ -62,6 +62,12 @@ IMAP/ManageSieve app passwords are encrypted with `safeStorage.encryptStringAsyn
 `decryptStringAsync` (sync variants are deprecated in 45, removed in 46; ADR 0001). Ciphertext goes in
 the store, never plaintext, never logs.
 
+## Measured so far (MXroute, 2026-10-24, read-only, `contract/live-imap.contract.ts`)
+
+- `imapflow` 2.9.1 over implicit TLS (993): connect + `EXAMINE INBOX` 1.8–2.2 s; `ENVELOPE` fetch of 4 messages 137–150 ms; `uidValidity` and `uidNext` read; a range past the end announced nothing.
+- Idle watcher: one mail sent from a second account while `AccountWatcher` was in `watching` was announced exactly once through the `exists` event (state path `connecting>watching>stopped`).
+- NOT measured: delivery-to-announcement latency (the send time was not recorded), the 25-minute IDLE restart, sleep/resume, reconnect after a real network drop, the STARTTLS path, and the authentication-failure path (one wrong login was deliberately not tried against the live account).
+
 ## Measure in Phase 5 (each one gets its result written here)
 
 1. `node:sqlite` opens the store file in the Electron **main process** (ADR 0002 only measured `ELECTRON_RUN_AS_NODE`).
