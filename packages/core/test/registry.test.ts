@@ -8,7 +8,8 @@ describe("provider registry", () => {
     for (const p of PROVIDERS) expect(SUPPORT_LEVELS).toContain(p.level);
   });
 
-  it("claims no measured evidence before any live test", () => {
-    expect(PROVIDERS.every((p) => p.evidence === "documented")).toBe(true);
+  it("claims measured evidence only for providers the adapter has run against live", () => {
+    const measured = PROVIDERS.filter((p) => p.evidence === "measured").map((p) => p.id);
+    expect(measured).toEqual(["mxroute"]);
   });
 });

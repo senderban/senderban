@@ -20,10 +20,10 @@ export interface ProviderEntry {
   readonly release: "v0.1" | "v0.2" | "later";
 }
 
-// Single source for the runtime and the README support table. Nothing here is "measured" yet:
-// no provider path has been run against a live account.
+// Single source for the runtime and the README support table. "measured" only where the adapter
+// itself ran against a live account (MXroute: install, in-place update, read-back, uninstall).
 export const PROVIDERS: readonly ProviderEntry[] = [
-  { id: "mxroute", name: "MXroute", level: "sieve", evidence: "documented", release: "v0.1" },
+  { id: "mxroute", name: "MXroute", level: "sieve", evidence: "measured", release: "v0.1" },
   {
     id: "gmail",
     name: "Gmail / Google Workspace",
