@@ -8,3 +8,6 @@ export * from "./sieve/rules.js";
 export * from "./sieve/session.js";
 export * from "./sync/engine.js";
 export * from "./watcher/watcher.js";
+export * from "./notify/pending.js";
+export * from "./accounts.js";
+export * from "./notify/block-action.js";

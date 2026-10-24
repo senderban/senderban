@@ -78,6 +78,16 @@ the store, never plaintext, never logs.
 6. IDLE `exists` event on contact@senderban.com delivers a notification within seconds; survives 29-min renewal and a sleep/resume.
 7. Installer: which tool creates the shortcut with AUMID + ToastActivatorCLSID (Squirrel sets it automatically per the tutorial; other tools do not). Chosen after 2–5, recorded in a new ADR.
 
+## Build and wiring (2026-10-25)
+
+- Electron cannot import the workspace's `.ts` sources, so both packages are compiled with `tsc` (`npm run build`, also a CI step) to `dist/`. `@senderban/core` has an `exports` map: `types` points at `src/*.ts` (editor and `tsc` see the source), `default` at `dist/*.js` (Electron runs the build). Entry points: `.` (pure, also safe for the browser extension), `./store` (`node:sqlite`), `./node` (imapflow, raw TCP/TLS ManageSieve). No bundler yet; added when the installer is chosen (item 7).
+- `apps/desktop/src/main.ts`: tray (account states, Pause/Resume, Quit), per-account `AccountWatcher`, a toast per new message with [Block sender], `Notification.handleActivation` registered before `whenReady` and answered through a promise that resolves once the store/engine/watchers exist.
+- The click logic is `handleBlockActivation` in core (tested without Electron, 6 tests): only `type: 'action'` with `actionIndex 0`, id read from `tag=` and accepted only as a lowercase UUID, then `PendingBlocks.consume` once. A duplicate id is dropped silently (the 60 ms second activation); an unknown id says the toast expired. The entry is exact-address, action `junk`; the clicked account syncs at once for the confirmation toast, the other accounts through the debounce.
+- Accounts live in `userData/accounts.json` (strict schema, bounds in core `accounts.ts`), password only as `safeStorage.encryptStringAsync` ciphertext. Bootstrap until a settings window exists: `electron apps/desktop --add-account=<file.json>` (file holds the plaintext password and is deleted after saving).
+- Measured 2026-10-25 (Windows 11, Electron 45.0.0, no real mail account): the built app starts, shows the tray, opens `senderban.db` in WAL mode from the main process, starts a watcher that backs off against an unresolvable host and stays up for 8 s; `--add-account` produced a `v10` DPAPI ciphertext and deleted the input file.
+- NOT measured: a real toast click through this wiring, activation after a restart (item 4), tray visibility on screen, Quit while a sync is running.
+- Known gap: `PendingBlocks` is in memory. A toast still in the Action Center after the app restarted reports "expired" instead of blocking. Fix when item 4 is measured (persist `id -> account, sender, created_at` in the store, same bound and TTL).
+
 ## Not decided here
 
 Installer and code signing (separate ADR, item 7), Gmail notification source (K6: BYO pilot only,

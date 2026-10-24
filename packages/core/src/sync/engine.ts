@@ -4,7 +4,7 @@ import type { Store } from "../store/store.js";
 
 /** Accounts one device syncs. Each one is an independent queue (architecture K8). */
 export const MAX_ACCOUNTS = 50;
-const ACCOUNT_ID = /^[A-Za-z0-9._@-]{1,64}$/;
+export const ACCOUNT_ID = /^[A-Za-z0-9._@-]{1,64}$/;
 
 export const DEFAULT_DEBOUNCE_MS = 2_000;
 /** One provider round (plan is local; this bounds `apply`). Longer means the provider is stuck. */

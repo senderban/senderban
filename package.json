@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "ci:local": "node scripts/ci-local.mjs",
-    "test:contract": "vitest run --config vitest.contract.config.js"
+    "test:contract": "vitest run --config vitest.contract.config.js",
+    "build": "tsc -p packages/core/tsconfig.build.json && tsc -p apps/desktop/tsconfig.build.json"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
