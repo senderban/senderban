@@ -5,6 +5,7 @@ import {
   type BlockAdapter,
   type Capabilities,
   type Drift,
+  type DriftCheck,
   type OpaqueState,
   type Plan,
   type PlannedChange,
@@ -28,8 +29,8 @@ import type { SieveSession } from "./session.js";
 
 export const SIEVE_ADAPTER_ID = "sieve";
 
-/** Extensions our scripts use: `fileinto`+`mailbox` for the rule, `include` for the hook. */
-const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "include"] as const;
+/** Extensions our scripts use: `fileinto`+`mailbox`+`envelope` for the rule, `include` for the hook. */
+const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "envelope", "include"] as const;
 
 // PROVISIONAL bound (bytes): size of the pre-edit copy of the user's script kept in local state.
 // Replace with the measured server script limit once the Dovecot contract run (S4) has it.
@@ -275,23 +276,43 @@ export class SieveAdapter implements BlockAdapter {
   async verify(state: OpaqueState): Promise<Drift> {
     const current = parseState(state);
     return withSession(this.#options.connect, async (session) => {
-      const problems: string[] = [];
+      const checks: DriftCheck[] = [];
+      const check = (name: string, ok: boolean, detail: string): void => {
+        checks.push({ name, ok, detail });
+      };
+
       const remote = await session.getScript(current.rulesName);
-      if (remote === null) problems.push("rules script missing");
-      else if (scriptSha256(remote) !== current.rulesSha256) problems.push("rules script edited");
+      check("rules-present", remote !== null, remote === null ? "rules script missing" : "found");
+      if (remote !== null) {
+        const same = scriptSha256(remote) === current.rulesSha256;
+        check("rules-unchanged", same, same ? "matches what we wrote" : "rules script edited");
+      }
 
       const active = (await session.listScripts()).find((s) => s.active);
       if (active === undefined) {
-        problems.push("no active script");
+        check("include-active", false, "no active script");
       } else {
         const text = await session.getScript(active.name);
-        if (text === null || !hasInclude(text, current.rulesName)) {
-          problems.push(`active script "${active.name}" does not include the rules`);
-        }
+        const included = text !== null && hasInclude(text, current.rulesName);
+        check(
+          "include-active",
+          included,
+          included
+            ? `active script "${active.name}" includes the rules`
+            : `active script "${active.name}" does not include the rules`,
+        );
       }
-      return problems.length === 0
-        ? { drifted: false, detail: "rules and include in place" }
-        : { drifted: true, detail: problems.join("; ") };
+
+      const failed = checks.filter((c) => !c.ok);
+      return {
+        drifted: failed.length > 0,
+        detail:
+          failed.length === 0
+            ? "rules and include in place"
+            : failed.map((c) => c.detail).join("; "),
+        checkedAt: new Date().toISOString(),
+        checks,
+      };
     });
   }
 }

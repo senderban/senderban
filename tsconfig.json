@@ -16,5 +16,12 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["packages/*/src", "packages/*/test", "apps/*/src", "scripts", "*.config.*"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "packages/*/contract",
+    "apps/*/src",
+    "scripts",
+    "*.config.*"
+  ]
 }

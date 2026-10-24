@@ -32,8 +32,7 @@ function stringList(values: Iterable<string>): string {
 
 /**
  * The whole rules script, derived from the list: one `if anyof` per action, sorted so the same
- * list always yields the same bytes. Matches the sender's From header (`address`), so a forged
- * From can slip past; envelope matching is a separate decision (see docs).
+ * list always yields the same bytes. Each key matches the From header and the envelope sender.
  */
 export function renderRules(list: Blocklist, options: RenderOptions): string {
   if (!FOLDER_NAME.test(options.junkFolder) || !FOLDER_NAME.test(options.trashFolder)) {
@@ -44,7 +43,7 @@ export function renderRules(list: Blocklist, options: RenderOptions): string {
     trash: options.trashFolder,
   };
 
-  const out = ['require ["fileinto", "mailbox"];', RULES_MARKER];
+  const out = ['require ["fileinto", "mailbox", "envelope"];', RULES_MARKER];
   for (const action of ACTIONS) {
     const addresses = new Set<string>();
     const domains = new Set<string>();
@@ -64,14 +63,18 @@ export function renderRules(list: Blocklist, options: RenderOptions): string {
     }
 
     const tests: string[] = [];
-    if (addresses.size > 0) {
-      tests.push(`address :is "from" ${stringList([...addresses].sort())}`);
-    }
-    if (domains.size > 0) {
-      tests.push(`address :domain :is "from" ${stringList([...domains].sort())}`);
-    }
-    if (patterns.size > 0) {
-      tests.push(`address :domain :matches "from" ${stringList([...patterns].sort())}`);
+    // The From header can be forged and the envelope sender is what the sending server claimed,
+    // so every key is tested against both.
+    for (const test of ["address", "envelope"]) {
+      if (addresses.size > 0) {
+        tests.push(`${test} :is "from" ${stringList([...addresses].sort())}`);
+      }
+      if (domains.size > 0) {
+        tests.push(`${test} :domain :is "from" ${stringList([...domains].sort())}`);
+      }
+      if (patterns.size > 0) {
+        tests.push(`${test} :domain :matches "from" ${stringList([...patterns].sort())}`);
+      }
     }
     if (tests.length === 0) continue;
 

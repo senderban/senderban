@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "ci:local": "node scripts/ci-local.mjs"
+    "ci:local": "node scripts/ci-local.mjs",
+    "test:contract": "vitest run --config vitest.contract.config.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

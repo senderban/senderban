@@ -58,10 +58,23 @@ export interface ApplyResult {
   readonly state: OpaqueState;
 }
 
-/** The remote rule was edited or deleted by someone else since we last wrote it. */
+/** One thing verify() looked at on the provider, and what it found. */
+export interface DriftCheck {
+  readonly name: string;
+  readonly ok: boolean;
+  readonly detail: string;
+}
+
+/**
+ * Result of reading the provider back: the "it is really blocked" evidence the UI shows, and the
+ * signal that the remote rule was edited or deleted by someone else since we last wrote it.
+ */
 export interface Drift {
   readonly drifted: boolean;
   readonly detail: string;
+  /** ISO 8601 time of the read-back. */
+  readonly checkedAt: string;
+  readonly checks: readonly DriftCheck[];
 }
 
 /**

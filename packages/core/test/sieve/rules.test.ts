@@ -50,7 +50,7 @@ describe("renderRules", () => {
 
   it("renders an empty list as a valid no-op script", () => {
     expect(renderRules([], DEFAULT_RENDER_OPTIONS)).toBe(
-      'require ["fileinto", "mailbox"];\n# senderban-managed v1\n',
+      'require ["fileinto", "mailbox", "envelope"];\n# senderban-managed v1\n',
     );
   });
 

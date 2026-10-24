@@ -52,7 +52,14 @@ describe("SieveAdapter on a clean mailbox", () => {
     expect(server.active).toBe("senderban-main");
     expect(server.puts[0]).toBe("senderban-rules"); // include target first
     expect(isOurMain(server.scripts.get("senderban-main") ?? "")).toBe(true);
-    expect((await adapter.verify(result.state)).drifted).toBe(false);
+    const proof = await adapter.verify(result.state);
+    expect(proof.drifted).toBe(false);
+    expect(proof.checks.map((c) => [c.name, c.ok])).toEqual([
+      ["rules-present", true],
+      ["rules-unchanged", true],
+      ["include-active", true],
+    ]);
+    expect(Number.isNaN(Date.parse(proof.checkedAt))).toBe(false);
     expect(server.closed).toBeGreaterThan(0);
   });
 
@@ -179,7 +186,7 @@ describe("SieveAdapter next to the user's own active script", () => {
     const first = await sync(adapter, [], initialSieveState());
     server.scripts.set("roundcube", userScript);
     const drift = await adapter.verify(first.result.state);
-    expect(drift).toEqual({
+    expect(drift).toMatchObject({
       drifted: true,
       detail: 'active script "roundcube" does not include the rules',
     });
