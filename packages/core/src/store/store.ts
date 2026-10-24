@@ -31,6 +31,12 @@ const StateRowSchema = z.strictObject({
 
 const now = (): string => new Date().toISOString();
 
+/** SQLite text columns arrive as `unknown`; anything else is a corrupt row. */
+function text(value: unknown): string {
+  if (typeof value !== "string") throw new Error("store row has a non-text column");
+  return value;
+}
+
 /**
  * The device's single source of truth: block list, last known provider state per account and the
  * sync journal. A sync is `beginSync` -> adapter.apply -> `completeSync`; the journal row is written
@@ -60,7 +66,8 @@ export class Store {
       if (existing !== undefined) return { ok: true, entry: toEntry(existing), added: false };
 
       const count = Number(this.#db.prepare("SELECT count(*) AS n FROM entries").get()?.["n"]);
-      if (count >= MAX_ENTRIES) return { ok: false, reason: `block list is full (${MAX_ENTRIES})` };
+      if (count >= MAX_ENTRIES)
+        return { ok: false, reason: `block list is full (${String(MAX_ENTRIES)})` };
 
       this.#db
         .prepare(
@@ -89,7 +96,7 @@ export class Store {
     if (row === undefined) return undefined;
     return StateRowSchema.parse({
       adapterId: row["adapter_id"],
-      data: JSON.parse(String(row["data"])),
+      data: JSON.parse(text(row["data"])) as unknown,
     });
   }
 
@@ -127,7 +134,7 @@ export class Store {
           "UPDATE sync_journal SET status = ?, plan = '', detail = ?, finished_at = ? WHERE seq = ? AND account_id = ? AND status = 'pending'",
         )
         .run(status, detail, now(), seq, accountId);
-      if (closed.changes !== 1) throw new Error(`sync ${seq} is not open for ${accountId}`);
+      if (closed.changes !== 1) throw new Error(`sync ${String(seq)} is not open for ${accountId}`);
       writeState(this.#db, accountId, result.state);
       this.#prune(accountId);
     });
@@ -201,11 +208,11 @@ function toJournalRow(row: Record<string, unknown>): JournalRow {
   const detail = row["detail"] ?? row["plan"];
   return {
     seq: Number(row["seq"]),
-    accountId: String(row["account_id"]),
-    adapterId: String(row["adapter_id"]),
+    accountId: text(row["account_id"]),
+    adapterId: text(row["adapter_id"]),
     status: row["status"] as SyncStatus,
-    startedAt: String(row["started_at"]),
-    finishedAt: row["finished_at"] === null ? null : String(row["finished_at"]),
-    detail: detail === null || detail === "" ? null : String(detail),
+    startedAt: text(row["started_at"]),
+    finishedAt: row["finished_at"] === null ? null : text(row["finished_at"]),
+    detail: detail === null || detail === "" ? null : text(detail),
   };
 }

@@ -55,7 +55,7 @@ describe("block list", () => {
   it("refuses entries past MAX_ENTRIES", () => {
     const store = new Store(openDatabase(":memory:"));
     for (let i = 0; i < MAX_ENTRIES; i++) {
-      expect(store.add(entry(`u${i}@example.com`)).ok).toBe(true);
+      expect(store.add(entry(`u${String(i)}@example.com`)).ok).toBe(true);
     }
     expect(store.add(entry("one-too-many@example.com")).ok).toBe(false);
   });
@@ -89,7 +89,7 @@ describe("database", () => {
   it("refuses a store written by a newer build", () => {
     const file = tempFile();
     const db = openDatabase(file);
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    db.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION + 1)}`);
     db.close();
     expect(() => openDatabase(file)).toThrow(/newer/);
   });
@@ -132,14 +132,17 @@ describe("sync journal", () => {
     });
     const row = store.journal("acct")[0];
     expect(row?.status).toBe("partial");
-    expect(JSON.parse(row?.detail ?? "{}").failed[0]).toMatchObject({ code: "QUOTA_EXCEEDED" });
+    const detail = JSON.parse(row?.detail ?? "{}") as { failed: unknown[] };
+    expect(detail.failed[0]).toMatchObject({ code: "QUOTA_EXCEEDED" });
   });
 
   it("does not move the state when the sync is not open", () => {
     const store = new Store(openDatabase(":memory:"));
     const seq = store.beginSync(planFor("acct", store));
     store.completeSync(seq, "acct", ok({ v: 1 }));
-    expect(() => store.completeSync(seq, "acct", ok({ v: 99 }))).toThrow(/not open/);
+    expect(() => {
+      store.completeSync(seq, "acct", ok({ v: 99 }));
+    }).toThrow(/not open/);
     expect(store.getState("acct")).toEqual(state({ v: 1 }));
   });
 

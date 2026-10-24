@@ -68,12 +68,14 @@ export function openDatabase(path: string): Db {
 
     const current = userVersion(db);
     if (current > SCHEMA_VERSION) {
-      throw new Error(`store schema ${current} is newer than this build (${SCHEMA_VERSION})`);
+      throw new Error(
+        `store schema ${String(current)} is newer than this build (${String(SCHEMA_VERSION)})`,
+      );
     }
     if (current < SCHEMA_VERSION) {
       inTransaction(db, () => {
         for (let v = current; v < SCHEMA_VERSION; v++) db.exec(MIGRATIONS[v] as string);
-        db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+        db.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION)}`);
       });
     }
     return db;
