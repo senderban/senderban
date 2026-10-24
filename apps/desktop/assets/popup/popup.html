@@ -12,9 +12,15 @@
   <body>
     <main>
       <header>
-        <img class="icon" src="../tray.png" alt="" width="16" height="16" />
+        <img class="icon" src="../icon.png" alt="" width="16" height="16" />
         <span class="app">Senderban</span>
-        <button id="gear" class="icon-button" type="button" aria-label="Settings" title="Settings">
+        <button
+          id="gear"
+          class="icon-button"
+          type="button"
+          aria-label="Blocked senders and settings"
+          title="Blocked senders and settings"
+        >
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
             <path
@@ -38,19 +44,6 @@
           <button id="block-domain" type="button" hidden></button>
         </div>
         <p id="status" class="status" role="status" hidden></p>
-      </section>
-
-      <section id="settings" hidden>
-        <div class="row">
-          <label for="seconds">Popup stays for</label>
-          <input id="seconds" type="number" step="1" inputmode="numeric" />
-          <span>seconds</span>
-        </div>
-        <p id="settings-message" class="account" role="status"></p>
-        <div class="actions">
-          <button id="save" class="primary" type="button">Save</button>
-          <button id="back" type="button">Back</button>
-        </div>
       </section>
     </main>
     <script src="popup.js"></script>

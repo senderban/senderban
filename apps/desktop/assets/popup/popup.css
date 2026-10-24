@@ -133,8 +133,7 @@ p {
 .actions .primary:hover {
   background: color-mix(in srgb, var(--accent) 88%, var(--fg));
 }
-button:focus-visible,
-input:focus-visible {
+button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -152,32 +151,8 @@ input:focus-visible {
 .status[data-tone="error"] {
   color: var(--error);
 }
-.account[data-tone="ok"] {
-  color: var(--ok);
-}
-.account[data-tone="error"] {
-  color: var(--error);
-}
 .status[data-tone="working"] {
   color: var(--muted);
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.row label {
-  font-weight: 600;
-}
-input {
-  width: 84px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  user-select: text;
 }
 [hidden] {
   display: none !important;

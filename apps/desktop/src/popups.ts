@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { BLOCK_SCOPES, POPUP_SECONDS, SettingsSchema, isNotificationId } from "@senderban/core";
+import { BLOCK_SCOPES, isNotificationId } from "@senderban/core";
 import type { BlockScope } from "@senderban/core";
 import { BrowserWindow, ipcMain, nativeTheme, screen } from "electron";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
@@ -35,8 +35,8 @@ export interface PopupHandlers {
   /** Runs the block and describes the outcome for the same popup. */
   readonly choose: (id: string, scope: BlockScope) => Promise<PopupView>;
   readonly getSeconds: () => number;
-  /** Persists the value and returns what is now in effect. */
-  readonly setSeconds: (seconds: number) => Promise<number>;
+  /** The gear: opens the Blocked senders window, where the settings live (ADR 0005). */
+  readonly openSettings: () => void;
   readonly onDropped: (count: number) => void;
 }
 
@@ -47,7 +47,6 @@ interface Live {
   view: PopupView;
   timer: ReturnType<typeof setTimeout> | null;
   hovered: boolean;
-  settingsOpen: boolean;
 }
 
 const PAGE = "popup/popup.html";
@@ -68,18 +67,14 @@ export class Popups {
     this.#handlers = handlers;
     ipcMain.handle("popup:init", (event) => this.#init(event));
     ipcMain.handle("popup:choose", (event, scope: unknown) => this.#choose(event, scope));
-    ipcMain.handle("popup:save-seconds", (event, value: unknown) => this.#save(event, value));
     ipcMain.on("popup:hover", (event, value: unknown) => {
       const popup = this.#from(event);
       if (popup === null) return;
       popup.hovered = value === true;
       this.#arm(popup);
     });
-    ipcMain.on("popup:settings-open", (event, value: unknown) => {
-      const popup = this.#from(event);
-      if (popup === null) return;
-      popup.settingsOpen = value === true;
-      this.#arm(popup);
+    ipcMain.on("popup:open-settings", (event) => {
+      if (this.#from(event) !== null) this.#handlers.openSettings();
     });
     ipcMain.on("popup:close", (event) => {
       this.#from(event)?.win.close();
@@ -136,7 +131,6 @@ export class Popups {
       view: { phase: "idle" },
       timer: null,
       hovered: false,
-      settingsOpen: false,
     };
     const key = win.webContents.id;
     this.#live.set(key, popup);
@@ -180,7 +174,7 @@ export class Popups {
   #arm(popup: Live): void {
     if (popup.timer !== null) clearTimeout(popup.timer);
     popup.timer = null;
-    if (popup.hovered || popup.settingsOpen || popup.view.phase === "working") return;
+    if (popup.hovered || popup.view.phase === "working") return;
     popup.timer = setTimeout(() => {
       if (!popup.win.isDestroyed()) popup.win.close();
     }, this.#handlers.getSeconds() * 1000);
@@ -206,8 +200,6 @@ export class Popups {
     return {
       model: popup.model,
       view: popup.view,
-      seconds: this.#handlers.getSeconds(),
-      limits: { min: POPUP_SECONDS.min, max: POPUP_SECONDS.max },
     };
   }
 
@@ -225,15 +217,5 @@ export class Popups {
       view = { phase: "done", tone: "error", text: "Something went wrong. See the log." };
     }
     this.#setView(popup, view);
-  }
-
-  async #save(event: IpcMainInvokeEvent, value: unknown): Promise<number | null> {
-    const popup = this.#from(event);
-    if (popup === null) return null;
-    const parsed = SettingsSchema.safeParse({ version: 1, popupSeconds: value });
-    if (!parsed.success) return null;
-    const seconds = await this.#handlers.setSeconds(parsed.data.popupSeconds);
-    for (const other of this.#live.values()) this.#arm(other);
-    return seconds;
   }
 }

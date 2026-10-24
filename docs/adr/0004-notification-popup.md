@@ -21,7 +21,8 @@ status change; on a dev run it also showed "Electron" as its title. A window giv
   differing read-back says "rule written, not confirmed", never "verified".
 - **Action is still Junk.** The rule files mail into Junk, so it skips the inbox but is not discarded
   (architecture K7: reversible only in v0.1). The popup text says so.
-- **Gear -> settings.** One setting: how long a popup stays, in seconds, `{min 3, max 60, default 10}`
+- **Gear -> settings.** _(Changed by ADR 0005: the gear now opens the Blocked senders window and the popup
+  has no settings panel; the limits and the file below still stand.)_ One setting: how long a popup stays, in seconds, `{min 3, max 60, default 10}`
   (`POPUP_SECONDS` in core is the single source for schema, UI limits and the file). Stored in
   `settings.json` next to `accounts.json` (strict Zod schema, atomic write). Hover, an open settings
   panel and a running block pause the timer.

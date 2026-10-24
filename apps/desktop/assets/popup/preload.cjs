@@ -12,10 +12,9 @@ contextBridge.exposeInMainWorld("senderban", {
   hover: (value) => {
     ipcRenderer.send("popup:hover", value === true);
   },
-  settingsOpen: (value) => {
-    ipcRenderer.send("popup:settings-open", value === true);
+  openSettings: () => {
+    ipcRenderer.send("popup:open-settings");
   },
-  saveSeconds: (seconds) => ipcRenderer.invoke("popup:save-seconds", seconds),
   close: () => {
     ipcRenderer.send("popup:close");
   },

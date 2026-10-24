@@ -14,14 +14,8 @@ const els = {
   blockAddress: $("block-address"),
   blockDomain: $("block-domain"),
   status: $("status"),
-  settings: $("settings"),
-  seconds: $("seconds"),
-  settingsMessage: $("settings-message"),
-  save: $("save"),
-  back: $("back"),
 };
 
-let limits = { min: 3, max: 60 };
 let isMail = false;
 
 function render(view) {
@@ -33,37 +27,10 @@ function render(view) {
   els.status.dataset.tone = view.phase === "working" ? "working" : view.tone;
 }
 
-function showMessage(tone, text) {
-  els.settingsMessage.dataset.tone = tone;
-  els.settingsMessage.textContent = text;
-}
-
-function showSettings(open) {
-  els.settings.hidden = !open;
-  els.mail.hidden = open;
-  els.gear.hidden = open || !isMail;
-  showMessage("muted", `Between ${limits.min} and ${limits.max} seconds.`);
-  api.settingsOpen(open);
-  if (open) els.seconds.focus();
-}
-
-async function save() {
-  const value = Number(els.seconds.value);
-  const valid = Number.isInteger(value) && value >= limits.min && value <= limits.max;
-  if (!valid) {
-    showMessage("error", `Enter a whole number from ${limits.min} to ${limits.max}.`);
-    return;
-  }
-  const saved = await api.saveSeconds(value);
-  if (saved === null) showMessage("error", "Could not save the setting.");
-  else showMessage("ok", "Saved.");
-}
-
 async function start() {
   const init = await api.init();
   if (init === null) return;
-  const { model, view, seconds } = init;
-  limits = init.limits;
+  const { model, view } = init;
   isMail = model.id !== null;
 
   els.title.textContent = model.title;
@@ -72,7 +39,7 @@ async function start() {
   els.account.textContent = model.account === null ? "" : `to ${model.account}`;
   els.account.hidden = model.account === null;
 
-  // A notice window is too short to hold the settings panel; settings live on the mail popups.
+  // A notice has no buttons and no gear; the gear is on mail popups only.
   els.gear.hidden = !isMail;
   els.blockAddress.hidden = !isMail;
   els.blockDomain.hidden = model.domain === null;
@@ -81,21 +48,10 @@ async function start() {
     els.blockDomain.title = `Block ${model.domain} and its subdomains`;
   }
 
-  els.seconds.min = String(limits.min);
-  els.seconds.max = String(limits.max);
-  els.seconds.value = String(seconds);
-
   els.blockAddress.addEventListener("click", () => void api.choose("address"));
   els.blockDomain.addEventListener("click", () => void api.choose("domain"));
   els.gear.addEventListener("click", () => {
-    showSettings(true);
-  });
-  els.back.addEventListener("click", () => {
-    showSettings(false);
-  });
-  els.save.addEventListener("click", () => void save());
-  els.seconds.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") void save();
+    api.openSettings();
   });
   els.close.addEventListener("click", () => {
     api.close();

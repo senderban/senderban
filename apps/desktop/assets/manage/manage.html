@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'"
+    />
+    <title>Blocked senders</title>
+    <link rel="stylesheet" href="manage.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <img class="icon" src="../icon.png" alt="" width="24" height="24" />
+        <h1>Blocked senders</h1>
+        <span id="count" class="muted"></span>
+      </header>
+
+      <section id="list-section">
+        <input
+          id="filter"
+          type="search"
+          placeholder="Filter by address or domain"
+          aria-label="Filter the list"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <ul id="list" aria-label="Blocked senders"></ul>
+        <p id="empty" class="muted" hidden></p>
+        <p id="status" class="status" role="status" hidden></p>
+      </section>
+
+      <section id="settings">
+        <h2>Settings</h2>
+        <div class="row">
+          <label for="seconds">New-mail popup stays for</label>
+          <input id="seconds" type="number" step="1" inputmode="numeric" />
+          <span>seconds</span>
+          <button id="save" type="button">Save</button>
+        </div>
+        <p id="settings-message" class="muted" role="status"></p>
+      </section>
+    </main>
+    <script src="manage.js"></script>
+  </body>
+</html>

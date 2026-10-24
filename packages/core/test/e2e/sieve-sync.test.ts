@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { unblock } from "../../src/notify/unblock.js";
 import { SieveAdapter, initialSieveState } from "../../src/sieve/adapter.js";
 import { openDatabase } from "../../src/store/db.js";
 import { Store } from "../../src/store/store.js";
@@ -64,6 +65,30 @@ describe("Sieve + Store + SyncEngine", () => {
     expect(await engine.sync(ACCOUNT)).toMatchObject({ status: "applied", applied: 1 });
     expect(server.scripts.get("senderban-rules")).not.toContain("spammer@example.com");
     expect(store.journal(ACCOUNT).map((r) => r.status)).toEqual(["applied", "applied"]);
+  });
+
+  it("unblock removes the rule from the provider, reads it back clean and leaves the other rules", async () => {
+    const server = new FakeSieveServer();
+    const { store, engine } = boot(server);
+    const spammer = store.add(entry("exactAddress", "spammer@example.com"));
+    store.add(entry("subdomains", "bulk.example"));
+    if (!spammer.ok) throw new Error("add failed");
+    await engine.sync(ACCOUNT);
+
+    const result = await unblock({ store, engine, accountIds: [ACCOUNT] }, spammer.entry.id);
+    expect(result).toEqual({
+      status: "unblocked",
+      accounts: [{ accountId: ACCOUNT, confirmed: true, detail: "read back from the provider" }],
+    });
+    const rules = server.scripts.get("senderban-rules") ?? "";
+    expect(rules).not.toContain("spammer@example.com");
+    expect(rules).toContain("*.bulk.example");
+    expect(store.list().map((e) => e.value)).toEqual(["bulk.example"]);
+
+    // the same click again finds nothing and does not sync
+    expect(await unblock({ store, engine, accountIds: [ACCOUNT] }, spammer.entry.id)).toEqual({
+      status: "unknown",
+    });
   });
 
   it("a connection drop halfway leaves the remote half-written, and the next sync finishes it", async () => {
