@@ -138,10 +138,16 @@ describe("watcher cursors", () => {
       { uidValidity: "1", lastUid: 4_294_967_296 },
       { uidValidity: "1", lastUid: 1.5 },
     ];
-    for (const cursor of bad) expect(() => { store.cursors.set("acct", cursor); }).toThrow();
-    expect(() => { store.cursors.set("", { uidValidity: "1", lastUid: 1 }); }).toThrow();
-    expect(() => { store.cursors.set("x".repeat(129), { uidValidity: "1", lastUid: 1 }); },
-    ).toThrow();
+    for (const cursor of bad)
+      expect(() => {
+        store.cursors.set("acct", cursor);
+      }).toThrow();
+    expect(() => {
+      store.cursors.set("", { uidValidity: "1", lastUid: 1 });
+    }).toThrow();
+    expect(() => {
+      store.cursors.set("x".repeat(129), { uidValidity: "1", lastUid: 1 });
+    }).toThrow();
     expect(store.cursors.get("acct")).toBeUndefined();
   });
 
