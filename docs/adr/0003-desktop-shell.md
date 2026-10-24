@@ -1,6 +1,6 @@
 # 0003 — Desktop shell: tray, IMAP IDLE watcher, Windows notification
 
-Status: proposed (2026-10-24). Nothing below is measured on a real Windows install yet; the
+Status: proposed (2026-10-24); the notification part is superseded by ADR 0004 (popup window). Nothing below is measured on a real Windows install yet; the
 "Measure in Phase 5" list is the acceptance gate, not a footnote.
 
 ## Decision

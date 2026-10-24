@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 /** Entries kept (spent ones included). Oldest is evicted first; a toast older than this loses its button. */
 export const PENDING_MAX = 200;
-/** A toast stays in the Action Center until dismissed; after this long its button stops working. */
+/** A popup lives seconds; this bounds an id nobody ever answered. */
 export const PENDING_TTL_MS = 24 * 60 * 60_000;
 
 const TAG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -18,7 +18,7 @@ export interface PendingBlock {
 
 export type ConsumeResult =
   | { readonly status: "ok"; readonly block: PendingBlock }
-  /** Same id already handled: Windows delivers one click as two activations (~60 ms apart, measured). */
+  /** Same id already handled: a double click, or the popup repeating itself. */
   | { readonly status: "duplicate" }
   /** Never issued, evicted or older than the TTL. */
   | { readonly status: "unknown" };
@@ -37,10 +37,9 @@ export interface PendingOptions {
 }
 
 /**
- * Maps a notification id to the sender it announced. The Windows activation callback only returns
- * the id (as `tag=<id>`), never our data, so this table is the only link from a click back to a
- * sender. In memory: after an app restart the ids of toasts still sitting in the Action Center are
- * unknown (ADR 0003, measure item 4).
+ * Maps a notification id to the sender it announced. The popup window only sends the id back, never
+ * our data, so this table is the only link from a click to a sender. In memory: after an app restart
+ * every id is unknown, which is fine because the popups died with the process.
  */
 export class PendingBlocks {
   readonly #slots = new Map<string, Slot>();
@@ -95,11 +94,9 @@ export class PendingBlocks {
 }
 
 /**
- * Extracts our notification id from Windows' raw activation string (`type=action&action=0&tag=<id>`).
- * The string is untrusted: only a lowercase UUID is accepted, and it is still just a lookup key.
+ * True only for a lowercase UUID. The id comes back from the popup window (a renderer, so untrusted)
+ * and is still just a lookup key, but nothing else is accepted.
  */
-export function activationTag(raw: string): string | null {
-  if (raw.length > 512) return null;
-  const tag = new URLSearchParams(raw).get("tag");
-  return tag !== null && TAG.test(tag) ? tag : null;
+export function isNotificationId(raw: unknown): raw is string {
+  return typeof raw === "string" && TAG.test(raw);
 }

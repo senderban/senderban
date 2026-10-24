@@ -17,6 +17,13 @@ export interface EngineAccount {
   readonly initialState: OpaqueState;
 }
 
+export interface FailedOutcome {
+  readonly accountId: string;
+  readonly status: "failed";
+  readonly code: AdapterErrorCode | "UNKNOWN";
+  readonly message: string;
+}
+
 export type SyncOutcome =
   | { readonly accountId: string; readonly status: "unchanged" }
   | {
@@ -25,12 +32,12 @@ export type SyncOutcome =
       readonly applied: number;
       readonly failed: number;
     }
-  | {
-      readonly accountId: string;
-      readonly status: "failed";
-      readonly code: AdapterErrorCode | "UNKNOWN";
-      readonly message: string;
-    };
+  | FailedOutcome;
+
+export type VerifyOutcome =
+  | { readonly accountId: string; readonly status: "verified" }
+  | { readonly accountId: string; readonly status: "drifted"; readonly detail: string }
+  | FailedOutcome;
 
 export interface RecoveryReport {
   readonly accountId: string;
@@ -68,7 +75,7 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-function failure(accountId: string, error: unknown): SyncOutcome {
+function failure(accountId: string, error: unknown): FailedOutcome {
   const message = error instanceof Error ? error.message : "unknown error";
   return {
     accountId,
@@ -127,6 +134,21 @@ export class SyncEngine {
     return lane.queued;
   }
 
+  /** Reads the provider back: did the rule we wrote land and is it still active? Never throws. */
+  async verify(accountId: string): Promise<VerifyOutcome> {
+    const account = this.#accounts.get(accountId);
+    if (account === undefined) return failure(accountId, new Error("unknown account"));
+    try {
+      const state = this.#store.getState(accountId) ?? account.initialState;
+      const drift = await withTimeout(account.adapter.verify(state), this.#timeoutMs);
+      return drift.drifted
+        ? { accountId, status: "drifted", detail: drift.detail.slice(0, 500) }
+        : { accountId, status: "verified" };
+    } catch (error) {
+      return failure(accountId, error);
+    }
+  }
+
   syncAll(): Promise<SyncOutcome[]> {
     return Promise.all([...this.#accounts.keys()].map((id) => this.sync(id)));
   }
@@ -171,7 +193,7 @@ export class SyncEngine {
             accountId,
             interrupted,
             outcome,
-            verifyError: verifyError.status === "failed" ? verifyError.message : "verify failed",
+            verifyError: verifyError.message,
           };
         }
       }),
@@ -217,7 +239,7 @@ export class SyncEngine {
       };
     } catch (error) {
       const outcome = failure(accountId, error);
-      if (seq !== null && outcome.status === "failed") {
+      if (seq !== null) {
         this.#store.failSync(seq, accountId, `${outcome.code}: ${outcome.message}`);
       }
       return outcome;

@@ -18,4 +18,14 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: { console: "readonly", process: "readonly" } },
   },
+  {
+    // Plain scripts that run inside the popup window (page script and sandboxed preload), not in Node.
+    files: ["apps/desktop/assets/**/*.js", "apps/desktop/assets/**/*.cjs"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: { document: "readonly", window: "readonly", require: "readonly" },
+    },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 );

@@ -1,19 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleBlockActivation } from "../../src/notify/block-action.js";
+import { blockPending, blockableDomain } from "../../src/notify/block-action.js";
 import type { BlockActionDeps } from "../../src/notify/block-action.js";
 import { PendingBlocks } from "../../src/notify/pending.js";
-import type { SyncOutcome } from "../../src/sync/engine.js";
+import type { SyncOutcome, VerifyOutcome } from "../../src/sync/engine.js";
 
 const ID = "0b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
-const click = (tag: string) => ({
-  type: "action",
-  actionIndex: 0,
-  arguments: `type=action&action=0&tag=${tag}`,
-});
 
 function setup(
-  outcome: SyncOutcome = { accountId: "a", status: "applied", applied: 1, failed: 0 },
+  options: {
+    outcome?: SyncOutcome;
+    check?: VerifyOutcome;
+    sender?: string;
+  } = {},
 ) {
+  const outcome = options.outcome ?? { accountId: "a", status: "applied", applied: 1, failed: 0 };
+  const check = options.check ?? { accountId: "a", status: "verified" };
   const pending = new PendingBlocks({ newId: () => ID });
   const add = vi.fn((input: unknown) => ({
     ok: true as const,
@@ -21,82 +22,117 @@ function setup(
     added: true,
   }));
   const sync = vi.fn(() => Promise.resolve(outcome));
+  const verify = vi.fn(() => Promise.resolve(check));
   const requestSync = vi.fn();
-  const say = vi.fn();
   const deps: BlockActionDeps = {
     pending,
     store: { add },
-    engine: { sync, requestSync },
+    engine: { sync, requestSync, verify },
     accountIds: ["a", "b"],
-    say,
     newId: () => "11111111-1111-4111-8111-111111111111",
     now: () => new Date("2026-10-25T00:00:00Z"),
   };
-  pending.add({ accountId: "a", sender: "spam@example.com" });
-  return { deps, add, sync, requestSync, say };
+  pending.add({ accountId: "a", sender: options.sender ?? "spam@news.example.com" });
+  return { deps, add, sync, verify, requestSync };
 }
 
-describe("handleBlockActivation", () => {
-  it("adds an exact-address junk entry and syncs the clicked account, then the others", async () => {
-    const { deps, add, sync, requestSync, say } = setup();
-    await handleBlockActivation(deps, click(ID));
+describe("blockableDomain", () => {
+  it("offers the sender's own domain, and nothing for a freemail provider", () => {
+    expect(blockableDomain("spam@news.example.com")).toBe("news.example.com");
+    expect(blockableDomain("someone@gmail.com")).toBeNull();
+    expect(blockableDomain("someone@mail.gmail.com")).toBeNull();
+  });
+});
+
+describe("blockPending", () => {
+  it("scope address: exact-address junk entry, synced to the clicked account, then the others", async () => {
+    const { deps, add, sync, requestSync, verify } = setup();
+    const result = await blockPending(deps, ID, "address");
     expect(add).toHaveBeenCalledExactlyOnceWith({
       id: "11111111-1111-4111-8111-111111111111",
       match: "exactAddress",
-      value: "spam@example.com",
+      value: "spam@news.example.com",
       action: "junk",
       createdAt: "2026-10-25T00:00:00.000Z",
     });
     expect(sync).toHaveBeenCalledExactlyOnceWith("a");
     expect(requestSync.mock.calls).toEqual([["b"]]);
-    expect(say.mock.calls[0]?.[0]).toBe("Sender blocked");
+    expect(verify).toHaveBeenCalledExactlyOnceWith("a");
+    expect(result).toMatchObject({
+      status: "blocked",
+      target: "spam@news.example.com",
+      verified: true,
+    });
+  });
+
+  it("scope domain: a subdomains entry for the sender's domain", async () => {
+    const { deps, add } = setup();
+    const result = await blockPending(deps, ID, "domain");
+    expect(add.mock.calls[0]?.[0]).toMatchObject({
+      match: "subdomains",
+      value: "news.example.com",
+    });
+    expect(result).toMatchObject({ status: "blocked", target: "news.example.com" });
+  });
+
+  it("refuses a domain block for a freemail sender and writes nothing", async () => {
+    const { deps, add, sync } = setup({ sender: "someone@gmail.com" });
+    const result = await blockPending(deps, ID, "domain");
+    expect(result.status).toBe("refused");
+    expect(add).not.toHaveBeenCalled();
+    expect(sync).not.toHaveBeenCalled();
   });
 
   it("one click delivered twice blocks once, even when both arrive before the first finishes", async () => {
-    const { deps, add, sync, say } = setup();
+    const { deps, add, sync } = setup();
     const results = await Promise.all([
-      handleBlockActivation(deps, click(ID)),
-      handleBlockActivation(deps, click(ID)),
+      blockPending(deps, ID, "address"),
+      blockPending(deps, ID, "address"),
     ]);
-    expect(results.sort()).toEqual(["blocked", "duplicate"]);
+    expect(results.map((r) => r.status).sort()).toEqual(["blocked", "duplicate"]);
     expect(add).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledTimes(1);
-    expect(say).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores a click on the toast body, another button and a foreign tag", async () => {
-    const { deps, add, say } = setup();
-    await handleBlockActivation(deps, { ...click(ID), type: "click" });
-    await handleBlockActivation(deps, { ...click(ID), actionIndex: 1 });
-    await handleBlockActivation(deps, { type: "action", actionIndex: 0, arguments: "tag=evil" });
+  it("reports an unknown id (expired or app restarted) without touching the list", async () => {
+    const { deps, add } = setup();
+    const result = await blockPending(deps, "00000000-0000-4000-8000-000000000000", "address");
+    expect(result.status).toBe("unknown");
     expect(add).not.toHaveBeenCalled();
-    expect(say).not.toHaveBeenCalled();
   });
 
-  it("tells the user when the id is unknown (expired or app restarted)", async () => {
-    const { deps, add, say } = setup();
-    await handleBlockActivation(deps, click("00000000-0000-4000-8000-000000000000"));
-    expect(add).not.toHaveBeenCalled();
-    expect(say.mock.calls[0]?.[1]).toContain("expired");
-  });
-
-  it("reports a failed rule write instead of claiming success", async () => {
-    const { deps, say } = setup({
-      accountId: "a",
-      status: "failed",
-      code: "AUTH_REQUIRED",
-      message: "bad login",
+  it("reports a failed rule write instead of claiming success, and does not read back", async () => {
+    const { deps, verify } = setup({
+      outcome: { accountId: "a", status: "failed", code: "AUTH_REQUIRED", message: "bad login" },
     });
-    await handleBlockActivation(deps, click(ID));
-    expect(say.mock.calls[0]?.[0]).toBe("Block not applied");
-    expect(say.mock.calls[0]?.[1]).toContain("AUTH_REQUIRED");
+    const result = await blockPending(deps, ID, "address");
+    expect(result).toMatchObject({ status: "not-applied" });
+    expect(result).toHaveProperty("detail", expect.stringContaining("AUTH_REQUIRED"));
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it("a written rule whose read-back differs or fails is blocked but not verified", async () => {
+    const drifted = setup({
+      check: { accountId: "a", status: "drifted", detail: "include missing" },
+    });
+    expect(await blockPending(drifted.deps, ID, "address")).toMatchObject({
+      status: "blocked",
+      verified: false,
+    });
+    const failed = setup({
+      check: { accountId: "a", status: "failed", code: "TRANSIENT", message: "timeout" },
+    });
+    expect(await blockPending(failed.deps, ID, "address")).toMatchObject({
+      status: "blocked",
+      verified: false,
+    });
   });
 
   it("reports a refused entry and does not sync", async () => {
-    const { deps, add, sync, say } = setup();
+    const { deps, add, sync } = setup();
     add.mockReturnValueOnce({ ok: false, reason: "block list is full" } as never);
-    await handleBlockActivation(deps, click(ID));
+    const result = await blockPending(deps, ID, "address");
+    expect(result).toEqual({ status: "refused", detail: "block list is full" });
     expect(sync).not.toHaveBeenCalled();
-    expect(say.mock.calls[0]?.[0]).toBe("Could not block");
   });
 });

@@ -11,3 +11,4 @@ export * from "./watcher/watcher.js";
 export * from "./notify/pending.js";
 export * from "./accounts.js";
 export * from "./notify/block-action.js";
+export * from "./settings.js";

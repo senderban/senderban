@@ -1,22 +1,32 @@
 import { join } from "node:path";
 import {
   AccountWatcher,
+  DEFAULT_SETTINGS,
   PendingBlocks,
   SieveAdapter,
   SyncEngine,
-  handleBlockActivation,
+  blockPending,
+  blockableDomain,
   initialSieveState,
 } from "@senderban/core";
-import type { AccountConfig, IncomingMessage, WatcherState } from "@senderban/core";
+import type {
+  AccountConfig,
+  BlockResult,
+  IncomingMessage,
+  Settings,
+  WatcherState,
+} from "@senderban/core";
 import { connectManageSieve, imapflowConnector } from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
-import { Menu, Notification, Tray, app, nativeImage, powerMonitor } from "electron";
+import { Menu, Tray, app, nativeImage, powerMonitor } from "electron";
 import { addAccountFromFile } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import { createLog } from "./log.js";
+import { Popups } from "./popups.js";
+import type { PopupView } from "./popups.js";
+import { loadSettings, saveSettings } from "./settings-file.js";
 
-// Windows toast actions need an AppUserModelID and a Start Menu shortcut (Electron notifications
-// tutorial). Placeholder id: confirm before the first installer ships.
+// Groups the windows under one taskbar identity. Placeholder id: confirm before the first installer ships.
 const APP_USER_MODEL_ID = "com.senderban.desktop";
 
 app.setName("Senderban");
@@ -40,17 +50,41 @@ let paused = false;
 let quitting = false;
 const states = new Map<string, WatcherState>();
 let tray: Tray | null = null;
+let popups: Popups | null = null;
+let settings: Settings = DEFAULT_SETTINGS;
 
-function toast(title: string, body: string, options: { id?: string; button?: string } = {}): void {
-  const notification = new Notification({
-    ...(options.id === undefined ? {} : { id: options.id }),
-    title,
-    body,
-    ...(options.button === undefined
-      ? {}
-      : { actions: [{ type: "button" as const, text: options.button }] }),
-  });
-  notification.show();
+/** A popup without buttons: a state change the person should know about. */
+function notice(title: string, body: string): void {
+  popups?.show({ id: null, title, body, account: null, domain: null });
+}
+
+/** What the popup says once a choice has run; the same window that showed the buttons. */
+function describe(result: BlockResult): PopupView {
+  switch (result.status) {
+    case "blocked":
+      return result.verified
+        ? {
+            phase: "done",
+            tone: "ok",
+            text: `✓ ${result.target}: rule verified. Future mail skips your inbox and goes to Junk.`,
+          }
+        : {
+            phase: "done",
+            tone: "warn",
+            text: `${result.target}: rule written, not confirmed (${result.detail}).`,
+          };
+    case "not-applied":
+    case "refused":
+      return { phase: "done", tone: "error", text: `Not blocked: ${result.detail}` };
+    case "duplicate":
+      return { phase: "done", tone: "warn", text: "Already handled." };
+    case "unknown":
+      return {
+        phase: "done",
+        tone: "error",
+        text: "This message has expired, so nothing was blocked.",
+      };
+  }
 }
 
 function updateTray(): void {
@@ -106,6 +140,10 @@ async function start(): Promise<Runtime> {
     },
   });
   const pending = new PendingBlocks();
+  // The person knows an account by its address, not by the internal id.
+  const labels = new Map(
+    accounts.map((a) => [a.id, a.imap.user.includes("@") ? a.imap.user : a.id]),
+  );
   const watchers = new Map<string, AccountWatcher>();
 
   for (const account of accounts) {
@@ -137,13 +175,19 @@ async function start(): Promise<Runtime> {
         onMessage: (accountId: string, message: IncomingMessage) => {
           const id = pending.add({ accountId, sender: message.from });
           log("announce", { account: accountId, uid: message.uid, domain: domainOf(message.from) });
-          toast(message.from, `${message.subject}\n${accountId}`, { id, button: "Block sender" });
+          popups?.show({
+            id,
+            title: message.from,
+            body: message.subject,
+            account: labels.get(accountId) ?? accountId,
+            domain: blockableDomain(message.from),
+          });
         },
         onOverflow: (accountId, skipped) => {
           log("overflow", { account: accountId, skipped });
-          toast(
+          notice(
             "Senderban",
-            `${String(skipped)} more new messages in ${accountId} were not announced.`,
+            `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced.`,
           );
         },
         onState: (accountId, state, detail) => {
@@ -152,7 +196,10 @@ async function start(): Promise<Runtime> {
           updateTray();
           log("watcher", { account: accountId, state, detail });
           if (state === "halted" && previous !== "halted") {
-            toast("Senderban stopped watching", `${accountId}: ${detail ?? "sign-in failed"}`);
+            notice(
+              "Senderban stopped watching",
+              `${labels.get(accountId) ?? accountId}: ${detail ?? "sign-in failed"}`,
+            );
           }
         },
       }),
@@ -183,6 +230,7 @@ async function shutdown(): Promise<void> {
   const current = await ready.promise.catch(() => null);
   if (current === null) return;
   log("quit");
+  popups?.closeAll();
   current.engine.dispose();
   await Promise.allSettled([...current.watchers.values()].map((w) => w.stop()));
   current.store.close();
@@ -210,32 +258,6 @@ if (addAccountArg !== undefined) {
 } else {
   app.setAppUserModelId(APP_USER_MODEL_ID);
 
-  // Registered before whenReady: an activation that launched the app must not be lost (ADR 0003).
-  Notification.handleActivation((details) => {
-    log("activation", { type: details.type, action: details.actionIndex });
-    ready.promise
-      .then(({ store, engine, accounts, pending }) =>
-        handleBlockActivation(
-          {
-            pending,
-            store,
-            engine,
-            accountIds: accounts.map((a) => a.id),
-            say: (t, b) => {
-              toast(t, b);
-            },
-          },
-          details,
-        ),
-      )
-      .then((result) => {
-        log("activation-result", { result });
-      })
-      .catch((error: unknown) => {
-        log("activation-failed", { detail: errorText(error) });
-      });
-  });
-
   // Tray app: no window, and closing the last window must not quit the process.
   app.on("window-all-closed", () => {
     // intentionally empty
@@ -250,13 +272,45 @@ if (addAccountArg !== undefined) {
     });
   });
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    const settingsPath = join(app.getPath("userData"), "settings.json");
+    try {
+      settings = await loadSettings(settingsPath);
+    } catch (error) {
+      log("settings-invalid", { detail: errorText(error) });
+    }
+    popups = new Popups(join(import.meta.dirname, "../assets"), {
+      getSeconds: () => settings.popupSeconds,
+      setSeconds: async (popupSeconds) => {
+        settings = { ...settings, popupSeconds };
+        await saveSettings(settingsPath, settings);
+        log("settings-saved", { popupSeconds });
+        return popupSeconds;
+      },
+      onDropped: (count) => {
+        log("popups-dropped", { count });
+      },
+      choose: async (id, scope) => {
+        const { store, engine, accounts, pending } = await ready.promise;
+        const result = await blockPending(
+          { pending, store, engine, accountIds: accounts.map((a) => a.id) },
+          id,
+          scope,
+        );
+        log("choice", {
+          scope,
+          result: result.status,
+          verified: result.status === "blocked" ? result.verified : undefined,
+        });
+        return describe(result);
+      },
+    });
     tray = new Tray(nativeImage.createFromPath(join(import.meta.dirname, "../assets/tray.png")));
     updateTray();
     start().then(ready.resolve, ready.reject);
     ready.promise.catch((error: unknown) => {
       log("start-failed", { detail: errorText(error) });
-      toast("Senderban could not start", "See the log for details.");
+      notice("Senderban could not start", "See the log for details.");
     });
   });
 }

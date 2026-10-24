@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PendingBlocks, activationTag } from "../../src/notify/pending.js";
+import { PendingBlocks, isNotificationId } from "../../src/notify/pending.js";
 
 const block = { accountId: "main", sender: "spam@example.com" };
 const ids = (): (() => string) => {
@@ -59,25 +59,27 @@ describe("PendingBlocks", () => {
   });
 });
 
-describe("activationTag", () => {
-  const tag = "0b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+describe("isNotificationId", () => {
+  const id = "0b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
-  it("reads the tag Windows returns for a button", () => {
-    expect(activationTag(`type=action&action=0&tag=${tag}`)).toBe(tag);
+  it("accepts a lowercase UUID", () => {
+    expect(isNotificationId(id)).toBe(true);
   });
 
   it("rejects anything that is not exactly a lowercase UUID", () => {
     for (const raw of [
       "",
-      "type=action&action=0",
       "tag=",
-      "tag=spike-A-native",
-      `tag=${tag.toUpperCase()}`,
-      `tag=${tag}x`,
-      "tag=%00",
-      `tag=${"a".repeat(600)}`,
+      "spike-A-native",
+      id.toUpperCase(),
+      `${id}x`,
+      "\u0000",
+      "a".repeat(600),
+      null,
+      42,
+      { id },
     ]) {
-      expect(activationTag(raw)).toBeNull();
+      expect(isNotificationId(raw)).toBe(false);
     }
   });
 });

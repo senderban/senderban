@@ -311,3 +311,14 @@ describe("SyncEngine.addAccount", () => {
     expect(engine).toBeDefined();
   });
 });
+
+describe("SyncEngine.verify", () => {
+  it("reports verified, drifted and failed without throwing", async () => {
+    const s = track(setup());
+    const adapter = s.add("a");
+    expect(await s.engine.verify("a")).toEqual({ accountId: "a", status: "verified" });
+    adapter.driftedOnVerify = true;
+    expect((await s.engine.verify("a")).status).toBe("drifted");
+    expect((await s.engine.verify("nope")).status).toBe("failed");
+  });
+});
