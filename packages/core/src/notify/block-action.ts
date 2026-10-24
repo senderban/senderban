@@ -39,6 +39,10 @@ function describeOutcome(outcome: SyncOutcome): string {
   }
 }
 
+/** What a click led to; for the diagnostics log. */
+export type ActivationResult =
+  "ignored" | "duplicate" | "unknown" | "refused" | "blocked" | "not-applied";
+
 /**
  * A click on [Block sender]: look the sender up by notification id, add it to the list, write the
  * rule to the clicked account at once (for the confirmation) and to the others through the debounce.
@@ -47,16 +51,18 @@ function describeOutcome(outcome: SyncOutcome): string {
 export async function handleBlockActivation(
   deps: BlockActionDeps,
   activation: Activation,
-): Promise<void> {
-  if (activation.type !== "action" || activation.actionIndex !== BLOCK_BUTTON_INDEX) return;
+): Promise<ActivationResult> {
+  if (activation.type !== "action" || activation.actionIndex !== BLOCK_BUTTON_INDEX) {
+    return "ignored";
+  }
   const tag = activationTag(activation.arguments);
-  if (tag === null) return;
+  if (tag === null) return "ignored";
 
   const claimed = deps.pending.consume(tag);
-  if (claimed.status === "duplicate") return;
+  if (claimed.status === "duplicate") return "duplicate";
   if (claimed.status === "unknown") {
     deps.say("Senderban", "This notification has expired, so the sender was not blocked.");
-    return;
+    return "unknown";
   }
 
   const { accountId, sender } = claimed.block;
@@ -69,7 +75,7 @@ export async function handleBlockActivation(
   });
   if (!added.ok) {
     deps.say("Could not block", `${sender}: ${added.reason}`);
-    return;
+    return "refused";
   }
 
   const outcome = await deps.engine.sync(accountId);
@@ -77,10 +83,8 @@ export async function handleBlockActivation(
 
   if (outcome.status === "failed" || outcome.status === "partial") {
     deps.say("Block not applied", `${sender}: ${describeOutcome(outcome)}`);
-  } else {
-    deps.say(
-      "Sender blocked",
-      `${sender}: future mail goes to Junk (${describeOutcome(outcome)}).`,
-    );
+    return "not-applied";
   }
+  deps.say("Sender blocked", `${sender}: future mail goes to Junk (${describeOutcome(outcome)}).`);
+  return "blocked";
 }

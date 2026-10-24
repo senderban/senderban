@@ -54,10 +54,11 @@ describe("handleBlockActivation", () => {
 
   it("one click delivered twice blocks once, even when both arrive before the first finishes", async () => {
     const { deps, add, sync, say } = setup();
-    await Promise.all([
+    const results = await Promise.all([
       handleBlockActivation(deps, click(ID)),
       handleBlockActivation(deps, click(ID)),
     ]);
+    expect(results.sort()).toEqual(["blocked", "duplicate"]);
     expect(add).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledTimes(1);
