@@ -103,6 +103,64 @@ describe("database", () => {
   });
 });
 
+describe("watcher cursors", () => {
+  it("survives a restart, per account", () => {
+    const file = tempFile();
+    const a = new Store(openDatabase(file));
+    expect(a.cursors.get("acct")).toBeUndefined();
+    a.cursors.set("acct", { uidValidity: "1700000000", lastUid: 41 });
+    a.cursors.set("other", { uidValidity: "9", lastUid: 2 });
+    a.close();
+
+    const b = new Store(openDatabase(file));
+    expect(b.cursors.get("acct")).toEqual({ uidValidity: "1700000000", lastUid: 41 });
+    expect(b.cursors.get("other")).toEqual({ uidValidity: "9", lastUid: 2 });
+    b.close();
+  });
+
+  it("never moves backwards within one UIDVALIDITY, but follows a renumbered mailbox", () => {
+    const store = new Store(openDatabase(":memory:"));
+    store.cursors.set("acct", { uidValidity: "7", lastUid: 50 });
+    store.cursors.set("acct", { uidValidity: "7", lastUid: 10 });
+    expect(store.cursors.get("acct")).toEqual({ uidValidity: "7", lastUid: 50 });
+
+    store.cursors.set("acct", { uidValidity: "8", lastUid: 3 });
+    expect(store.cursors.get("acct")).toEqual({ uidValidity: "8", lastUid: 3 });
+  });
+
+  it("rejects values outside the IMAP unit range", () => {
+    const store = new Store(openDatabase(":memory:"));
+    const bad = [
+      { uidValidity: "", lastUid: 1 },
+      { uidValidity: "12ab", lastUid: 1 },
+      { uidValidity: "1".repeat(21), lastUid: 1 },
+      { uidValidity: "1", lastUid: -1 },
+      { uidValidity: "1", lastUid: 4_294_967_296 },
+      { uidValidity: "1", lastUid: 1.5 },
+    ];
+    for (const cursor of bad) expect(() => { store.cursors.set("acct", cursor); }).toThrow();
+    expect(() => { store.cursors.set("", { uidValidity: "1", lastUid: 1 }); }).toThrow();
+    expect(() => { store.cursors.set("x".repeat(129), { uidValidity: "1", lastUid: 1 }); },
+    ).toThrow();
+    expect(store.cursors.get("acct")).toBeUndefined();
+  });
+
+  it("migrates a version-1 store without losing the list", () => {
+    const file = tempFile();
+    const first = openDatabase(file);
+    new Store(first).add(entry("keep@example.com"));
+    first.exec("DROP TABLE imap_cursor");
+    first.exec("PRAGMA user_version = 1");
+    first.close();
+
+    const upgraded = new Store(openDatabase(file));
+    expect(upgraded.list().map((e) => e.value)).toEqual(["keep@example.com"]);
+    upgraded.cursors.set("acct", { uidValidity: "1", lastUid: 1 });
+    expect(upgraded.cursors.get("acct")).toEqual({ uidValidity: "1", lastUid: 1 });
+    upgraded.close();
+  });
+});
+
 describe("sync journal", () => {
   it("writes intent before the provider is touched and closes it with the new state", () => {
     const store = new Store(openDatabase(":memory:"));

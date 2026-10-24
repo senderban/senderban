@@ -38,3 +38,6 @@ surface. Revisit if the API changes incompatibly before it is stable.
   Electron's single-instance lock (Phase 5).
 - Rows read back are re-validated with the Zod schemas; a corrupt row is an error, not silently used.
 - Journal is bounded: the last 200 finished rows per account are kept.
+- Watcher cursor (migration 2, `imap_cursor`): one row per watched account holding `(uid_validity, last_uid)`,
+  both bounded to the unsigned 32-bit IMAP range in the table and in the Zod schema. Within one
+  UIDVALIDITY the stored UID only moves forward; a new UIDVALIDITY replaces the row.

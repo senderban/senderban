@@ -3,6 +3,10 @@ import { MATCH_KINDS, ACTIONS } from "../blocklist.js";
 
 export type Db = DatabaseSync;
 
+/** Bounds shared by the cursor schema (store.ts) and its table constraints, so they cannot drift. */
+export const ACCOUNT_ID_MAX = 128;
+export const UID_MAX = 4_294_967_295;
+
 const list = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(",");
 
 /** Forward-only. Index i is the migration that takes `user_version` from i to i + 1. */
@@ -35,6 +39,15 @@ const MIGRATIONS: readonly string[] = [
     detail      text
   ) strict;
   create unique index sync_journal_one_pending on sync_journal (account_id) where status = 'pending';
+  `,
+  // One row per watched account (<= MAX_ACCOUNTS). UIDVALIDITY and UID are unsigned 32-bit (RFC 9051 2.3.1.1).
+  `
+  create table imap_cursor (
+    account_id   text primary key check (length(account_id) between 1 and ${String(ACCOUNT_ID_MAX)}),
+    uid_validity text not null check (length(uid_validity) between 1 and 20 and uid_validity not glob '*[^0-9]*'),
+    last_uid     integer not null check (last_uid between 0 and ${String(UID_MAX)}),
+    updated_at   text not null
+  ) strict;
   `,
 ];
 

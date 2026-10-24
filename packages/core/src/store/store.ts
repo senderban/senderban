@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { ApplyResult, OpaqueState, Plan } from "../adapter.js";
 import { BlockEntrySchema, BlocklistSchema, MAX_ENTRIES, checkEntry } from "../blocklist.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
-import { inTransaction, type Db } from "./db.js";
+import type { Cursor, CursorStore } from "../watcher/watcher.js";
+import { ACCOUNT_ID_MAX, UID_MAX, inTransaction, type Db } from "./db.js";
 
 /** Finished journal rows kept per account; open ones are never pruned. */
 export const JOURNAL_KEEP = 200;
@@ -27,6 +28,12 @@ export interface JournalRow {
 const StateRowSchema = z.strictObject({
   adapterId: z.string().min(1).max(64),
   data: z.unknown(),
+});
+
+const CursorRowSchema = z.strictObject({
+  accountId: z.string().min(1).max(ACCOUNT_ID_MAX),
+  uidValidity: z.string().regex(/^\d{1,20}$/u),
+  lastUid: z.number().int().min(0).max(UID_MAX),
 });
 
 const now = (): string => new Date().toISOString();
@@ -102,6 +109,42 @@ export class Store {
 
   setState(accountId: string, state: OpaqueState): void {
     writeState(this.#db, accountId, state);
+  }
+
+  // --- IMAP watcher cursor --------------------------------------------------------------------
+
+  /** What the INBOX watcher persists so a restart does not forget which mail it already announced. */
+  readonly cursors: CursorStore = {
+    get: (accountId) => this.#getCursor(accountId),
+    set: (accountId, cursor) => {
+      this.#setCursor(accountId, cursor);
+    },
+  };
+
+  #getCursor(accountId: string): Cursor | undefined {
+    const row = this.#db
+      .prepare("SELECT uid_validity, last_uid FROM imap_cursor WHERE account_id = ?")
+      .get(accountId);
+    if (row === undefined) return undefined;
+    const parsed = CursorRowSchema.parse({
+      accountId,
+      uidValidity: row["uid_validity"],
+      lastUid: row["last_uid"],
+    });
+    return { uidValidity: parsed.uidValidity, lastUid: parsed.lastUid };
+  }
+
+  /** Throws on an invalid cursor. Within one UIDVALIDITY the stored UID never moves backwards. */
+  #setCursor(accountId: string, cursor: Cursor): void {
+    const checked = CursorRowSchema.parse({ accountId, ...cursor });
+    this.#db
+      .prepare(
+        `INSERT INTO imap_cursor (account_id, uid_validity, last_uid, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (account_id) DO UPDATE SET
+           uid_validity = excluded.uid_validity, last_uid = excluded.last_uid, updated_at = excluded.updated_at
+         WHERE excluded.uid_validity <> imap_cursor.uid_validity OR excluded.last_uid > imap_cursor.last_uid`,
+      )
+      .run(checked.accountId, checked.uidValidity, checked.lastUid, now());
   }
 
   // --- sync journal ---------------------------------------------------------------------------
