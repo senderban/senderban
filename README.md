@@ -32,7 +32,7 @@ It is not an email client. It does not send, sync, search or download message bo
 | Outlook / Microsoft 365 | Graph message rules              | v0.2   | documented, not yet measured |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
-"Measured" means the adapter ran against a real account: for MXroute that is install, in-place update, read-back and uninstall of the rules script. Mail delivery on MXroute was checked with a hand-written rule of the same shape, not yet with the generated script.
+"Measured" means the adapter ran against a real account: for MXroute that is install, in-place update, read-back, uninstall, and one delivered mail from a blocked sender filed into Junk by the generated script (2026-10-24).
 
 ## Development
 
