@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Senderban</title>
+    <meta
+      name="description"
+      content="Block a sender once, from the Windows notification, on every mail account you own. Open source, pre-alpha."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <style>
+      :root {
+        --bg: #fafaf9;
+        --fg: #1c1917;
+        --muted: #57534e;
+        --line: #d6d3d1;
+        --accent: #0f766e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1917;
+          --fg: #fafaf9;
+          --muted: #a8a29e;
+          --line: #44403c;
+          --accent: #5eead4;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          1rem/1.6 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 4rem 1rem;
+      }
+      h1 {
+        font-size: 2.25rem;
+        margin: 0 0 0.5rem;
+      }
+      .lead {
+        font-size: 1.25rem;
+        margin: 0 0 2rem;
+      }
+      .status {
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        padding: 0.75rem 1rem;
+        margin: 0 0 2rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 2rem 0 0.5rem;
+      }
+      p,
+      li {
+        color: var(--muted);
+      }
+      a {
+        color: var(--accent);
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Senderban</h1>
+      <p class="lead">
+        Block a sender once, from the Windows notification, on every mail account you own.
+      </p>
+      <p class="status">
+        <strong>Pre-alpha. Nothing works yet.</strong> There is no installer and no release. The
+        code is the foundation only.
+      </p>
+
+      <h2>How it will work</h2>
+      <p>
+        A new mail arrives and a notification offers <strong>Block sender</strong>. One click writes
+        a rule on the mail provider's own server, so the block also applies on your phone, in
+        webmail and in whichever mail client you use. The result is shown per account and can be
+        undone.
+      </p>
+
+      <h2>What it reads and writes</h2>
+      <ul>
+        <li>Reads only the From and Subject of a newly arrived message, on your device.</li>
+        <li>Never reads message bodies. There is no Senderban server in this version.</li>
+        <li>Writes one rule per provider, marked as its own. Your other rules are untouched.</li>
+        <li>The default action is reversible (Junk or Trash), never permanent delete.</li>
+      </ul>
+
+      <h2>Open source</h2>
+      <p>
+        Apache-2.0. Source, design decisions and security policy:
+        <a href="https://github.com/senderban/senderban">github.com/senderban/senderban</a>.
+      </p>
+
+      <footer>Contact: <a href="mailto:contact@senderban.com">contact@senderban.com</a></footer>
+    </main>
+  </body>
+</html>
