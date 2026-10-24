@@ -32,7 +32,8 @@ It is not an email client. It does not send, sync, search or download message bo
 | Outlook / Microsoft 365 | Graph message rules              | v0.2   | documented, not yet measured |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
-"Measured" means the adapter ran against a real account: for MXroute that is install, in-place update, read-back, uninstall, and one delivered mail from a blocked sender filed into Junk by the generated script (2026-10-24).
+"Measured" means the adapter ran against a real account: for MXroute that is install, in-place update, read-back, uninstall, and one delivered mail from a blocked sender filed into Junk by the generated script (2026-10-24), on a mailbox with no existing Sieve script.
+Not yet measured on MXroute: adding the `include` to a user's already-active script, and an envelope-sender match on its own (the test mail had the same From and envelope address).
 
 ## Development
 
