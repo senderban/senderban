@@ -1,0 +1,258 @@
+import { describe, expect, it } from "vitest";
+import { AdapterError, type OpaqueState } from "../../src/adapter.js";
+import type { BlockEntry, Blocklist } from "../../src/blocklist.js";
+import { SieveAdapter, initialSieveState } from "../../src/sieve/adapter.js";
+import { hasInclude, isOurMain } from "../../src/sieve/rules.js";
+import { FakeSieveServer } from "./fake-server.js";
+
+const entry = (n: number, match: BlockEntry["match"], value: string): BlockEntry => ({
+  id: `0b5f5f58-8f2c-4b9e-9a45-2f0a5c6d9d${String(n).padStart(2, "0")}`,
+  match,
+  value,
+  action: "junk",
+  createdAt: "2026-10-24T12:00:00.000Z",
+});
+
+function setup() {
+  const server = new FakeSieveServer();
+  const adapter = new SieveAdapter({
+    accountId: "acct-1",
+    connect: () => Promise.resolve(server.session()),
+  });
+  return { server, adapter };
+}
+
+async function sync(adapter: SieveAdapter, list: Blocklist, state: OpaqueState) {
+  const plan = await adapter.plan(list, state);
+  const result = await adapter.apply(plan);
+  return { plan, result };
+}
+
+const failure = async (p: Promise<unknown>) => {
+  try {
+    await p;
+  } catch (e) {
+    return e instanceof AdapterError ? e.code : e;
+  }
+  return "no error";
+};
+
+describe("SieveAdapter on a clean mailbox", () => {
+  it("creates rules + main, activates main, and verifies clean", async () => {
+    const { server, adapter } = setup();
+    const { plan, result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+
+    expect(plan.changes.map((c) => c.kind)).toEqual(["create"]);
+    expect(result.applied).toBe(1);
+    expect([...server.scripts.keys()].sort()).toEqual(["senderban-main", "senderban-rules"]);
+    expect(server.active).toBe("senderban-main");
+    expect(server.puts[0]).toBe("senderban-rules"); // include target first
+    expect(isOurMain(server.scripts.get("senderban-main") ?? "")).toBe(true);
+    expect((await adapter.verify(result.state)).drifted).toBe(false);
+    expect(server.closed).toBeGreaterThan(0);
+  });
+
+  it("replaces the rules script on update and leaves main alone", async () => {
+    const { server, adapter } = setup();
+    const e1 = entry(1, "exactAddress", "a@example.com");
+    const e2 = entry(2, "subdomains", "bulk.example");
+    const first = await sync(adapter, [e1], initialSieveState());
+    server.puts.length = 0;
+
+    const second = await sync(adapter, [e1, e2], first.result.state);
+    expect(second.plan.changes.map((c) => c.kind)).toEqual(["create"]);
+    expect(server.puts).toEqual(["senderban-rules"]);
+    expect(server.scripts.get("senderban-rules")).toContain('"*.bulk.example"');
+
+    const third = await sync(adapter, [e2], second.result.state);
+    expect(third.plan.changes.map((c) => c.kind)).toEqual(["remove"]);
+    expect(server.scripts.get("senderban-rules")).not.toContain("a@example.com");
+    expect((await adapter.verify(third.result.state)).drifted).toBe(false);
+  });
+
+  it("plans nothing when the list matches the applied state", async () => {
+    const { adapter } = setup();
+    const e1 = entry(1, "exactAddress", "a@example.com");
+    const first = await sync(adapter, [e1], initialSieveState());
+    const again = await adapter.plan([e1], first.result.state);
+    expect(again.changes).toEqual([]);
+  });
+
+  it("treats an edited entry (same id, new value) as remove + create", async () => {
+    const { adapter } = setup();
+    const first = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    const edited = await sync(
+      adapter,
+      [entry(1, "exactAddress", "b@example.com")],
+      first.result.state,
+    );
+    expect(edited.plan.changes.map((c) => c.kind).sort()).toEqual(["create", "remove"]);
+    expect(edited.result.state.data).toMatchObject({ applied: [{ value: "b@example.com" }] });
+  });
+
+  it("refuses to overwrite a script of ours-by-name that is not ours", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("senderban-main", "keep;\n");
+    expect(await failure(sync(adapter, [], initialSieveState()))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("senderban-main")).toBe("keep;\n");
+  });
+});
+
+describe("SieveAdapter next to the user's own active script", () => {
+  const userScript =
+    'require ["fileinto"];\nif header :contains "subject" "invoice" {\n  fileinto "Bills";\n}\n';
+
+  it("adds one include line, keeps the user's script active, and records a backup", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", userScript);
+    server.active = "roundcube";
+
+    const { result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    const edited = server.scripts.get("roundcube") ?? "";
+    expect(server.active).toBe("roundcube");
+    expect(server.scripts.has("senderban-main")).toBe(false);
+    expect(hasInclude(edited, "senderban-rules")).toBe(true);
+    expect(edited).toContain('fileinto "Bills";');
+    expect(result.state.data).toMatchObject({
+      includeBackup: { scriptName: "roundcube", content: userScript },
+    });
+    expect((await adapter.verify(result.state)).drifted).toBe(false);
+  });
+
+  it("does not touch the user's script again once the include is there", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", userScript);
+    server.active = "roundcube";
+    const first = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    const afterFirst = server.scripts.get("roundcube");
+    server.puts.length = 0;
+
+    await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com"), entry(2, "exactDomain", "x.example")],
+      first.result.state,
+    );
+    expect(server.puts).toEqual(["senderban-rules"]);
+    expect(server.scripts.get("roundcube")).toBe(afterFirst);
+  });
+
+  it("aborts with REMOTE_CHANGED if the user's script changes mid-edit, writing nothing to it", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", userScript);
+    server.active = "roundcube";
+    server.beforeGet = (name, nth) => {
+      if (name === "roundcube" && nth === 2)
+        server.scripts.set("roundcube", `${userScript}# edited\n`);
+    };
+    expect(await failure(sync(adapter, [], initialSieveState()))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("roundcube")).toBe(`${userScript}# edited\n`);
+  });
+
+  it("refuses a script it cannot parse instead of guessing", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", 'require "fileinto"\nkeep;');
+    server.active = "roundcube";
+    expect(await failure(sync(adapter, [], initialSieveState()))).toBe("REJECTED");
+    expect(server.scripts.get("roundcube")).toBe('require "fileinto"\nkeep;');
+  });
+
+  it("detects a server that strips the include line (SOGo-style)", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", userScript);
+    server.active = "roundcube";
+    const first = await sync(adapter, [], initialSieveState());
+    server.scripts.set("roundcube", userScript);
+    const drift = await adapter.verify(first.result.state);
+    expect(drift).toEqual({
+      drifted: true,
+      detail: 'active script "roundcube" does not include the rules',
+    });
+  });
+});
+
+describe("SieveAdapter failure handling", () => {
+  it("reports REMOTE_CHANGED when the rules script was edited on the server", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    server.scripts.set("senderban-rules", "keep;\n");
+    expect((await adapter.verify(first.result.state)).detail).toContain("rules script edited");
+    expect(await failure(sync(adapter, [], first.result.state))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("senderban-rules")).toBe("keep;\n");
+  });
+
+  it("reports REMOTE_CHANGED when the rules script was deleted", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(adapter, [], initialSieveState());
+    server.scripts.delete("senderban-rules");
+    expect((await adapter.verify(first.result.state)).detail).toContain("rules script missing");
+    expect(await failure(sync(adapter, [], first.result.state))).toBe("REMOTE_CHANGED");
+  });
+
+  it("repairs a deleted include on the next apply", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(adapter, [], initialSieveState());
+    server.scripts.set("senderban-main", "# senderban-managed\nkeep;\n");
+    expect((await adapter.verify(first.result.state)).drifted).toBe(true);
+    await sync(adapter, [], first.result.state);
+    expect((await adapter.verify(first.result.state)).drifted).toBe(false);
+  });
+
+  it("recovers from a failure after the first rules write (retry is idempotent)", async () => {
+    const { server, adapter } = setup();
+    const start = initialSieveState();
+    const list = [entry(1, "exactAddress", "a@example.com")];
+    server.failSetActiveOnce = true;
+    expect(await failure(sync(adapter, list, start))).toBe("TRANSIENT");
+    expect(server.active).toBeNull();
+
+    const retry = await sync(adapter, list, start);
+    expect(server.active).toBe("senderban-main");
+    expect((await adapter.verify(retry.result.state)).drifted).toBe(false);
+  });
+
+  it("fails with QUOTA_EXCEEDED and writes nothing when the script would not fit", async () => {
+    const { server, adapter } = setup();
+    server.maxScriptBytes = 10;
+    expect(
+      await failure(
+        sync(adapter, [entry(1, "exactAddress", "a@example.com")], initialSieveState()),
+      ),
+    ).toBe("QUOTA_EXCEEDED");
+    expect(server.scripts.size).toBe(0);
+  });
+
+  it("fails with CAPABILITY_NOT_SUPPORTED when include is missing", async () => {
+    const { server, adapter } = setup();
+    server.extensions.delete("include");
+    expect(await failure(sync(adapter, [], initialSieveState()))).toBe("CAPABILITY_NOT_SUPPORTED");
+    expect(server.scripts.size).toBe(0);
+  });
+
+  it("rejects state that is not ours or malformed", async () => {
+    const { adapter } = setup();
+    expect(await failure(adapter.plan([], { adapterId: "gmail", data: {} }))).toBe("REJECTED");
+    expect(await failure(adapter.plan([], { adapterId: "sieve", data: { rulesName: "x" } }))).toBe(
+      "REJECTED",
+    );
+  });
+});

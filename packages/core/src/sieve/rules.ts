@@ -1,0 +1,129 @@
+import { createHash } from "node:crypto";
+import { AdapterError } from "../adapter.js";
+import { ACTIONS, checkEntry, type BlockAction, type Blocklist } from "../blocklist.js";
+import { parseRequireBlock, quote, stripComments } from "./syntax.js";
+
+export const RULES_MARKER = "# senderban-managed v1";
+export const MAIN_MARKER = "# senderban-managed";
+
+/** Script names we create; lowercase so they are valid on every ManageSieve server. */
+export const SCRIPT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const FOLDER_NAME = /^[\p{L}\p{N} ._-]{1,64}$/u;
+
+export interface RenderOptions {
+  readonly junkFolder: string;
+  readonly trashFolder: string;
+}
+
+export const DEFAULT_RENDER_OPTIONS: RenderOptions = { junkFolder: "Junk", trashFolder: "Trash" };
+
+export const normalizeNewlines = (script: string): string => script.replace(/\r\n/g, "\n");
+
+/** Hash of the script as we would have written it; CRLF/LF differences do not count as drift. */
+export const scriptSha256 = (script: string): string =>
+  createHash("sha256").update(normalizeNewlines(script), "utf8").digest("hex");
+
+const bytes = (s: string): number => Buffer.byteLength(s, "utf8");
+export const scriptBytes = (script: string): number => bytes(normalizeNewlines(script));
+
+function stringList(values: Iterable<string>): string {
+  return `[\n    ${[...values].map(quote).join(",\n    ")}\n  ]`;
+}
+
+/**
+ * The whole rules script, derived from the list: one `if anyof` per action, sorted so the same
+ * list always yields the same bytes. Matches the sender's From header (`address`), so a forged
+ * From can slip past; envelope matching is a separate decision (see docs).
+ */
+export function renderRules(list: Blocklist, options: RenderOptions): string {
+  if (!FOLDER_NAME.test(options.junkFolder) || !FOLDER_NAME.test(options.trashFolder)) {
+    throw new AdapterError("REJECTED", "folder name not allowed");
+  }
+  const folders: Record<BlockAction, string> = {
+    junk: options.junkFolder,
+    trash: options.trashFolder,
+  };
+
+  const out = ['require ["fileinto", "mailbox"];', RULES_MARKER];
+  for (const action of ACTIONS) {
+    const addresses = new Set<string>();
+    const domains = new Set<string>();
+    const patterns = new Set<string>();
+    for (const raw of list) {
+      if (raw.action !== action) continue;
+      const checked = checkEntry(raw);
+      if (!checked.ok) {
+        throw new AdapterError("REJECTED", `entry ${raw.id} refused: ${checked.reason}`);
+      }
+      const { match, value } = checked.entry;
+      if (match === "exactAddress") addresses.add(value);
+      else {
+        domains.add(value);
+        if (match === "subdomains") patterns.add(`*.${value}`);
+      }
+    }
+
+    const tests: string[] = [];
+    if (addresses.size > 0) {
+      tests.push(`address :is "from" ${stringList([...addresses].sort())}`);
+    }
+    if (domains.size > 0) {
+      tests.push(`address :domain :is "from" ${stringList([...domains].sort())}`);
+    }
+    if (patterns.size > 0) {
+      tests.push(`address :domain :matches "from" ${stringList([...patterns].sort())}`);
+    }
+    if (tests.length === 0) continue;
+
+    out.push(
+      `if anyof (\n  ${tests.join(",\n  ")}\n) {`,
+      `  fileinto :create ${quote(folders[action])};`,
+      "  stop;",
+      "}",
+    );
+  }
+  return `${out.join("\n")}\n`;
+}
+
+/** The active script we create when the user has none: it only includes the rules script. */
+export function renderMain(rulesName: string): string {
+  assertScriptName(rulesName);
+  return `require ["include"];\n${MAIN_MARKER}\ninclude :personal ${quote(rulesName)};\n`;
+}
+
+export function assertScriptName(name: string): void {
+  if (!SCRIPT_NAME.test(name)) throw new AdapterError("REJECTED", "script name not allowed");
+}
+
+export const isOurMain = (script: string): boolean =>
+  normalizeNewlines(script).split("\n").includes(MAIN_MARKER);
+
+/** True when the script (comments ignored) already runs `include :personal "<rulesName>"`. */
+export function hasInclude(script: string, rulesName: string): boolean {
+  const code = stripComments(normalizeNewlines(script));
+  if (code === null) return false;
+  assertScriptName(rulesName);
+  return new RegExp(`(^|[;{}\\s])include\\s+(:[a-z]+\\s+)*"${rulesName}"\\s*;`, "i").test(code);
+}
+
+/**
+ * Adds our `include` line to a script we do not own, right after its `require` block (a `require`
+ * after any other command is invalid Sieve). Throws REJECTED when the script cannot be parsed:
+ * we never guess where to write into someone else's rules.
+ */
+export function insertInclude(script: string, rulesName: string): string {
+  assertScriptName(rulesName);
+  const text = normalizeNewlines(script);
+  const block = parseRequireBlock(text);
+  if (block === null) {
+    throw new AdapterError("REJECTED", "active script's require block could not be parsed");
+  }
+  const lines = [
+    ...(block.extensions.has("include") ? [] : ['require "include";']),
+    MAIN_MARKER,
+    `include :personal ${quote(rulesName)};`,
+  ];
+  const before = text.slice(0, block.end);
+  const after = text.slice(block.end);
+  return `${before}${before === "" ? "" : "\n"}${lines.join("\n")}\n${after.replace(/^\n/, "")}`;
+}

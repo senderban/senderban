@@ -18,6 +18,7 @@ export const ADAPTER_ERROR_CODES = [
   "AUTH_REQUIRED",
   "QUOTA_EXCEEDED",
   "REMOTE_CHANGED",
+  "REJECTED",
   "TRANSIENT",
 ] as const;
 export type AdapterErrorCode = (typeof ADAPTER_ERROR_CODES)[number];
