@@ -34,8 +34,14 @@ not by choosing a page** (see list below). If native buttons do not fire, fallba
   in `packages/core` behind a client interface (so it is unit-tested without a network), and has:
   exponential backoff with a cap, `maxIdleTime` below 29 min (RFC 2177 says servers may drop IDLE
   after 30 min), and a forced reconnect on Electron `powerMonitor` `resume` (ImapFlow documents nothing about sleep).
-- Reads `From` and `Subject` only (`BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)]`, 1 ms on MXroute,
-  2026-10-24). No body, nothing leaves the device.
+- Reads the IMAP `ENVELOPE` only (From address, Subject), INBOX opened read-only (`EXAMINE`). No
+  body, nothing leaves the device. (A `BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)]` fetch took 1 ms on
+  MXroute, 2026-10-24; `ENVELOPE` through ImapFlow is not yet measured there.)
+- Header text is hostile input: the sender must parse as an exact address (`parseAddress`), the
+  display name is never shown, the subject loses control and bidi characters and is capped at 200.
+- At most 5 toasts per fetch; older new mail in the same gap is counted, not announced.
+- STARTTLS is required when not implicit TLS (`doSTARTTLS`), and an authentication failure halts the
+  watcher instead of retrying (a retry loop with a wrong password risks a server-side lockout).
 - Dedup key per message: `(accountId, uidValidity, uid)`; the last seen UID is persisted so a restart
   does not re-notify.
 
