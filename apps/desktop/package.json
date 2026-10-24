@@ -1,0 +1,14 @@
+{
+  "name": "@senderban/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/main.js",
+  "dependencies": {
+    "@senderban/core": "0.0.0"
+  },
+  "devDependencies": {
+    "electron": "45.0.0"
+  }
+}

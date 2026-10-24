@@ -1,0 +1,17 @@
+node_modules/
+dist/
+out/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+
+# Secrets never get committed (Google policy also forbids client credentials in public repos)
+.env
+.env.*
+*.pem
+*.key
+secrets/
+client_secret*.json
+
+.ci-local/

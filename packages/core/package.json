@@ -1,0 +1,10 @@
+{
+  "name": "@senderban/core",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}
