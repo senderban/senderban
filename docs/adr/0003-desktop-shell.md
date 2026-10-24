@@ -88,6 +88,14 @@ the store, never plaintext, never logs.
 - NOT measured: a real toast click through this wiring, activation after a restart (item 4), tray visibility on screen, Quit while a sync is running.
 - Known gap: `PendingBlocks` is in memory. A toast still in the Action Center after the app restarted reports "expired" instead of blocking. Fix when item 4 is measured (persist `id -> account, sender, created_at` in the store, same bound and TTL).
 
+## Live end-to-end measurement (2026-10-25, the maintainer's test mailbox on MXroute, built app, log `logs/senderban.log`)
+
+- New mail from a second account: IDLE `exists` -> `announce` (a new UID, domain only in the log) -> toast with [Block sender] shown by Ali. The first test mail went to a wrong address, so the earlier "no mail" was not a watcher fault.
+- One click on [Block sender]: two `activation` events 13 ms apart (earlier spike: 60 ms), result `duplicate` for the second and `blocked` for the first; `sync applied=1 failed=0` 1.9 s after the click. Exactly one entry written.
+- Read back from MXroute over ManageSieve: `senderban-main` active (`include :personal "senderban-rules"`), `senderban-rules` holds the exact-address rule for the clicked sender (`address :is "from"` + `envelope :is "from"`, `fileinto :create "Junk"; stop;`). The mailbox had no Sieve script before, so the "include into the user's existing active script" path is still unmeasured.
+- NOT measured: a blocked sender's next mail actually landing in Junk through this app-written rule on this account; item 4 (click after app restart); the "Block not applied" toast; toast layout is still Electron's default (header "Electron", Electron icon, internal account id in the body) and is the next work item.
+- Side effect left on the live account: the rule for the test sender and the two scripts above (uninstall: `SieveAdapter.uninstall` with the stored state).
+
 ## Not decided here
 
 Installer and code signing (separate ADR, item 7), Gmail notification source (K6: BYO pilot only,
