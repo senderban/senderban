@@ -6,3 +6,4 @@ export * from "./registry.js";
 export * from "./sieve/adapter.js";
 export * from "./sieve/rules.js";
 export * from "./sieve/session.js";
+export * from "./sync/engine.js";
