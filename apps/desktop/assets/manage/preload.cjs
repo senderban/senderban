@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("senderban", {
   mxrouteList: () => ipcRenderer.invoke("manage:mxroute-list"),
   mxrouteSave: (input) => ipcRenderer.invoke("manage:mxroute-save", input),
   mxrouteRemove: (accountId) => ipcRenderer.invoke("manage:mxroute-remove", accountId),
+  mxrouteEnable: (input) => ipcRenderer.invoke("manage:mxroute-enable", input),
   /** The list changed behind the page's back (a popup blocked something): ask for it again. */
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {

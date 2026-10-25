@@ -1,6 +1,6 @@
 import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode, BlockAdapter, Drift, OpaqueState } from "../adapter.js";
-import { MAX_CONCURRENT_SYNCS, createGate } from "../gate.js";
+import { MAX_CONCURRENT_BACKGROUND, MAX_CONCURRENT_SYNCS, createGate } from "../gate.js";
 import type { Gate } from "../gate.js";
 import type { Store } from "../store/store.js";
 
@@ -9,6 +9,8 @@ import type { Store } from "../store/store.js";
  * one gate (MAX_CONCURRENT_SYNCS): a block on 50 accounts opens 50 ManageSieve connections one wave of 5 at a time.
  */
 export const MAX_ACCOUNTS = 50;
+/** Lanes the engine runs: an account may add a second one for its MXroute blacklist, so twice the accounts. */
+export const MAX_LANES = MAX_ACCOUNTS * 2;
 export const ACCOUNT_ID = /^[A-Za-z0-9._@-]{1,64}$/;
 
 export const DEFAULT_DEBOUNCE_MS = 2_000;
@@ -47,6 +49,11 @@ const PERMANENT: ReadonlySet<string> = new Set([
 export interface EngineAccount {
   readonly id: string;
   readonly adapter: BlockAdapter;
+  /**
+   * A lane whose rounds are long and rate limited by their provider (MXroute: 30 requests, 60 writes a minute).
+   * It runs on its own small gate, so a backlog on 50 of them cannot hold the slots a person's click waits for.
+   */
+  readonly background?: boolean;
   /** State used the first time this account is synced, before the store has any. */
   readonly initialState: OpaqueState;
 }
@@ -65,6 +72,8 @@ export type SyncOutcome =
       readonly status: "applied" | "partial";
       readonly applied: number;
       readonly failed: number;
+      /** Changes still to send in a later round (the engine schedules it); absent when none. */
+      readonly deferred?: number;
     }
   | FailedOutcome;
 
@@ -91,6 +100,8 @@ export interface EngineOptions {
   readonly retry?: { readonly baseMs: number; readonly maxMs: number };
   /** Provider rounds in flight at once across all accounts (default MAX_CONCURRENT_SYNCS). */
   readonly maxConcurrent?: number;
+  /** Same for `background` lanes (default MAX_CONCURRENT_BACKGROUND). */
+  readonly maxConcurrentBackground?: number;
   /** Injectable for tests; returns [0, 1). */
   readonly random?: () => number;
   /** Injectable clock for tests; milliseconds. */
@@ -164,6 +175,7 @@ export class SyncEngine {
   readonly #random: () => number;
   readonly #now: () => number;
   readonly #gate: Gate;
+  readonly #backgroundGate: Gate;
   #disposed = false;
 
   constructor(store: Store, options: EngineOptions = {}) {
@@ -175,13 +187,14 @@ export class SyncEngine {
     this.#random = options.random ?? Math.random;
     this.#now = options.now ?? Date.now;
     this.#gate = createGate(options.maxConcurrent ?? MAX_CONCURRENT_SYNCS);
+    this.#backgroundGate = createGate(options.maxConcurrentBackground ?? MAX_CONCURRENT_BACKGROUND);
   }
 
   addAccount(account: EngineAccount): void {
     if (!ACCOUNT_ID.test(account.id)) throw new Error("invalid account id");
     if (this.#accounts.has(account.id)) throw new Error(`account ${account.id} already added`);
-    if (this.#accounts.size >= MAX_ACCOUNTS) {
-      throw new Error(`at most ${String(MAX_ACCOUNTS)} accounts per device`);
+    if (this.#accounts.size >= MAX_LANES) {
+      throw new Error(`at most ${String(MAX_LANES)} sync lanes per device`);
     }
     this.#accounts.set(account.id, account);
     this.#lanes.set(account.id, {
@@ -221,7 +234,7 @@ export class SyncEngine {
     if (blocked !== null) return blocked;
     try {
       const state = this.#store.getState(accountId) ?? account.initialState;
-      const drift = await this.#gate(() =>
+      const drift = await this.#gateFor(accountId)(() =>
         withTimeout((signal) => account.adapter.verify(state, signal), this.#timeoutMs),
       );
       return drift.drifted
@@ -270,7 +283,7 @@ export class SyncEngine {
         if (outcome.status === "failed") return { accountId, interrupted, outcome };
         try {
           const state = this.#store.getState(accountId) ?? account.initialState;
-          const drift = await this.#gate(() =>
+          const drift = await this.#gateFor(accountId)(() =>
             withTimeout((signal) => account.adapter.verify(state, signal), this.#timeoutMs),
           );
           return { accountId, interrupted, outcome, drift };
@@ -322,11 +335,18 @@ export class SyncEngine {
     if (lane === undefined) return;
     if (lane.retryTimer !== null) clearTimeout(lane.retryTimer);
     lane.retryTimer = null;
-    if (outcome.status !== "failed") {
+    // A round that left changes for later (an adapter that takes a bounded number per round) carries on by
+    // itself: 30-60 s after one that made progress, which keeps MXroute's 30 changes per round under its 60
+    // writes a minute. A partial round that made no progress backs off like any failure that can pass.
+    const more =
+      outcome.status !== "unchanged" && outcome.status !== "failed" && (outcome.deferred ?? 0) > 0;
+    if (outcome.status === "unchanged" || (outcome.status === "applied" && !more)) {
       lane.failures = 0;
       return;
     }
-    if (this.#disposed || !willRetry(outcome.code)) return;
+    if (this.#disposed) return;
+    if (outcome.status === "failed" && !willRetry(outcome.code)) return;
+    if (more || (outcome.status === "partial" && outcome.applied > 0)) lane.failures = 1;
 
     lane.failures += 1;
     const ceiling = Math.min(this.#retry.maxMs, this.#retry.baseMs * 2 ** (lane.failures - 1));
@@ -337,13 +357,17 @@ export class SyncEngine {
     }, delay);
   }
 
+  #gateFor(accountId: string): Gate {
+    return this.#accounts.get(accountId)?.background === true ? this.#backgroundGate : this.#gate;
+  }
+
   async #run(accountId: string): Promise<SyncOutcome> {
     // The gate holds the round, not the lane: `running` includes the wait for a slot, and later calls queue
     // one follow-up behind it. A round still waiting when the engine is disposed never touches the provider
     // (shutdown closes the store right after).
     const blocked = this.#authBlock(accountId);
     if (blocked !== null) return blocked;
-    const { outcome, skipped } = await this.#gate(async () =>
+    const { outcome, skipped } = await this.#gateFor(accountId)(async () =>
       this.#disposed
         ? { outcome: failure(accountId, new Error("engine disposed")), skipped: true }
         : { outcome: await this.#attempt(accountId), skipped: false },
@@ -380,11 +404,13 @@ export class SyncEngine {
         this.#timeoutMs,
       );
       this.#store.completeSync(seq, accountId, result);
+      const deferred = (plan.deferred ?? 0) + (result.deferred ?? 0);
       return {
         accountId,
         status: result.failed.length === 0 ? "applied" : "partial",
         applied: result.applied,
         failed: result.failed.length,
+        ...(deferred > 0 ? { deferred } : {}),
       };
     } catch (error) {
       const outcome = failure(accountId, error);

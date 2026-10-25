@@ -11,7 +11,7 @@ import type {
 import type { Blocklist } from "../../src/blocklist.js";
 import { openDatabase } from "../../src/store/db.js";
 import { Store } from "../../src/store/store.js";
-import { AUTH_BLOCK_MS, MAX_ACCOUNTS, SyncEngine } from "../../src/sync/engine.js";
+import { AUTH_BLOCK_MS, MAX_LANES, SyncEngine } from "../../src/sync/engine.js";
 import type { SyncOutcome } from "../../src/sync/engine.js";
 
 const NONE: Capabilities = {
@@ -33,6 +33,12 @@ class FakeAdapter implements BlockAdapter {
   failWith: Error | null = null;
   hang = false;
   gate: Promise<void> | null = null;
+  /** The next apply sends only the first change and reports the rest as failed, like a capped round. */
+  partialOnce = false;
+  /** The next apply sends the first change only and says the rest is deferred (not failed). */
+  deferOnce = false;
+  /** Every apply fails its first change and makes no progress, like a provider that keeps refusing one thing. */
+  stuck = false;
   driftedOnVerify = false;
   verifyFailWith: Error | null = null;
 
@@ -75,6 +81,45 @@ class FakeAdapter implements BlockAdapter {
     if (this.hang) return new Promise<ApplyResult>(() => undefined);
     if (this.gate !== null) await this.gate;
     if (this.failWith !== null) throw this.failWith;
+    if (this.stuck) {
+      const first = plan.changes[0];
+      return {
+        applied: 0,
+        failed:
+          first === undefined
+            ? []
+            : [{ entryId: first.entry.id, error: new AdapterError("TRANSIENT", "no") }],
+        state: plan.basedOn,
+      };
+    }
+    if (this.deferOnce) {
+      this.deferOnce = false;
+      const [first, ...rest] = plan.changes;
+      const ids = new Set((plan.basedOn.data as { ids: string[] }).ids);
+      if (first !== undefined) ids.add(first.entry.id);
+      this.remote = ids;
+      return {
+        applied: first === undefined ? 0 : 1,
+        failed: [],
+        deferred: rest.length,
+        state: { adapterId: "fake", data: { ids: [...ids] } },
+      };
+    }
+    if (this.partialOnce) {
+      this.partialOnce = false;
+      const [first, ...rest] = plan.changes;
+      const ids = new Set((plan.basedOn.data as { ids: string[] }).ids);
+      if (first !== undefined) ids.add(first.entry.id);
+      this.remote = ids;
+      return {
+        applied: first === undefined ? 0 : 1,
+        failed: rest.map((c) => ({
+          entryId: c.entry.id,
+          error: new AdapterError("TRANSIENT", "later"),
+        })),
+        state: { adapterId: "fake", data: { ids: [...ids] } },
+      };
+    }
     const ids = new Set((plan.basedOn.data as { ids: string[] }).ids);
     for (const c of plan.changes) {
       if (c.kind === "create") ids.add(c.entry.id);
@@ -113,10 +158,10 @@ function setup(options: ConstructorParameters<typeof SyncEngine>[1] = {}) {
   const store = new Store(openDatabase(":memory:"));
   const engine = new SyncEngine(store, { debounceMs: 5, timeoutMs: 100, ...options });
   const adapters = new Map<string, FakeAdapter>();
-  const add = (id: string): FakeAdapter => {
+  const add = (id: string, background = false): FakeAdapter => {
     const adapter = new FakeAdapter(id);
     adapters.set(id, adapter);
-    engine.addAccount({ id, adapter, initialState: empty });
+    engine.addAccount({ id, adapter, initialState: empty, ...(background ? { background } : {}) });
     return adapter;
   };
   return { store, engine, add };
@@ -309,7 +354,7 @@ describe("SyncEngine.addAccount", () => {
     expect(() => {
       add("ok.account@example.com");
     }).toThrow(/already/);
-    for (let i = 1; i < MAX_ACCOUNTS; i++) add(`a${String(i)}`);
+    for (let i = 1; i < MAX_LANES; i++) add(`a${String(i)}`);
     expect(() => {
       add("one-too-many");
     }).toThrow(/at most/);
@@ -342,6 +387,65 @@ describe("SyncEngine retry after a failed sync", () => {
     a.failWith = null;
     await new Promise((r) => setTimeout(r, 60));
     expect(a.remote.size).toBe(1);
+  });
+
+  it("carries on by itself after a partial round, until nothing is left", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    store.add(addr());
+    store.add(addr());
+    store.add(addr());
+    a.partialOnce = true;
+    expect(await engine.sync("acct")).toMatchObject({ status: "partial", applied: 1, failed: 2 });
+    expect(a.remote.size).toBe(1);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.remote.size).toBe(3);
+    const calls = a.applyCalls;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.applyCalls).toBe(calls);
+  });
+
+  it("carries on by itself after a round that left changes deferred, without calling it a failure", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    for (let i = 0; i < 3; i++) store.add(addr());
+    a.deferOnce = true;
+    expect(await engine.sync("acct")).toMatchObject({ status: "applied", applied: 1, deferred: 2 });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.remote.size).toBe(3);
+    const calls = a.applyCalls;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.applyCalls).toBe(calls);
+  });
+
+  it("backs off after a partial round that made no progress instead of retrying at a flat interval", async () => {
+    const { store, engine, add } = track(
+      setup({ retry: { baseMs: 10, maxMs: 1_000 }, random: () => 1 }),
+    );
+    const a = add("acct");
+    store.add(addr());
+    a.stuck = true;
+    await engine.sync("acct");
+    await new Promise((r) => setTimeout(r, 200));
+    // Delays 10, 20, 40, 80, 160 ms: about 5 attempts in 200 ms. A flat 30-60 s style retry would be many more.
+    expect(a.applyCalls).toBeLessThanOrEqual(6);
+  });
+
+  it("runs background lanes on their own gate, so they cannot hold the slots a click waits for", async () => {
+    const { store, engine, add } = track(setup({ maxConcurrent: 1, maxConcurrentBackground: 1 }));
+    const slow = add("slow", true);
+    const fast = add("fast");
+    store.add(addr());
+    let release: () => void = () => undefined;
+    slow.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stuckRound = engine.sync("slow");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await engine.sync("fast")).toMatchObject({ status: "applied" });
+    expect(fast.remote.size).toBe(1);
+    release();
+    await stuckRound;
   });
 
   it("stops retrying once a sync has succeeded", async () => {

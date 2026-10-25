@@ -10,7 +10,14 @@ const mxEls = {
 
 // Replies of the main process, as sentences. The input is never echoed.
 const MX_REPLY = {
-  saved: ["ok", "Saved. Stored encrypted on this device. Not used yet."],
+  saved: ["ok", "Saved. Stored encrypted on this device."],
+  "key-refused": ["error", "MXroute refused this key. Check the server, user name and key."],
+  unreachable: ["error", "Could not reach MXroute. Try again."],
+  "no-domain": [
+    "error",
+    "This account's login is not a mail address, so there is no domain to use.",
+  ],
+  "no-key": ["error", "Save a key first."],
   "unknown-account": ["error", "That account is no longer set up."],
   invalid: ["error", "Check the values and try again."],
   denied: ["error", "Could not save. See the log."],
@@ -46,6 +53,61 @@ function textInput(limit, value) {
 function setMessage(node, tone, text) {
   node.dataset.tone = tone;
   node.textContent = text;
+}
+
+// Whether this account's blocked single addresses also go onto the MXroute blacklist. Off until switched on.
+function enableRow(account, index, message) {
+  const wrap = document.createElement("div");
+  wrap.className = "enable";
+  const row = document.createElement("div");
+  row.className = "row";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.id = `mx-enable-${index}`;
+  box.checked = account.enabled;
+  const label = document.createElement("label");
+  label.htmlFor = box.id;
+  label.textContent = "Also refuse blocked addresses at the MXroute server";
+  row.append(box, label);
+  const help = document.createElement("p");
+  help.className = "muted";
+  help.textContent =
+    "Single addresses only. The server then rejects their mail at the door: the sender gets an error and the mail does not reach Junk or Trash. The MXroute blacklist covers the whole mail domain, so the address is refused for every mailbox on it. An address already on your blacklist is treated as Senderban's own and taken off again when you unblock it. Domain blocks keep moving mail to Junk. Whether MXroute drops it also depends on the spam-score limit in your MXroute panel, so try one block and check. Takes effect when Senderban starts; switching it off takes back what Senderban added.";
+  box.addEventListener("change", () => {
+    if (mxBusy) {
+      box.checked = !box.checked;
+      return;
+    }
+    void switchBlacklist(account, box, message);
+  });
+  wrap.append(row, help);
+  return wrap;
+}
+
+async function switchBlacklist(account, box, message) {
+  mxBusy = true;
+  const wanted = box.checked;
+  try {
+    const reply = await mxApi.mxrouteEnable({ accountId: account.accountId, enabled: wanted });
+    if (reply === "saved") {
+      setMessage(
+        message,
+        "ok",
+        wanted
+          ? "On. It starts the next time Senderban starts."
+          : "Off. It stops the next time Senderban starts.",
+      );
+    } else {
+      box.checked = !wanted;
+      const [tone, text] = MX_REPLY[reply] ?? MX_REPLY.failed;
+      setMessage(message, tone, text);
+    }
+  } catch {
+    box.checked = !wanted;
+    setMessage(message, "error", "Could not save. See the log.");
+  } finally {
+    mxBusy = false;
+  }
 }
 
 function accountBlock(account, index) {
@@ -107,7 +169,9 @@ function accountBlock(account, index) {
     if (!mxBusy) void removeKey(account, message);
   });
 
-  li.append(title, state, form);
+  li.append(title, state);
+  if (account.hasKey) li.append(enableRow(account, index, message));
+  li.append(form);
   return li;
 }
 
@@ -143,7 +207,7 @@ async function removeKey(account, message) {
       await reloadAccount(
         account.accountId,
         "ok",
-        "Removed from this device. To revoke it, delete it at panel.mxroute.com/api-keys.php.",
+        "Removed from this device. Switch the blacklist off first if Senderban added addresses: they stay on your MXroute blacklist until removed there. To revoke the key, delete it at panel.mxroute.com/api-keys.php.",
       );
     } else {
       setMessage(message, "error", "Could not remove. See the log.");

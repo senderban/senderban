@@ -50,6 +50,35 @@ clicked while a background wave is draining can wait behind it (about 20 s at 50
 Interactive priority (a reserved slot or a two-level queue) is the fix if the pilot shows it; it needs the lane model to upgrade a
 round that is already waiting, so it is not done here. `dispose()` skips rounds still waiting, so quitting never starts new provider work.
 
+## MXroute blacklist lane (2026-10-25)
+
+An account with an MXroute key can switch on a second engine lane that mirrors single blocked addresses onto the MXroute spam
+blacklist (the server then rejects their mail at SMTP time: measured, `550 High scoring spam message has been dropped`, 007 S5).
+Unit = one MXroute blacklist, that is one (server, user name, mail domain); accounts that share one share a lane. `MAX_LANES = 100`.
+Provider limits: 60 writes and 200 reads per minute (header `x-ratelimit-limit`, measured 2026-10-25); the bucket's scope (key, user,
+IP) and window type are **unmeasured**, sliding window assumed.
+
+| Quantity                             | 1 lane                                                                  | 10            | 50               | Basis                                                                                   |
+| ------------------------------------ | ----------------------------------------------------------------------- | ------------- | ---------------- | --------------------------------------------------------------------------------------- |
+| Idle: sockets, timers, requests      | 0                                                                       | 0             | 0                | no timer in `mxroute/`; the engine's timers only exist after a trigger                  |
+| Switched off and nothing mirrored    | 0 requests                                                              | 0             | 0                | plan has no change; `verify` returns without a request (measured, test)                 |
+| Block: requests per lane             | 1 POST                                                                  | 10            | 50               | measured (fake server)                                                                  |
+| Unblock: requests per lane           | 1 DELETE + 1 GET (read-back)                                            | 10 + 10       | 50 + 50          | measured; the removal is only counted once the entry is gone from the list              |
+| Changes per round                    | at most 30 (`MXROUTE_MAX_CHANGES_PER_ROUND`)                            | same          | same             | plan is capped; the rest is `deferred`, the engine continues 30-60 s later              |
+| Writes per minute, one lane          | at most 30 per 30-60 s                                                  |               |                  | derived; 429 is read as "later", a 429 on the first request backs off                   |
+| Backlog of B addresses: rounds, wall | ceil(B/30), 30-60 s apart                                               | same per lane | same per lane    | derived: 500 -> 17 rounds, 9-17 min; 5000 -> 167 rounds, 2.5-5 h (RTT unmeasured)       |
+| Round time budget                    | 20 s + last request 15 s + read-back 15 s = 50 s < engine deadline 60 s |               |                  | constants; progress is kept, so a slow API cannot restart every round                   |
+| Gate                                 | own gate, 2 rounds at once (`MAX_CONCURRENT_BACKGROUND`)                |               |                  | a backlog on 50 lanes cannot hold the 5 slots a click waits for                         |
+| Journal bytes per round              | at most 30 changes                                                      |               |                  | the plan is capped (a whole-backlog plan was quadratic: 43.5 MB per lane at 5000)       |
+| State row per lane                   | 164 B per mirrored address                                              |               | 41 MB at the cap | measured at 5,000 entries                                                               |
+| A refused key                        | 1 request, then held off 30 min                                         |               |                  | AUTH_REQUIRED latch (`AUTH_BLOCK_MS`)                                                   |
+| A round with no progress             | backs off like any failure                                              |               |                  | engine: only a round that made progress, or deferred changes, keeps the 30-60 s spacing |
+| Quota: per-minute limit, daily cap   | the 30-per-round constant and spacing; no per-key limiter, no daily cap |               |                  | $0 upstream (not metered); risk is a flagged key, unmeasured                            |
+| Log                                  | `mxroute-call`: operation, HTTP status, ms (no key, no address)         |               |                  | one line per request, at most 30 per round                                              |
+
+Unmeasured: MXroute round-trip time, whether a DELETE is immediately consistent with the next GET, the bucket scope, what the
+server does at the limit beyond the status code. Next measurement: 70 requests with a throwaway entry (`.task/performance-review-mxroute-lane-2026-10-25.md`, "Measure next").
+
 ## Not done here (tracked in `.task/performance-review-baseline-2026-10-25.md`)
 
 Auth-throttle replies treated as a wrong password (W2), `halted` accounts retried on every resume (W3), `list()` read per account

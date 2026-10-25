@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   ACCOUNT_ID,
   MXROUTE_LIMITS,
+  MxrouteEnableSchema,
   MxrouteInputSchema,
   POPUP_SECONDS,
   SettingsSchema,
@@ -18,6 +19,7 @@ export interface ManageMxrouteAccount {
   readonly accountId: string;
   readonly label: string;
   readonly hasKey: boolean;
+  readonly enabled: boolean;
   readonly server: string | null;
   readonly username: string | null;
 }
@@ -41,8 +43,10 @@ export interface ManageHandlers {
   /** Stores the key encrypted. The input has already passed the core schema. */
   readonly mxrouteSave: (
     input: ReturnType<typeof MxrouteInputSchema.parse>,
-  ) => Promise<"saved" | "unknown-account">;
-  readonly mxrouteRemove: (accountId: string) => Promise<"saved" | "unknown-account">;
+  ) => Promise<MxrouteOutcome>;
+  readonly mxrouteRemove: (accountId: string) => Promise<MxrouteOutcome>;
+  /** Switches the account's MXroute blacklist on or off (takes effect when Senderban starts). */
+  readonly mxrouteEnable: (accountId: string, enabled: boolean) => Promise<MxrouteOutcome>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -70,6 +74,9 @@ export class ManageWindow {
       this.#mxrouteSave(event, value),
     );
     ipcMain.handle("manage:mxroute-remove", (event, id: unknown) => this.#mxrouteRemove(event, id));
+    ipcMain.handle("manage:mxroute-enable", (event, value: unknown) =>
+      this.#mxrouteEnable(event, value),
+    );
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -201,6 +208,18 @@ export class ManageWindow {
     }
   }
 
+  async #mxrouteEnable(event: IpcMainInvokeEvent, value: unknown): Promise<MxrouteReply> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = MxrouteEnableSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      return await this.#handlers.mxrouteEnable(parsed.data.accountId, parsed.data.enabled);
+    } catch (error) {
+      this.#handlers.onError("manage:mxroute-enable", error);
+      return "failed";
+    }
+  }
+
   async #mxrouteRemove(event: IpcMainInvokeEvent, id: unknown): Promise<MxrouteReply> {
     if (!this.#trusted(event)) return "denied";
     if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
@@ -213,4 +232,7 @@ export class ManageWindow {
   }
 }
 
-type MxrouteReply = "saved" | "unknown-account" | "invalid" | "denied" | "failed";
+/** What the main process says about a key change; each one is a fixed word the page turns into a sentence. */
+export type MxrouteOutcome =
+  "saved" | "unknown-account" | "no-key" | "no-domain" | "key-refused" | "unreachable";
+type MxrouteReply = MxrouteOutcome | "invalid" | "denied" | "failed";

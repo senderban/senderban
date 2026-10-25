@@ -50,12 +50,19 @@ export interface Plan {
   readonly accountId: string;
   readonly changes: readonly PlannedChange[];
   readonly basedOn: OpaqueState;
+  /**
+   * Changes the adapter left out of this plan on purpose (a provider that takes a bounded number per round):
+   * they go in later rounds, which the engine schedules by itself. Absent or 0 when the plan is complete.
+   */
+  readonly deferred?: number;
 }
 
 export interface ApplyResult {
   readonly applied: number;
   readonly failed: readonly { readonly entryId: string; readonly error: AdapterError }[];
   readonly state: OpaqueState;
+  /** Changes of the plan not sent because the round ran out of time or the provider asked to slow down; not failures. */
+  readonly deferred?: number;
 }
 
 /** One thing verify() looked at on the provider, and what it found. */

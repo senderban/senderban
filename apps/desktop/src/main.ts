@@ -12,6 +12,10 @@ import {
   blockableDomain,
   initialSieveState,
   unblock,
+  MxrouteAdapter,
+  createMxrouteClient,
+  initialMxrouteState,
+  mxrouteLaneId,
 } from "@senderban/core";
 import type {
   AccountConfig,
@@ -31,7 +35,14 @@ import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
-import { listMxroute, removeMxroute, saveMxroute } from "./mxroute-settings.js";
+import {
+  listMxroute,
+  mailDomain,
+  mxrouteGroupKey,
+  removeMxroute,
+  saveMxroute,
+  setMxrouteEnabled,
+} from "./mxroute-settings.js";
 import { Popups } from "./popups.js";
 import type { PopupView } from "./popups.js";
 import { loadSettings, saveSettings } from "./settings-file.js";
@@ -54,6 +65,8 @@ interface Runtime {
   readonly store: Store;
   readonly engine: SyncEngine;
   readonly accounts: readonly AccountConfig[];
+  /** Every engine lane: each account's own, plus one per MXroute blacklist (server, user, domain) in use. */
+  readonly lanes: readonly string[];
   readonly watchers: ReadonlyMap<string, AccountWatcher>;
   readonly pending: PendingBlocks;
   /** Account id -> the address the person knows it by. */
@@ -81,6 +94,8 @@ function notice(title: string, body: string): void {
 const unsynced = new Set<string>();
 /** Accounts a popup click is working on right now: the popup reports their outcome, a notice would repeat it. */
 const clicking = new Set<string>();
+/** Engine lanes that write to an MXroute blacklist: their failures are about the API key, not the mail password. */
+const mxrouteLanes = new Set<string>();
 
 const destination = (action: BlockAction): string =>
   action === "trash" ? "Trash (your provider may empty it after a while)" : "Junk";
@@ -107,7 +122,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
       : willRetry(outcome.code)
         ? "Senderban will try again."
         : outcome.code === "AUTH_REQUIRED"
-          ? "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
+          ? mxrouteLanes.has(id)
+            ? "MXroute refused the API key: fix it under Advanced in Blocked senders, then restart Senderban."
+            : "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
           : outcome.code === "REMOTE_CHANGED"
             ? "Someone else changed Senderban's script on the server, so it stopped instead of overwriting it. It will not try again by itself."
             : "Check the account in Senderban.";
@@ -130,7 +147,7 @@ function describe(result: BlockResult, labels: ReadonlyMap<string, string>): Pop
       const others =
         result.otherAccounts === 0
           ? ""
-          : ` ${String(result.otherAccounts)} other account(s) are updatingin the background.`;
+          : ` ${String(result.otherAccounts)} other place(s) are updating in the background.`;
       return {
         phase: "done",
         tone: "ok",
@@ -171,7 +188,7 @@ function describeUnblock(
   if (unconfirmed.length === 0) {
     return {
       tone: "ok",
-      text: `✓ ${value} unblocked. The rule is gone from ${String(result.accounts.length)} account(s) and was read back from the provider.`,
+      text: `✓ ${value} unblocked. The rule is gone from ${String(result.accounts.length)} place(s) and was read back from the provider.`,
     };
   }
   const first = unconfirmed
@@ -250,6 +267,18 @@ async function start(): Promise<Runtime> {
     accounts.map((a) => [a.id, a.imap.user.includes("@") ? a.imap.user : a.id]),
   );
   const watchers = new Map<string, AccountWatcher>();
+  const lanes = accounts.map((a) => a.id);
+  // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
+  // it would otherwise send the same entries five times. The first account owns the lane and its key.
+  const mxrouteGroups = new Map<string, { owner: string; mirror: boolean }>();
+  for (const account of accounts) {
+    const key = mxrouteGroupKey(account);
+    if (key === null || account.mxroute === undefined) continue;
+    const group = mxrouteGroups.get(key);
+    if (group === undefined)
+      mxrouteGroups.set(key, { owner: account.id, mirror: account.mxroute.enabled });
+    else group.mirror ||= account.mxroute.enabled;
+  }
   // One gate for every watcher: start, resume and unpause open at most MAX_CONCURRENT_LOGINS logins at once.
   const loginGate = createGate(MAX_CONCURRENT_LOGINS);
 
@@ -268,6 +297,43 @@ async function start(): Promise<Runtime> {
           }),
       }),
     });
+
+    const groupKey = mxrouteGroupKey(account);
+    const group = groupKey === null ? undefined : mxrouteGroups.get(groupKey);
+    if (account.mxroute !== undefined && group?.owner === account.id) {
+      // A second lane next to the Sieve one: it mirrors single addresses onto the MXroute blacklist, or, while
+      // the person has it switched off, only takes back what it put there (no request when it put nothing).
+      const laneId = mxrouteLaneId(account.id);
+      const domain = mailDomain(account);
+      try {
+        if (domain === null) throw new Error("no mail domain");
+        const { mxroute } = account;
+        engine.addAccount({
+          id: laneId,
+          initialState: initialMxrouteState(domain),
+          background: true,
+          adapter: new MxrouteAdapter({
+            accountId: laneId,
+            mirror: group.mirror,
+            client: createMxrouteClient({
+              server: mxroute.server,
+              username: mxroute.username,
+              getKey: () => decryptPassword(mxroute.apiKeyCipher),
+              // Operation, HTTP status and duration only: no key, no address.
+              onCall: (call) => {
+                log("mxroute-call", { account: accountTag(account.id), ...call });
+              },
+            }),
+          }),
+        });
+        lanes.push(laneId);
+        mxrouteLanes.add(laneId);
+        labels.set(laneId, `${labels.get(account.id) ?? account.id} (MXroute)`);
+        log("mxroute-lane", { account: accountTag(account.id), mirror: group.mirror });
+      } catch {
+        log("mxroute-lane-skipped", { account: accountTag(account.id) });
+      }
+    }
 
     watchers.set(
       account.id,
@@ -338,7 +404,7 @@ async function start(): Promise<Runtime> {
     // A socket that slept is dead but not yet reported (ADR 0003): rebuild instead of trusting it.
     if (!paused) for (const watcher of watchers.values()) watcher.reconnectNow();
   });
-  return { store, engine, accounts, watchers, pending, labels };
+  return { store, engine, accounts, lanes, watchers, pending, labels };
 }
 
 async function shutdown(): Promise<void> {
@@ -422,7 +488,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
       onError: logIpcError,
       choose: async (id, scope, action) => {
-        const { store, engine, accounts, pending, labels } = await ready.promise;
+        const { store, engine, lanes, pending, labels } = await ready.promise;
         let clicked = null as string | null;
         let result: BlockResult;
         try {
@@ -431,7 +497,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
               pending,
               store,
               engine,
-              accountIds: accounts.map((a) => a.id),
+              accountIds: lanes,
               onClaimed: (accountId) => {
                 clicked = accountId;
                 clicking.add(accountId);
@@ -472,6 +538,11 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         log("mxroute-removed", { account: accountTag(accountId), result });
         return result;
       },
+      mxrouteEnable: async (accountId, enabled) => {
+        const result = await setMxrouteEnabled(accountsPath, accountId, enabled);
+        log("mxroute-enabled", { account: accountTag(accountId), enabled, result });
+        return result;
+      },
       setSeconds: async (popupSeconds) => {
         const next = { ...settings, popupSeconds };
         await saveSettings(settingsPath, next);
@@ -480,9 +551,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return popupSeconds;
       },
       unblock: async (id) => {
-        const { store, engine, accounts, labels } = await ready.promise;
+        const { store, engine, lanes, labels } = await ready.promise;
         const value = store.list().find((e) => e.id === id)?.value ?? "This sender";
-        const accountIds = accounts.map((a) => a.id);
+        const accountIds = lanes;
         // The window reports every account's outcome itself; background notices would repeat it.
         for (const accountId of accountIds) clicking.add(accountId);
         let result: UnblockResult;

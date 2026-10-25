@@ -56,6 +56,7 @@ const call = (channel: string, event: unknown, payload?: unknown) => {
 
 let mxrouteSave: ReturnType<typeof vi.fn>;
 let mxrouteRemove: ReturnType<typeof vi.fn>;
+let mxrouteEnable: ReturnType<typeof vi.fn>;
 let mxrouteList: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 
@@ -63,9 +64,17 @@ beforeEach(() => {
   handlers.clear();
   mxrouteSave = vi.fn(() => Promise.resolve("saved"));
   mxrouteRemove = vi.fn(() => Promise.resolve("saved"));
+  mxrouteEnable = vi.fn(() => Promise.resolve("saved"));
   mxrouteList = vi.fn(() =>
     Promise.resolve([
-      { accountId: "main", label: "me@example.com", hasKey: true, server: "s", username: "u" },
+      {
+        accountId: "main",
+        label: "me@example.com",
+        hasKey: true,
+        enabled: false,
+        server: "s",
+        username: "u",
+      },
     ]),
   );
   onError = vi.fn();
@@ -77,6 +86,7 @@ beforeEach(() => {
     mxrouteList,
     mxrouteSave,
     mxrouteRemove,
+    mxrouteEnable,
     onError,
   } as never).show();
 });
@@ -145,6 +155,7 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
     expect(Object.keys(reply).sort()).toEqual(["accounts", "limits"]);
     expect(Object.keys(reply.accounts[0] ?? {}).sort()).toEqual([
       "accountId",
+      "enabled",
       "hasKey",
       "label",
       "server",
@@ -152,5 +163,38 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
     ]);
     expect(reply.limits).toMatchObject({ apiKey: { min: 8, max: 512 } });
     expect(await call("manage:mxroute-list", otherFrame)).toBeNull();
+  });
+});
+
+describe("manage:mxroute-enable", () => {
+  it("switches the blacklist for a valid account id from the trusted page", async () => {
+    expect(await call("manage:mxroute-enable", trusted, { accountId: "main", enabled: true })).toBe(
+      "saved",
+    );
+    expect(mxrouteEnable).toHaveBeenCalledWith("main", true);
+  });
+
+  it.each([
+    ["not an object", "main"],
+    ["extra key", { accountId: "main", enabled: true, key: "x" }],
+    ["enabled not a boolean", { accountId: "main", enabled: "true" }],
+    ["enabled missing", { accountId: "main" }],
+    ["account id that is a path", { accountId: "../x", enabled: true }],
+  ])("refuses %s without touching the store", async (_name, payload) => {
+    expect(await call("manage:mxroute-enable", trusted, payload)).toBe("invalid");
+    expect(mxrouteEnable).not.toHaveBeenCalled();
+  });
+
+  it("ignores another frame and reports a failing store as a fixed word", async () => {
+    const payload = { accountId: "main", enabled: true };
+    expect(await call("manage:mxroute-enable", otherFrame, payload)).toBe("denied");
+    mxrouteEnable.mockRejectedValueOnce(new Error("disk full"));
+    expect(await call("manage:mxroute-enable", trusted, payload)).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:mxroute-enable", expect.any(Error));
+  });
+
+  it("passes on what the main process said about a refused key", async () => {
+    mxrouteSave.mockResolvedValueOnce("key-refused");
+    expect(await call("manage:mxroute-save", trusted, good)).toBe("key-refused");
   });
 });

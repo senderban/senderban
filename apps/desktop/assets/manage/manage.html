@@ -48,9 +48,10 @@
         <h2>MXroute API key</h2>
         <p class="muted">
           For MXroute mailboxes only. The key is stored encrypted on this device and never shown
-          again. Senderban does not use it yet: blocking works the way it did before. Make a key at
-          panel.mxroute.com/api-keys.php, where the server and user name are also shown; if MXroute
-          lets you limit a key, give it the least access that works.
+          again. Senderban checks it with MXroute when you save it, and uses it only for an account
+          where you switch it on below. Make a key at panel.mxroute.com/api-keys.php, where the
+          server and user name are also shown; if MXroute lets you limit a key, give it the least
+          access that works.
         </p>
         <ul id="mxroute-accounts" aria-label="MXroute API keys"></ul>
         <p id="mxroute-empty" class="muted" hidden>No account is set up yet.</p>

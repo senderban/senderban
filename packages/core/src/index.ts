@@ -6,6 +6,8 @@ export * from "./registry.js";
 export * from "./sieve/adapter.js";
 export * from "./sieve/rules.js";
 export * from "./sieve/session.js";
+export * from "./mxroute/adapter.js";
+export * from "./mxroute/client.js";
 export * from "./sync/engine.js";
 export * from "./watcher/watcher.js";
 export * from "./notify/pending.js";

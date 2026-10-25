@@ -75,6 +75,16 @@ describe("MXroute key (advanced)", () => {
     ).toBe(false);
   });
 
+  it("is off unless the person turned it on, and the flag must be a boolean", () => {
+    const parse = (mxroute: unknown) =>
+      AccountsFileSchema.safeParse(file([{ ...account(), mxroute }]));
+    const off = parse(stored);
+    expect(off.success && off.data.accounts[0]?.mxroute?.enabled).toBe(false);
+    const on = parse({ ...stored, enabled: true });
+    expect(on.success && on.data.accounts[0]?.mxroute?.enabled).toBe(true);
+    expect(parse({ ...stored, enabled: "yes" }).success).toBe(false);
+  });
+
   it("is not accepted when adding an account from a file", () => {
     const added = { ...account(), password: "pw" };
     delete (added as { passwordCipher?: string }).passwordCipher;

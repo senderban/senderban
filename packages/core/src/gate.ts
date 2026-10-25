@@ -16,6 +16,13 @@ export const MAX_CONCURRENT_LOGINS = 5;
 /** Provider sync rounds (ManageSieve plan + apply, verify) in flight at once; same reasoning and same caveat. */
 export const MAX_CONCURRENT_SYNCS = 5;
 
+/**
+ * Rounds in flight at once on `background` lanes (MXroute blacklist writes). Each runs up to 30 requests under a
+ * 60 writes a minute limit per key, so two at a time is already more than the limit lets through; keeping it
+ * small leaves the main gate to the clicks of a person.
+ */
+export const MAX_CONCURRENT_BACKGROUND = 2;
+
 /** Upper bound for a gate: one slot per account at most (kept equal to MAX_ACCOUNTS in sync/engine.ts, a test checks it). */
 export const MAX_GATE_SIZE = 50;
 

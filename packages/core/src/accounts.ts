@@ -56,11 +56,19 @@ export const MxrouteInputSchema = z.strictObject({
 });
 export type MxrouteInput = z.infer<typeof MxrouteInputSchema>;
 
+/** Switching one account's blacklist lane on or off. */
+export const MxrouteEnableSchema = z.strictObject({
+  accountId: z.string().regex(ACCOUNT_ID),
+  enabled: z.boolean(),
+});
+
 /** What is stored: the key as safeStorage ciphertext only. */
 const MxrouteConfig = z.strictObject({
   server: Host,
   username: MxrouteUser,
   apiKeyCipher: Ciphertext,
+  /** Off until the person turns it on: a saved key alone changes nothing about how mail is blocked. */
+  enabled: z.boolean().default(false),
 });
 export type MxrouteConfig = z.infer<typeof MxrouteConfig>;
 
