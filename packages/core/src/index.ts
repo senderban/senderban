@@ -13,3 +13,4 @@ export * from "./accounts.js";
 export * from "./notify/block-action.js";
 export * from "./settings.js";
 export * from "./notify/unblock.js";
+export * from "./gate.js";

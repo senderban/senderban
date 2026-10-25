@@ -1,12 +1,23 @@
 import { parseAddress } from "../address.js";
+import { unlimited } from "../gate.js";
+import type { Gate } from "../gate.js";
 
-// Scale budget (per account, one device): 1 persistent IMAP connection, 0 requests while idle,
-// 1 FETCH of new envelopes per `exists` event. Linear in accounts only (MAX_ACCOUNTS = 50 in the
-// engine => 50 sockets worst case). Reconnects are bounded by backoff: at the cap, 12 attempts/hour/account.
+// Scale budget (per account, one device): 1 persistent IMAP connection; while idle only the library's
+// keepalive (about 12 DONE/NOOP/IDLE cycles per hour, derived from imapflow's 300 s socketTimeout, wire count
+// not measured); 1 FETCH of new envelopes per `exists` event. Linear in accounts only (MAX_ACCOUNTS = 50 in the
+// engine => 50 sockets worst case). Reconnects are bounded by backoff: at the cap, 12-24 attempts/hour/account
+// (equal jitter over 150-300 s). Logins go through `options.gate`, so start, resume and unpause open at most
+// MAX_CONCURRENT_LOGINS connections at once instead of one per account.
 
 export const SUBJECT_MAX = 200;
 /** Toasts per drain. A burst (offline weekend, spam run) must not become a toast flood. */
 export const DEFAULT_MAX_PER_DRAIN = 5;
+/**
+ * A login that has not finished by now frees its slot (a login takes about 2 s). The attempt itself is not
+ * cancelled: it ends by the library's own timeouts and its late session is closed, so a hung login can keep
+ * a socket open after the gate has let the next one in.
+ */
+export const CONNECT_SLOT_MS = 60_000;
 export const DEFAULT_BACKOFF = { baseMs: 1_000, maxMs: 300_000, stableMs: 30_000 } as const;
 
 export interface IncomingMessage {
@@ -48,6 +59,8 @@ export type WatcherState = "stopped" | "connecting" | "watching" | "backoff" | "
 export interface WatcherOptions {
   readonly accountId: string;
   readonly connect: () => Promise<MailboxSession>;
+  /** Shared by every watcher of the device; bounds simultaneous logins. Unlimited when absent. */
+  readonly gate?: Gate;
   readonly cursors: CursorStore;
   readonly onMessage: (accountId: string, message: IncomingMessage) => void;
   /** More new messages than `maxPerDrain`: the older `skipped` ones were not announced. */
@@ -162,13 +175,15 @@ export class AccountWatcher {
     const epoch = this.epoch;
     this.setState("connecting");
 
-    let session: MailboxSession;
+    let session: MailboxSession | null;
     try {
-      session = await this.options.connect();
+      session = await this.connectThroughGate(epoch);
     } catch (error) {
       this.fail(epoch, error);
       return;
     }
+    // Stopped or replaced while it waited for a slot: nothing was opened.
+    if (session === null) return;
     if (epoch !== this.epoch) {
       await closeQuietly(session);
       return;
@@ -190,6 +205,30 @@ export class AccountWatcher {
     this.stableTimer = setTimeout(() => {
       this.failures = 0;
     }, this.backoff.stableMs);
+  }
+
+  /** Waits for a login slot, then connects with a deadline so one stuck login cannot hold a slot for good. */
+  private connectThroughGate(epoch: number): Promise<MailboxSession | null> {
+    const gate = this.options.gate ?? unlimited;
+    return gate(async () => {
+      if (epoch !== this.epoch) return null;
+      const attempt = this.options.connect();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`login did not finish within ${String(CONNECT_SLOT_MS)} ms`));
+        }, CONNECT_SLOT_MS);
+      });
+      try {
+        return await Promise.race([attempt, deadline]);
+      } catch (error) {
+        // A login that finishes after its deadline would leak a socket: close it when it does.
+        void attempt.then(closeQuietly, () => undefined);
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    });
   }
 
   private async drain(epoch: number, session: MailboxSession): Promise<void> {

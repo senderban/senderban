@@ -2,10 +2,12 @@ import { join } from "node:path";
 import {
   AccountWatcher,
   DEFAULT_SETTINGS,
+  MAX_CONCURRENT_LOGINS,
   PendingBlocks,
   SieveAdapter,
   SyncEngine,
   blockPending,
+  createGate,
   willRetry,
   blockableDomain,
   initialSieveState,
@@ -243,6 +245,8 @@ async function start(): Promise<Runtime> {
     accounts.map((a) => [a.id, a.imap.user.includes("@") ? a.imap.user : a.id]),
   );
   const watchers = new Map<string, AccountWatcher>();
+  // One gate for every watcher: start, resume and unpause open at most MAX_CONCURRENT_LOGINS logins at once.
+  const loginGate = createGate(MAX_CONCURRENT_LOGINS);
 
   for (const account of accounts) {
     engine.addAccount({
@@ -265,6 +269,7 @@ async function start(): Promise<Runtime> {
       new AccountWatcher({
         accountId: account.id,
         cursors: store.cursors,
+        gate: loginGate,
         connect: async () =>
           imapflowConnector({
             ...account.imap,

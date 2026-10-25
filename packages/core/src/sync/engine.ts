@@ -1,8 +1,13 @@
 import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode, BlockAdapter, Drift, OpaqueState } from "../adapter.js";
+import { MAX_CONCURRENT_SYNCS, createGate } from "../gate.js";
+import type { Gate } from "../gate.js";
 import type { Store } from "../store/store.js";
 
-/** Accounts one device syncs. Each one is an independent queue (architecture K8). */
+/**
+ * Accounts one device syncs. Each one is an independent queue (architecture K8), but provider rounds share
+ * one gate (MAX_CONCURRENT_SYNCS): a block on 50 accounts opens 50 ManageSieve connections one wave of 5 at a time.
+ */
 export const MAX_ACCOUNTS = 50;
 export const ACCOUNT_ID = /^[A-Za-z0-9._@-]{1,64}$/;
 
@@ -74,6 +79,8 @@ export interface EngineOptions {
   readonly timeoutMs?: number;
   readonly onOutcome?: (outcome: SyncOutcome) => void;
   readonly retry?: { readonly baseMs: number; readonly maxMs: number };
+  /** Provider rounds in flight at once across all accounts (default MAX_CONCURRENT_SYNCS). */
+  readonly maxConcurrent?: number;
   /** Injectable for tests; returns [0, 1). */
   readonly random?: () => number;
 }
@@ -124,6 +131,7 @@ export class SyncEngine {
   readonly #onOutcome: ((outcome: SyncOutcome) => void) | undefined;
   readonly #retry: { readonly baseMs: number; readonly maxMs: number };
   readonly #random: () => number;
+  readonly #gate: Gate;
   #disposed = false;
 
   constructor(store: Store, options: EngineOptions = {}) {
@@ -133,6 +141,7 @@ export class SyncEngine {
     this.#onOutcome = options.onOutcome;
     this.#retry = options.retry ?? DEFAULT_RETRY;
     this.#random = options.random ?? Math.random;
+    this.#gate = createGate(options.maxConcurrent ?? MAX_CONCURRENT_SYNCS);
   }
 
   addAccount(account: EngineAccount): void {
@@ -176,7 +185,9 @@ export class SyncEngine {
     if (account === undefined) return failure(accountId, new Error("unknown account"));
     try {
       const state = this.#store.getState(accountId) ?? account.initialState;
-      const drift = await withTimeout(account.adapter.verify(state), this.#timeoutMs);
+      const drift = await this.#gate(() =>
+        withTimeout(account.adapter.verify(state), this.#timeoutMs),
+      );
       return drift.drifted
         ? { accountId, status: "drifted", detail: drift.detail.slice(0, 500) }
         : { accountId, status: "verified" };
@@ -221,7 +232,9 @@ export class SyncEngine {
         if (outcome.status === "failed") return { accountId, interrupted, outcome };
         try {
           const state = this.#store.getState(accountId) ?? account.initialState;
-          const drift = await withTimeout(account.adapter.verify(state), this.#timeoutMs);
+          const drift = await this.#gate(() =>
+            withTimeout(account.adapter.verify(state), this.#timeoutMs),
+          );
           return { accountId, interrupted, outcome, drift };
         } catch (error) {
           const verifyError = failure(accountId, error);
@@ -269,7 +282,15 @@ export class SyncEngine {
   }
 
   async #run(accountId: string): Promise<SyncOutcome> {
-    const outcome = await this.#attempt(accountId);
+    // The gate holds the round, not the lane: `running` includes the wait for a slot, and later calls queue
+    // one follow-up behind it. A round still waiting when the engine is disposed never touches the provider
+    // (shutdown closes the store right after).
+    const { outcome, skipped } = await this.#gate(async () =>
+      this.#disposed
+        ? { outcome: failure(accountId, new Error("engine disposed")), skipped: true }
+        : { outcome: await this.#attempt(accountId), skipped: false },
+    );
+    if (skipped) return outcome;
     this.#scheduleRetry(accountId, outcome);
     try {
       this.#onOutcome?.(outcome);
@@ -286,7 +307,12 @@ export class SyncEngine {
     let seq: number | null = null;
     try {
       const state = this.#store.getState(accountId) ?? account.initialState;
-      const plan = await account.adapter.plan(this.#store.list(), state);
+      // The Sieve plan is local, but an adapter may read the provider while planning; a deadline keeps a stuck
+      // read from holding a slot for good.
+      const plan = await withTimeout(
+        account.adapter.plan(this.#store.list(), state),
+        this.#timeoutMs,
+      );
       if (plan.changes.length === 0) return { accountId, status: "unchanged" };
 
       seq = this.#store.beginSync(plan);
