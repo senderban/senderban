@@ -38,6 +38,8 @@ export interface PopupHandlers {
   /** The gear: opens the Blocked senders window, where the settings live (ADR 0005). */
   readonly openSettings: () => void;
   readonly onDropped: (count: number) => void;
+  /** A handler threw: the log gets the channel and a sanitised message, the popup a generic failure. */
+  readonly onError: (channel: string, error: unknown) => void;
 }
 
 interface Live {
@@ -192,8 +194,12 @@ export class Popups {
   #from(event: IpcMainEvent | IpcMainInvokeEvent): Live | null {
     const popup = this.#live.get(event.sender.id);
     if (popup === undefined || popup.win.isDestroyed()) return null;
-    const url = event.senderFrame?.url ?? "";
-    return url.startsWith("file:") && url.endsWith(PAGE) ? popup : null;
+    // Frame identity, not URL (see ManageWindow): the popup only ever shows our page.
+    const frame = event.senderFrame;
+    const main = popup.win.webContents.mainFrame;
+    const own =
+      frame !== null && frame.processId === main.processId && frame.routingId === main.routingId;
+    return own ? popup : null;
   }
 
   #init(event: IpcMainInvokeEvent) {
@@ -216,7 +222,8 @@ export class Popups {
     let view: PopupView;
     try {
       view = await this.#handlers.choose(id, scope as BlockScope, action as BlockAction);
-    } catch {
+    } catch (error) {
+      this.#handlers.onError("popup:choose", error);
       view = { phase: "done", tone: "error", text: "Something went wrong. See the log." };
     }
     this.#setView(popup, view);

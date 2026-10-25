@@ -138,7 +138,15 @@ describe("blockPending", () => {
       status: "blocked",
       target: "spam@news.example.com",
       verified: true,
+      accountId: "a",
+      otherAccounts: 1,
     });
+  });
+
+  it("says that only the clicked account was read back when others were merely queued", async () => {
+    const { deps } = setup();
+    const result = await blockPending({ ...deps, accountIds: ["a", "b", "c"] }, ID, "address");
+    expect(result).toMatchObject({ status: "blocked", verified: true, otherAccounts: 2 });
   });
 
   it("scope domain: a subdomains entry for the sender's domain", async () => {

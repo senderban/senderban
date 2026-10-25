@@ -15,6 +15,7 @@ secrets/
 client_secret*.json
 # Desktop app data (normally in %APPDATA%, but a --user-data-dir inside the repo must not leak it)
 accounts.json
+settings.json
 *.db
 *.db-wal
 *.db-shm

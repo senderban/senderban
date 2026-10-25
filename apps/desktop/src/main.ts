@@ -6,15 +6,18 @@ import {
   SieveAdapter,
   SyncEngine,
   blockPending,
+  willRetry,
   blockableDomain,
   initialSieveState,
   unblock,
 } from "@senderban/core";
 import type {
   AccountConfig,
+  BlockAction,
   BlockResult,
   IncomingMessage,
   Settings,
+  SyncOutcome,
   UnblockResult,
   WatcherState,
 } from "@senderban/core";
@@ -23,7 +26,7 @@ import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor } from "electron";
 import { AddAccountError, addAccountFromFile } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
-import { createLog } from "./log.js";
+import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
 import { Popups } from "./popups.js";
@@ -37,6 +40,10 @@ app.setName("Senderban");
 const log = createLog(join(app.getPath("userData"), "logs"));
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : "unknown error";
+/** A handler threw: the channel and a message the log sanitises, never the payload. */
+function logIpcError(channel: string, error: unknown): void {
+  log("ipc-error", { channel, detail: errorText(error) });
+}
 /** The domain is enough to diagnose; the full address stays out of a file people attach to bug reports. */
 const domainOf = (address: string): string => address.slice(address.lastIndexOf("@") + 1);
 
@@ -67,21 +74,62 @@ function notice(title: string, body: string): void {
   popups?.show({ id: null, title, body, account: null, domain: null });
 }
 
+/** Accounts whose last sync failed and whose person was told; cleared by the next sync that did not fail. */
+const unsynced = new Set<string>();
+/** Accounts a popup click is working on right now: the popup reports their outcome, a notice would repeat it. */
+const clicking = new Set<string>();
+
+const destination = (action: BlockAction): string =>
+  action === "trash" ? "Trash (your provider may empty it after a while)" : "Junk";
+
+/**
+ * A sync that ran in the background (another account after a block, a retry, the start-up pass) and
+ * failed: tell the person once per account until it succeeds, so a failure is never silent and a
+ * retry loop never becomes a stream of popups.
+ */
+function noticeIfUnsynced(outcome: SyncOutcome): void {
+  const id = outcome.accountId;
+  const ok = outcome.status === "applied" || outcome.status === "unchanged";
+  if (ok) {
+    unsynced.delete(id);
+    return;
+  }
+  if (clicking.has(id) || unsynced.has(id)) return;
+  unsynced.add(id);
+  const label = runtime?.labels.get(id) ?? id;
+  const why = outcome.status === "failed" ? outcome.code : "some changes failed";
+  const next =
+    outcome.status !== "failed"
+      ? "Open Blocked senders to check."
+      : willRetry(outcome.code)
+        ? "Senderban will try again."
+        : "Check the account in Senderban.";
+  notice("Senderban", `The block list is not up to date on ${label} (${why}). ${next}`);
+}
+
 /** What the popup says once a choice has run; the same window that showed the buttons. */
-function describe(result: BlockResult): PopupView {
+function describe(result: BlockResult, labels: ReadonlyMap<string, string>): PopupView {
   switch (result.status) {
-    case "blocked":
-      return result.verified
-        ? {
-            phase: "done",
-            tone: "ok",
-            text: `✓ ${result.target}: rule verified. Future mail skips your inbox and goes to ${result.action === "trash" ? "Trash (your provider may empty it after a while)" : "Junk"}.`,
-          }
-        : {
-            phase: "done",
-            tone: "warn",
-            text: `${result.target}: rule written, not confirmed (${result.detail}).`,
-          };
+    case "blocked": {
+      if (!result.verified) {
+        return {
+          phase: "done",
+          tone: "warn",
+          text: `${result.target}: rule written, not confirmed (${result.detail}).`,
+        };
+      }
+      // Only the clicked account was read back; the others update in the background.
+      const where = labels.get(result.accountId) ?? result.accountId;
+      const others =
+        result.otherAccounts === 0
+          ? ""
+          : ` ${String(result.otherAccounts)} other account(s) are updatingin the background.`;
+      return {
+        phase: "done",
+        tone: "ok",
+        text: `✓ ${result.target}: rule verified on ${where}. Future mail skips your inbox and goes to ${destination(result.action)}.${others}`,
+      };
+    }
     case "not-applied":
     case "refused":
       return { phase: "done", tone: "error", text: `Not blocked: ${result.detail}` };
@@ -179,13 +227,14 @@ async function start(): Promise<Runtime> {
   const engine = new SyncEngine(store, {
     onOutcome: (outcome) => {
       log("sync", {
-        account: outcome.accountId,
+        account: accountTag(outcome.accountId),
         status: outcome.status,
         ...(outcome.status === "failed" ? { code: outcome.code, detail: outcome.message } : {}),
         ...(outcome.status === "applied" || outcome.status === "partial"
           ? { applied: outcome.applied, failed: outcome.failed }
           : {}),
       });
+      noticeIfUnsynced(outcome);
     },
   });
   const pending = new PendingBlocks();
@@ -223,7 +272,11 @@ async function start(): Promise<Runtime> {
           })(),
         onMessage: (accountId: string, message: IncomingMessage) => {
           const id = pending.add({ accountId, sender: message.from });
-          log("announce", { account: accountId, uid: message.uid, domain: domainOf(message.from) });
+          log("announce", {
+            account: accountTag(accountId),
+            uid: message.uid,
+            domain: domainOf(message.from),
+          });
           popups?.show({
             id,
             title: message.from,
@@ -233,7 +286,7 @@ async function start(): Promise<Runtime> {
           });
         },
         onOverflow: (accountId, skipped) => {
-          log("overflow", { account: accountId, skipped });
+          log("overflow", { account: accountTag(accountId), skipped });
           notice(
             "Senderban",
             `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced.`,
@@ -243,7 +296,7 @@ async function start(): Promise<Runtime> {
           const previous = states.get(accountId);
           states.set(accountId, state);
           updateTray();
-          log("watcher", { account: accountId, state, detail });
+          log("watcher", { account: accountTag(accountId), state, detail });
           if (state === "halted" && previous !== "halted") {
             notice(
               "Senderban stopped watching",
@@ -259,13 +312,16 @@ async function start(): Promise<Runtime> {
   // Interrupted syncs from a previous run are repaired before new mail can add to the list.
   for (const report of await engine.recover()) {
     log("recovered", {
-      account: report.accountId,
+      account: accountTag(report.accountId),
       interrupted: report.interrupted,
       drifted: report.drift?.drifted,
       verifyError: report.verifyError,
     });
   }
   for (const watcher of watchers.values()) watcher.start();
+  // A rule change that never reached a provider (an unblock that failed, a crash after the list
+  // changed) is applied now. The plan is computed locally, so only accounts with a difference connect.
+  void engine.syncAll();
 
   powerMonitor.on("resume", () => {
     log("resume", { paused });
@@ -296,7 +352,7 @@ if (addAccountArg !== undefined) {
         addAccountArg.slice("--add-account=".length),
         join(app.getPath("userData"), "accounts.json"),
       );
-      log("account-saved", { account: id });
+      log("account-saved", { account: accountTag(id) });
       app.exit(0);
     } catch (error) {
       // Only our own fixed messages are logged: anything else may quote the file with the password.
@@ -349,14 +405,32 @@ if (addAccountArg !== undefined) {
       onDropped: (count) => {
         log("popups-dropped", { count });
       },
+      onError: logIpcError,
       choose: async (id, scope, action) => {
-        const { store, engine, accounts, pending } = await ready.promise;
-        const result = await blockPending(
-          { pending, store, engine, accountIds: accounts.map((a) => a.id) },
-          id,
-          scope,
-          action,
-        );
+        const { store, engine, accounts, pending, labels } = await ready.promise;
+        let clicked = null as string | null;
+        let result: BlockResult;
+        try {
+          result = await blockPending(
+            {
+              pending,
+              store,
+              engine,
+              accountIds: accounts.map((a) => a.id),
+              onClaimed: (accountId) => {
+                clicked = accountId;
+                clicking.add(accountId);
+              },
+            },
+            id,
+            scope,
+            action,
+          );
+        } finally {
+          if (clicked !== null) clicking.delete(clicked);
+        }
+        // The popup told the person about this account; a notice for the same failure would repeat it.
+        if (result.status === "not-applied") unsynced.add(result.accountId);
         log("choice", {
           scope,
           action,
@@ -364,22 +438,35 @@ if (addAccountArg !== undefined) {
           verified: result.status === "blocked" ? result.verified : undefined,
         });
         manage?.notifyChanged();
-        return describe(result);
+        return describe(result, labels);
       },
     });
     manage = new ManageWindow(assets, {
       list: () => runtime?.store.list() ?? [],
       getSeconds: () => settings.popupSeconds,
+      onError: logIpcError,
       setSeconds: async (popupSeconds) => {
-        settings = { ...settings, popupSeconds };
-        await saveSettings(settingsPath, settings);
+        const next = { ...settings, popupSeconds };
+        await saveSettings(settingsPath, next);
+        settings = next;
         log("settings-saved", { popupSeconds });
         return popupSeconds;
       },
       unblock: async (id) => {
         const { store, engine, accounts, labels } = await ready.promise;
         const value = store.list().find((e) => e.id === id)?.value ?? "This sender";
-        const result = await unblock({ store, engine, accountIds: accounts.map((a) => a.id) }, id);
+        const accountIds = accounts.map((a) => a.id);
+        // The window reports every account's outcome itself; background notices would repeat it.
+        for (const accountId of accountIds) clicking.add(accountId);
+        let result: UnblockResult;
+        try {
+          result = await unblock({ store, engine, accountIds }, id);
+        } finally {
+          for (const accountId of accountIds) clicking.delete(accountId);
+        }
+        if (result.status === "unblocked") {
+          for (const a of result.accounts) if (!a.confirmed) unsynced.add(a.accountId);
+        }
         log("unblock", {
           result: result.status,
           confirmed:

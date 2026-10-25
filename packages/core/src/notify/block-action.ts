@@ -29,6 +29,8 @@ export interface BlockActionDeps {
   readonly accountIds: readonly string[];
   readonly now?: () => Date;
   readonly newId?: () => string;
+  /** Called as soon as the click is matched to its account, before any sync runs. */
+  readonly onClaimed?: (accountId: string) => void;
 }
 
 /** What a choice led to. `detail` is shown to the person, so it carries no password or full server reply. */
@@ -43,10 +45,20 @@ export type BlockResult =
       readonly status: "blocked";
       readonly target: string;
       readonly action: BlockAction;
+      /** True only for `accountId`: the other accounts are updated in the background and not read back. */
       readonly verified: boolean;
       readonly detail: string;
+      /** The account the person clicked on, the only one that was read back. */
+      readonly accountId: string;
+      /** Accounts that were only queued (debounced sync); their outcome arrives later. */
+      readonly otherAccounts: number;
     }
-  | { readonly status: "not-applied"; readonly target: string; readonly detail: string };
+  | {
+      readonly status: "not-applied";
+      readonly target: string;
+      readonly detail: string;
+      readonly accountId: string;
+    };
 
 /** True when `entry` would match mail from `sender` (an address) or from every sender of `domain`. */
 function covers(entry: BlockEntry, match: "exactAddress" | "subdomains", value: string): boolean {
@@ -84,6 +96,7 @@ export async function blockPending(
   if (claimed.status !== "ok") return { status: claimed.status };
 
   const { accountId, sender } = claimed.block;
+  deps.onClaimed?.(accountId);
   const target = scope === "domain" ? blockableDomain(sender) : sender;
   if (target === null) {
     return { status: "refused", detail: "this domain cannot be blocked as a whole" };
@@ -112,10 +125,15 @@ export async function blockPending(
   }
 
   const outcome = await deps.engine.sync(accountId);
-  for (const other of deps.accountIds) if (other !== accountId) deps.engine.requestSync(other);
+  let otherAccounts = 0;
+  for (const other of deps.accountIds) {
+    if (other === accountId) continue;
+    deps.engine.requestSync(other);
+    otherAccounts += 1;
+  }
 
   const problem = describeSync(outcome);
-  if (problem !== null) return { status: "not-applied", target, detail: problem };
+  if (problem !== null) return { status: "not-applied", target, detail: problem, accountId };
 
   const check = await deps.engine.verify(accountId);
   switch (check.status) {
@@ -126,6 +144,8 @@ export async function blockPending(
         action,
         verified: true,
         detail: "read back from the provider",
+        accountId,
+        otherAccounts,
       };
     case "drifted":
       return {
@@ -134,6 +154,8 @@ export async function blockPending(
         action,
         verified: false,
         detail: `read-back differs: ${check.detail}`,
+        accountId,
+        otherAccounts,
       };
     case "failed":
       return {
@@ -142,6 +164,8 @@ export async function blockPending(
         action,
         verified: false,
         detail: `rule written, read-back failed: ${check.code}`,
+        accountId,
+        otherAccounts,
       };
   }
 }

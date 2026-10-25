@@ -9,6 +9,25 @@ export const ACCOUNT_ID = /^[A-Za-z0-9._@-]{1,64}$/;
 export const DEFAULT_DEBOUNCE_MS = 2_000;
 /** One provider round (plan is local; this bounds `apply`). Longer means the provider is stuck. */
 export const DEFAULT_TIMEOUT_MS = 60_000;
+/**
+ * A sync that failed for a reason that can pass (network, provider hiccup) is tried again, so a rule
+ * the person removed does not stay on one account until some unrelated block triggers a sync.
+ * Budget: at the cap the delay is 15-30 min, so 2-4 attempts/hour/account (one ManageSieve
+ * connection each); at most 200/hour at MAX_ACCOUNTS, and only for accounts that still have a difference to apply.
+ */
+export const DEFAULT_RETRY = { baseMs: 30_000, maxMs: 1_800_000 } as const;
+/** Whether the engine tries a failed sync again by itself; false means the person has to act. */
+export function willRetry(code: AdapterErrorCode | "UNKNOWN"): boolean {
+  return !PERMANENT.has(code);
+}
+
+/** Retrying these cannot help (wrong password, unsupported rule, provider says no) and risks a lockout. */
+const PERMANENT: ReadonlySet<string> = new Set([
+  "AUTH_REQUIRED",
+  "CAPABILITY_NOT_SUPPORTED",
+  "REJECTED",
+  "QUOTA_EXCEEDED",
+]);
 
 export interface EngineAccount {
   readonly id: string;
@@ -54,6 +73,9 @@ export interface EngineOptions {
   readonly debounceMs?: number;
   readonly timeoutMs?: number;
   readonly onOutcome?: (outcome: SyncOutcome) => void;
+  readonly retry?: { readonly baseMs: number; readonly maxMs: number };
+  /** Injectable for tests; returns [0, 1). */
+  readonly random?: () => number;
 }
 
 interface Lane {
@@ -61,6 +83,9 @@ interface Lane {
   /** At most one follow-up waits; it reads the list when it starts, so it covers every change since. */
   queued: Promise<SyncOutcome> | null;
   timer: ReturnType<typeof setTimeout> | null;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  /** Consecutive failed syncs that a retry may fix; 0 after any sync that did not fail. */
+  failures: number;
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
@@ -97,12 +122,17 @@ export class SyncEngine {
   readonly #debounceMs: number;
   readonly #timeoutMs: number;
   readonly #onOutcome: ((outcome: SyncOutcome) => void) | undefined;
+  readonly #retry: { readonly baseMs: number; readonly maxMs: number };
+  readonly #random: () => number;
+  #disposed = false;
 
   constructor(store: Store, options: EngineOptions = {}) {
     this.#store = store;
     this.#debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#onOutcome = options.onOutcome;
+    this.#retry = options.retry ?? DEFAULT_RETRY;
+    this.#random = options.random ?? Math.random;
   }
 
   addAccount(account: EngineAccount): void {
@@ -112,7 +142,13 @@ export class SyncEngine {
       throw new Error(`at most ${String(MAX_ACCOUNTS)} accounts per device`);
     }
     this.#accounts.set(account.id, account);
-    this.#lanes.set(account.id, { running: null, queued: null, timer: null });
+    this.#lanes.set(account.id, {
+      running: null,
+      queued: null,
+      timer: null,
+      retryTimer: null,
+      failures: 0,
+    });
   }
 
   /** Waits for any sync already running, then syncs once more so the latest list is covered. */
@@ -202,14 +238,39 @@ export class SyncEngine {
 
   /** Cancels pending debounce timers; running syncs finish on their own. */
   dispose(): void {
+    this.#disposed = true;
     for (const lane of this.#lanes.values()) {
       if (lane.timer !== null) clearTimeout(lane.timer);
       lane.timer = null;
+      if (lane.retryTimer !== null) clearTimeout(lane.retryTimer);
+      lane.retryTimer = null;
     }
+  }
+
+  /** Capped exponential backoff with equal jitter, so accounts that failed together do not retry in lockstep. */
+  #scheduleRetry(accountId: string, outcome: SyncOutcome): void {
+    const lane = this.#lanes.get(accountId);
+    if (lane === undefined) return;
+    if (lane.retryTimer !== null) clearTimeout(lane.retryTimer);
+    lane.retryTimer = null;
+    if (outcome.status !== "failed") {
+      lane.failures = 0;
+      return;
+    }
+    if (this.#disposed || !willRetry(outcome.code)) return;
+
+    lane.failures += 1;
+    const ceiling = Math.min(this.#retry.maxMs, this.#retry.baseMs * 2 ** (lane.failures - 1));
+    const delay = Math.round(ceiling / 2 + (ceiling / 2) * this.#random());
+    lane.retryTimer = setTimeout(() => {
+      lane.retryTimer = null;
+      void this.sync(accountId);
+    }, delay);
   }
 
   async #run(accountId: string): Promise<SyncOutcome> {
     const outcome = await this.#attempt(accountId);
+    this.#scheduleRetry(accountId, outcome);
     try {
       this.#onOutcome?.(outcome);
     } catch {

@@ -10,6 +10,38 @@ export const CONNECT_TIMEOUT_MS = 30_000;
 export const GREETING_TIMEOUT_MS = 15_000;
 /** Messages fetched per `exists`. More than this in one gap means a burst; the watcher announces few anyway. */
 export const FETCH_LIMIT = 200;
+/**
+ * Envelopes read from the server per fetch, at most. A server that streams without end (hostile or
+ * broken) is cut off here instead of growing the main process; 5x the keep-limit leaves room for UID gaps.
+ */
+export const FETCH_SCAN_MAX = 1_000;
+
+/**
+ * First UID worth asking for: after `lastUid`, and no further back than the newest FETCH_LIMIT slots
+ * below `uidNext`. Mail older than that would be dropped by the keep-limit anyway; asking for it only
+ * costs a long envelope list after weeks offline. A stale `uidNext` is lower than the real one, so the
+ * range only gets wider, never misses new mail.
+ */
+export function fetchStartUid(lastUid: number, uidNext: number): number {
+  return Math.max(lastUid + 1, uidNext - FETCH_LIMIT);
+}
+
+/** Streams `rows`, keeps the newest `keep`, and stops reading after `scanMax` rows. Memory is O(keep). */
+export async function keepNewest<T>(
+  rows: AsyncIterable<T>,
+  keep: number,
+  scanMax: number,
+): Promise<T[]> {
+  const kept: T[] = [];
+  let scanned = 0;
+  for await (const row of rows) {
+    kept.push(row);
+    if (kept.length > keep) kept.shift();
+    scanned += 1;
+    if (scanned >= scanMax) break;
+  }
+  return kept;
+}
 
 export interface ImapConnection {
   readonly host: string;
@@ -58,18 +90,27 @@ export function imapflowConnector(config: ImapConnection): () => Promise<Mailbox
     try {
       await client.connect();
       const mailbox = await client.mailboxOpen("INBOX", { readOnly: true });
+      // Without UIDNEXT the cursor would be NaN and every reconnect would fail the same way.
+      if (!Number.isSafeInteger(mailbox.uidNext) || mailbox.uidNext < 1) {
+        throw new FatalWatchError("server did not report UIDNEXT");
+      }
+      const openUidNext = mailbox.uidNext;
 
       return {
         uidValidity: mailbox.uidValidity.toString(),
-        uidNext: mailbox.uidNext,
+        uidNext: openUidNext,
         async fetchSince(uid: number): Promise<IncomingMessage[]> {
           const out: IncomingMessage[] = [];
-          const rows = await client.fetchAll(
-            `${String(uid + 1)}:*`,
-            { uid: true, envelope: true },
-            { uid: true },
+          const rows = await keepNewest(
+            client.fetch(
+              `${String(fetchStartUid(uid, openUidNext))}:*`,
+              { uid: true, envelope: true },
+              { uid: true },
+            ),
+            FETCH_LIMIT,
+            FETCH_SCAN_MAX,
           );
-          for (const row of rows.slice(-FETCH_LIMIT)) {
+          for (const row of rows) {
             const incoming = toIncoming(
               row.uid,
               row.envelope?.from?.[0]?.address,

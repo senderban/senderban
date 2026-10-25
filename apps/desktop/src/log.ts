@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -8,6 +9,16 @@ const FIELD_MAX = 300;
 
 // Same character class as the watcher's subject sanitiser: no control or bidi characters reach the file.
 const CONTROL_AND_BIDI = /[\p{Cc}‎‏‪-‮⁦-⁩]/gu;
+
+/**
+ * What an account id looks like in the log. An id may be the mailbox address ("id = address"), and a
+ * full address must not reach a file people attach to bug reports; a short stable tag still tells
+ * accounts apart across lines.
+ */
+export function accountTag(id: string): string {
+  if (!id.includes("@")) return id;
+  return `acct-${createHash("sha256").update(id).digest("hex").slice(0, 8)}`;
+}
 
 export type LogFields = Readonly<Record<string, string | number | boolean | null | undefined>>;
 export type Log = (event: string, fields?: LogFields) => void;

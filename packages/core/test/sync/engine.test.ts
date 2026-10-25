@@ -322,3 +322,71 @@ describe("SyncEngine.verify", () => {
     expect((await s.engine.verify("nope")).status).toBe("failed");
   });
 });
+
+describe("SyncEngine retry after a failed sync", () => {
+  const fast = { retry: { baseMs: 10, maxMs: 40 }, random: () => 0 } as const;
+
+  it("applies the change on its own once a transient failure has passed", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("TRANSIENT", "offline");
+    expect(await engine.sync("acct")).toMatchObject({ status: "failed", code: "TRANSIENT" });
+    expect(a.remote.size).toBe(0);
+
+    a.failWith = null;
+    await new Promise((r) => setTimeout(r, 60));
+    expect(a.remote.size).toBe(1);
+  });
+
+  it("stops retrying once a sync has succeeded", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("TRANSIENT", "offline");
+    await engine.sync("acct");
+    a.failWith = null;
+    await new Promise((r) => setTimeout(r, 60));
+    const calls = a.applyCalls;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.applyCalls).toBe(calls);
+  });
+
+  it("does not retry a failure that retrying cannot fix (wrong password)", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("AUTH_REQUIRED", "password rejected");
+    await engine.sync("acct");
+    const calls = a.applyCalls;
+    a.failWith = null;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.applyCalls).toBe(calls);
+  });
+
+  it("backs off between attempts instead of retrying in a tight loop", async () => {
+    const { store, engine, add } = track(
+      setup({ retry: { baseMs: 20, maxMs: 1_000 }, random: () => 1 }),
+    );
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("TRANSIENT", "offline");
+    await engine.sync("acct");
+    await new Promise((r) => setTimeout(r, 150));
+    // delays 20, 40, 80...: at most 3 retries fit in 150 ms, plus the first attempt
+    expect(a.applyCalls).toBeLessThanOrEqual(4);
+    expect(a.applyCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("dispose cancels a pending retry", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("TRANSIENT", "offline");
+    await engine.sync("acct");
+    engine.dispose();
+    a.failWith = null;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.remote.size).toBe(0);
+  });
+});

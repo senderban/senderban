@@ -20,6 +20,8 @@ export interface ManageHandlers {
   readonly getSeconds: () => number;
   /** Persists the value and returns what is now in effect. */
   readonly setSeconds: (seconds: number) => Promise<number>;
+  /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
+  readonly onError: (channel: string, error: unknown) => void;
 }
 
 /**
@@ -98,17 +100,27 @@ export class ManageWindow {
   #trusted(event: IpcMainInvokeEvent): boolean {
     const win = this.#win;
     if (win === null || win.isDestroyed() || event.sender.id !== win.webContents.id) return false;
-    const url = event.senderFrame?.url ?? "";
-    return url.startsWith("file:") && url.endsWith(PAGE);
+    // The window only ever loads our page (navigation and new windows are blocked), so its main frame is that page.
+    // Compared by frame identity, not by URL: Electron leaves a bare % in a folder name raw in the URL.
+    const frame = event.senderFrame;
+    const main = win.webContents.mainFrame;
+    return (
+      frame !== null && frame.processId === main.processId && frame.routingId === main.routingId
+    );
   }
 
   #init(event: IpcMainInvokeEvent) {
     if (!this.#trusted(event)) return null;
-    return {
-      entries: this.#handlers.list(),
-      seconds: this.#handlers.getSeconds(),
-      limits: { min: POPUP_SECONDS.min, max: POPUP_SECONDS.max },
-    };
+    try {
+      return {
+        entries: this.#handlers.list(),
+        seconds: this.#handlers.getSeconds(),
+        limits: { min: POPUP_SECONDS.min, max: POPUP_SECONDS.max },
+      };
+    } catch (error) {
+      this.#handlers.onError("manage:init", error);
+      return null;
+    }
   }
 
   async #unblock(event: IpcMainInvokeEvent, id: unknown) {
@@ -117,7 +129,8 @@ export class ManageWindow {
     try {
       const outcome = await this.#handlers.unblock(id);
       return { ...outcome, entries: this.#handlers.list() };
-    } catch {
+    } catch (error) {
+      this.#handlers.onError("manage:unblock", error);
       return null;
     } finally {
       this.#unblocking = false;
@@ -128,6 +141,11 @@ export class ManageWindow {
     if (!this.#trusted(event)) return null;
     const parsed = SettingsSchema.safeParse({ version: 1, popupSeconds: value });
     if (!parsed.success) return null;
-    return this.#handlers.setSeconds(parsed.data.popupSeconds);
+    try {
+      return await this.#handlers.setSeconds(parsed.data.popupSeconds);
+    } catch (error) {
+      this.#handlers.onError("manage:save-seconds", error);
+      return null;
+    }
   }
 }
