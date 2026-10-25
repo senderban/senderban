@@ -31,6 +31,7 @@ import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
+import { listMxroute, removeMxroute, saveMxroute } from "./mxroute-settings.js";
 import { Popups } from "./popups.js";
 import type { PopupView } from "./popups.js";
 import { loadSettings, saveSettings } from "./settings-file.js";
@@ -353,7 +354,11 @@ async function shutdown(): Promise<void> {
 
 const addAccountArg = process.argv.find((a) => a.startsWith("--add-account="));
 
-if (addAccountArg !== undefined) {
+if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
+  // The running app rewrites accounts.json too (an Advanced key save): two writers would lose one change.
+  process.stderr.write("Senderban is running. Quit it from the tray, then add the account.\n");
+  app.exit(1);
+} else if (addAccountArg !== undefined) {
   // Bootstrap mode: store one encrypted account and exit; nothing else starts.
   void app.whenReady().then(async () => {
     try {
@@ -400,6 +405,7 @@ if (addAccountArg !== undefined) {
 
   void app.whenReady().then(async () => {
     const settingsPath = join(app.getPath("userData"), "settings.json");
+    const accountsPath = join(app.getPath("userData"), "accounts.json");
     try {
       settings = await loadSettings(settingsPath);
     } catch (error) {
@@ -454,6 +460,18 @@ if (addAccountArg !== undefined) {
       list: () => runtime?.store.list() ?? [],
       getSeconds: () => settings.popupSeconds,
       onError: logIpcError,
+      mxrouteList: () => listMxroute(accountsPath),
+      mxrouteSave: async (input) => {
+        const result = await saveMxroute(accountsPath, input);
+        // Account tag and outcome only: never the key, the user name or the server.
+        log("mxroute-saved", { account: accountTag(input.accountId), result });
+        return result;
+      },
+      mxrouteRemove: async (accountId) => {
+        const result = await removeMxroute(accountsPath, accountId);
+        log("mxroute-removed", { account: accountTag(accountId), result });
+        return result;
+      },
       setSeconds: async (popupSeconds) => {
         const next = { ...settings, popupSeconds };
         await saveSettings(settingsPath, next);

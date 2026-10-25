@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { AccountsFileSchema } from "@senderban/core";
 import type { AccountConfig } from "@senderban/core";
 import { safeStorage } from "electron";
@@ -30,7 +30,14 @@ export async function saveAccounts(
   const file = AccountsFileSchema.parse({ version: 1, accounts });
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temp, JSON.stringify(file, null, 2), { encoding: "utf8", flag: "wx" });
+    // Flushed before the rename: a power cut right after a save must not leave a renamed, empty file.
+    const handle = await open(temp, "wx");
+    try {
+      await handle.writeFile(JSON.stringify(file, null, 2), "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(temp, path);
   } catch (error) {
     await unlink(temp).catch(() => undefined);

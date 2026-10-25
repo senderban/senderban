@@ -1,10 +1,26 @@
 import { join } from "node:path";
-import { POPUP_SECONDS, SettingsSchema, isEntryId } from "@senderban/core";
+import {
+  ACCOUNT_ID,
+  MXROUTE_LIMITS,
+  MxrouteInputSchema,
+  POPUP_SECONDS,
+  SettingsSchema,
+  isEntryId,
+} from "@senderban/core";
 import type { BlockEntry } from "@senderban/core";
 import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 
 const PAGE = "manage/manage.html";
+
+/** What the page may know about an account's MXroute key: never the key, never its ciphertext. */
+export interface ManageMxrouteAccount {
+  readonly accountId: string;
+  readonly label: string;
+  readonly hasKey: boolean;
+  readonly server: string | null;
+  readonly username: string | null;
+}
 
 /** What the page shows after an unblock; the same line the person reads in the window. */
 export interface ManageOutcome {
@@ -20,6 +36,13 @@ export interface ManageHandlers {
   readonly getSeconds: () => number;
   /** Persists the value and returns what is now in effect. */
   readonly setSeconds: (seconds: number) => Promise<number>;
+  /** Advanced: the accounts with their MXroute key status (the key itself stays in the main process). */
+  readonly mxrouteList: () => Promise<readonly ManageMxrouteAccount[]>;
+  /** Stores the key encrypted. The input has already passed the core schema. */
+  readonly mxrouteSave: (
+    input: ReturnType<typeof MxrouteInputSchema.parse>,
+  ) => Promise<"saved" | "unknown-account">;
+  readonly mxrouteRemove: (accountId: string) => Promise<"saved" | "unknown-account">;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -42,6 +65,11 @@ export class ManageWindow {
     ipcMain.handle("manage:init", (event) => this.#init(event));
     ipcMain.handle("manage:unblock", (event, id: unknown) => this.#unblock(event, id));
     ipcMain.handle("manage:save-seconds", (event, value: unknown) => this.#save(event, value));
+    ipcMain.handle("manage:mxroute-list", (event) => this.#mxrouteList(event));
+    ipcMain.handle("manage:mxroute-save", (event, value: unknown) =>
+      this.#mxrouteSave(event, value),
+    );
+    ipcMain.handle("manage:mxroute-remove", (event, id: unknown) => this.#mxrouteRemove(event, id));
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -148,4 +176,41 @@ export class ManageWindow {
       return null;
     }
   }
+
+  async #mxrouteList(event: IpcMainInvokeEvent) {
+    if (!this.#trusted(event)) return null;
+    try {
+      // The limits come from here so the page never invents its own numbers.
+      return { accounts: await this.#handlers.mxrouteList(), limits: MXROUTE_LIMITS };
+    } catch (error) {
+      this.#handlers.onError("manage:mxroute-list", error);
+      return null;
+    }
+  }
+
+  /** The reply is a fixed word, never the input and never an error text: the key must not travel back. */
+  async #mxrouteSave(event: IpcMainInvokeEvent, value: unknown): Promise<MxrouteReply> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = MxrouteInputSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      return await this.#handlers.mxrouteSave(parsed.data);
+    } catch (error) {
+      this.#handlers.onError("manage:mxroute-save", error);
+      return "failed";
+    }
+  }
+
+  async #mxrouteRemove(event: IpcMainInvokeEvent, id: unknown): Promise<MxrouteReply> {
+    if (!this.#trusted(event)) return "denied";
+    if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
+    try {
+      return await this.#handlers.mxrouteRemove(id);
+    } catch (error) {
+      this.#handlers.onError("manage:mxroute-remove", error);
+      return "failed";
+    }
+  }
 }
+
+type MxrouteReply = "saved" | "unknown-account" | "invalid" | "denied" | "failed";
