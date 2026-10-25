@@ -207,6 +207,48 @@ describe("SieveAdapter failure handling", () => {
     expect(server.scripts.get("senderban-rules")).toBe("keep;\n");
   });
 
+  it("adopts our own empty rules script when no state was recorded", async () => {
+    const { server, adapter } = setup();
+    await sync(adapter, [], initialSieveState());
+    const lost = initialSieveState(); // state row gone, script still on the server
+    const { result } = await sync(adapter, [entry(1, "exactAddress", "a@example.com")], lost);
+    expect(result.applied).toBe(1);
+    expect(server.scripts.get("senderban-rules")).toContain("a@example.com");
+    expect((await adapter.verify(result.state)).drifted).toBe(false);
+  });
+
+  it.each([
+    ["different content", "keep;\n"],
+    [
+      "our empty script plus a comment",
+      'require ["fileinto", "mailbox", "envelope"];\n# senderban-managed v1\n# hi\n',
+    ],
+    [
+      "our empty script with a trailing space",
+      'require ["fileinto", "mailbox", "envelope"]; \n# senderban-managed v1\n',
+    ],
+  ])("still refuses an unrecorded rules script with %s", async (_name, remote) => {
+    const { server, adapter } = setup();
+    server.scripts.set("senderban-rules", remote);
+    const list = [entry(1, "exactAddress", "a@example.com")];
+    expect(await failure(sync(adapter, list, initialSieveState()))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("senderban-rules")).toBe(remote);
+  });
+
+  it("does not adopt an empty script once a state is recorded (it counts as edited)", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    const emptied = 'require ["fileinto", "mailbox", "envelope"];\n# senderban-managed v1\n';
+    server.scripts.set("senderban-rules", emptied);
+    const other = [entry(2, "exactAddress", "b@example.com")];
+    expect(await failure(sync(adapter, other, first.result.state))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("senderban-rules")).toBe(emptied);
+  });
+
   it("reports REMOTE_CHANGED when the rules script was deleted", async () => {
     const { server, adapter } = setup();
     const first = await sync(adapter, [], initialSieveState());

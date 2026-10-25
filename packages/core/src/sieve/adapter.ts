@@ -246,7 +246,11 @@ export class SieveAdapter implements BlockAdapter {
         }
       } else {
         const remoteSha = scriptSha256(remote);
-        if (remoteSha !== sha && remoteSha !== state.rulesSha256) {
+        // No recorded state (lost DB, first run after a crash) is not an edit: a script that is
+        // byte-for-byte our empty rule set holds nothing of anyone's, so adopting it loses nothing.
+        const isOurEmpty =
+          state.rulesSha256 === null && remoteSha === scriptSha256(renderRules([], this.#render));
+        if (remoteSha !== sha && remoteSha !== state.rulesSha256 && !isOurEmpty) {
           throw new AdapterError("REMOTE_CHANGED", "rules script was edited on the server");
         }
       }
