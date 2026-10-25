@@ -107,7 +107,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
         ? "Senderban will try again."
         : outcome.code === "AUTH_REQUIRED"
           ? "The password was refused: fix it, then restart Senderban (it tries again in 30 minutes)."
-          : "Check the account in Senderban.";
+          : outcome.code === "REMOTE_CHANGED"
+            ? "Someone else changed Senderban's script on the server, so it stopped instead of overwriting it. It will not try again by itself."
+            : "Check the account in Senderban.";
   notice("Senderban", `The block list is not up to date on ${label} (${why}). ${next}`);
 }
 

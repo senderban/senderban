@@ -16,6 +16,7 @@ export class FakeSieveServer {
   readonly puts: string[] = [];
   #gets = new Map<string, number>();
   closed = 0;
+  destroyed = 0;
 
   session(): SieveSession {
     return {
@@ -67,6 +68,9 @@ export class FakeSieveServer {
       close: () => {
         this.closed += 1;
         return Promise.resolve();
+      },
+      destroy: () => {
+        this.destroyed += 1;
       },
     };
   }

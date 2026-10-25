@@ -101,15 +101,54 @@ const CAPABILITIES: Capabilities = {
 
 const entryKey = (e: BlockEntry): string => JSON.stringify([e.id, e.match, e.value, e.action]);
 
+/** The session, but every command refuses to start once `signal` has aborted (red-team KC-2). */
+function cancellable(session: SieveSession, signal: AbortSignal): SieveSession {
+  const guard =
+    <A extends unknown[], R>(call: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      signal.throwIfAborted();
+      return call(...args);
+    };
+  return {
+    extensions: () => session.extensions(),
+    listScripts: guard(() => session.listScripts()),
+    getScript: guard((name) => session.getScript(name)),
+    haveSpace: guard((name, size) => session.haveSpace(name, size)),
+    putScript: guard((name, content) => session.putScript(name, content)),
+    setActive: guard((name) => session.setActive(name)),
+    deleteScript: guard((name) => session.deleteScript(name)),
+    close: () => session.close(),
+    destroy: () => {
+      session.destroy();
+    },
+  };
+}
+
+/**
+ * When `signal` aborts the connection is dropped at once and no further command is sent, so a round the
+ * engine gave up on cannot write after a newer round has. A `connect` still pending at that moment
+ * finishes on its own bounded steps; its session is dropped the moment it arrives.
+ */
 async function withSession<T>(
   connect: () => Promise<SieveSession>,
   fn: (session: SieveSession) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted();
   const session = await connect();
+  if (signal?.aborted === true) {
+    session.destroy();
+    signal.throwIfAborted();
+  }
+  const onAbort = (): void => {
+    session.destroy();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    return await fn(session);
+    return await fn(signal === undefined ? session : cancellable(session, signal));
   } finally {
-    await session.close().catch(() => undefined);
+    signal?.removeEventListener("abort", onAbort);
+    if (signal?.aborted !== true) await session.close().catch(() => undefined);
   }
 }
 
@@ -225,7 +264,7 @@ export class SieveAdapter implements BlockAdapter {
    * One atomic PUTSCRIPT of the whole rules script, so there is no window with a half-applied
    * list. Retrying after a failure is safe: an already-written script is recognised by its hash.
    */
-  async apply(plan: Plan): Promise<ApplyResult> {
+  async apply(plan: Plan, signal?: AbortSignal): Promise<ApplyResult> {
     const state = parseState(plan.basedOn);
     const removed = new Set(plan.changes.filter((c) => c.kind === "remove").map((c) => c.entry.id));
     const created = plan.changes.filter((c) => c.kind === "create").map((c) => c.entry);
@@ -236,46 +275,50 @@ export class SieveAdapter implements BlockAdapter {
     const rules = renderRules(applied, this.#render);
     const sha = scriptSha256(rules);
 
-    return withSession(this.#options.connect, async (session) => {
-      requireExtensions(session);
+    return withSession(
+      this.#options.connect,
+      async (session) => {
+        requireExtensions(session);
 
-      const remote = await session.getScript(state.rulesName);
-      if (remote === null) {
-        if (state.rulesSha256 !== null) {
-          throw new AdapterError("REMOTE_CHANGED", "rules script was deleted on the server");
+        const remote = await session.getScript(state.rulesName);
+        if (remote === null) {
+          if (state.rulesSha256 !== null) {
+            throw new AdapterError("REMOTE_CHANGED", "rules script was deleted on the server");
+          }
+        } else {
+          const remoteSha = scriptSha256(remote);
+          // No recorded state (lost DB, first run after a crash) is not an edit: a script that is
+          // byte-for-byte our empty rule set holds nothing of anyone's, so adopting it loses nothing.
+          const isOurEmpty =
+            state.rulesSha256 === null && remoteSha === scriptSha256(renderRules([], this.#render));
+          if (remoteSha !== sha && remoteSha !== state.rulesSha256 && !isOurEmpty) {
+            throw new AdapterError("REMOTE_CHANGED", "rules script was edited on the server");
+          }
         }
-      } else {
-        const remoteSha = scriptSha256(remote);
-        // No recorded state (lost DB, first run after a crash) is not an edit: a script that is
-        // byte-for-byte our empty rule set holds nothing of anyone's, so adopting it loses nothing.
-        const isOurEmpty =
-          state.rulesSha256 === null && remoteSha === scriptSha256(renderRules([], this.#render));
-        if (remoteSha !== sha && remoteSha !== state.rulesSha256 && !isOurEmpty) {
-          throw new AdapterError("REMOTE_CHANGED", "rules script was edited on the server");
+        const needsWrite = remote === null || scriptSha256(remote) !== sha;
+        if (needsWrite && !(await session.haveSpace(state.rulesName, scriptBytes(rules)))) {
+          throw new AdapterError("QUOTA_EXCEEDED", "server has no room for the rules script");
         }
-      }
-      const needsWrite = remote === null || scriptSha256(remote) !== sha;
-      if (needsWrite && !(await session.haveSpace(state.rulesName, scriptBytes(rules)))) {
-        throw new AdapterError("QUOTA_EXCEEDED", "server has no room for the rules script");
-      }
 
-      // The include target must exist before anything points at it (servers compile includes).
-      if (remote === null) await session.putScript(state.rulesName, rules);
-      const backup = await ensureInclude(session, state);
-      if (remote !== null && needsWrite) await session.putScript(state.rulesName, rules);
+        // The include target must exist before anything points at it (servers compile includes).
+        if (remote === null) await session.putScript(state.rulesName, rules);
+        const backup = await ensureInclude(session, state);
+        if (remote !== null && needsWrite) await session.putScript(state.rulesName, rules);
 
-      const next: SieveState = {
-        ...state,
-        applied,
-        rulesSha256: sha,
-        includeBackup: backup ?? state.includeBackup,
-      };
-      return {
-        applied: plan.changes.length,
-        failed: [],
-        state: { adapterId: SIEVE_ADAPTER_ID, data: next },
-      };
-    });
+        const next: SieveState = {
+          ...state,
+          applied,
+          rulesSha256: sha,
+          includeBackup: backup ?? state.includeBackup,
+        };
+        return {
+          applied: plan.changes.length,
+          failed: [],
+          state: { adapterId: SIEVE_ADAPTER_ID, data: next },
+        };
+      },
+      signal,
+    );
   }
 
   /**
@@ -322,46 +365,50 @@ export class SieveAdapter implements BlockAdapter {
     });
   }
 
-  async verify(state: OpaqueState): Promise<Drift> {
+  async verify(state: OpaqueState, signal?: AbortSignal): Promise<Drift> {
     const current = parseState(state);
-    return withSession(this.#options.connect, async (session) => {
-      const checks: DriftCheck[] = [];
-      const check = (name: string, ok: boolean, detail: string): void => {
-        checks.push({ name, ok, detail });
-      };
+    return withSession(
+      this.#options.connect,
+      async (session) => {
+        const checks: DriftCheck[] = [];
+        const check = (name: string, ok: boolean, detail: string): void => {
+          checks.push({ name, ok, detail });
+        };
 
-      const remote = await session.getScript(current.rulesName);
-      check("rules-present", remote !== null, remote === null ? "rules script missing" : "found");
-      if (remote !== null) {
-        const same = scriptSha256(remote) === current.rulesSha256;
-        check("rules-unchanged", same, same ? "matches what we wrote" : "rules script edited");
-      }
+        const remote = await session.getScript(current.rulesName);
+        check("rules-present", remote !== null, remote === null ? "rules script missing" : "found");
+        if (remote !== null) {
+          const same = scriptSha256(remote) === current.rulesSha256;
+          check("rules-unchanged", same, same ? "matches what we wrote" : "rules script edited");
+        }
 
-      const active = (await session.listScripts()).find((s) => s.active);
-      if (active === undefined) {
-        check("include-active", false, "no active script");
-      } else {
-        const text = await session.getScript(active.name);
-        const included = text !== null && hasInclude(text, current.rulesName);
-        check(
-          "include-active",
-          included,
-          included
-            ? `active script "${active.name}" includes the rules`
-            : `active script "${active.name}" does not include the rules`,
-        );
-      }
+        const active = (await session.listScripts()).find((s) => s.active);
+        if (active === undefined) {
+          check("include-active", false, "no active script");
+        } else {
+          const text = await session.getScript(active.name);
+          const included = text !== null && hasInclude(text, current.rulesName);
+          check(
+            "include-active",
+            included,
+            included
+              ? `active script "${active.name}" includes the rules`
+              : `active script "${active.name}" does not include the rules`,
+          );
+        }
 
-      const failed = checks.filter((c) => !c.ok);
-      return {
-        drifted: failed.length > 0,
-        detail:
-          failed.length === 0
-            ? "rules and include in place"
-            : failed.map((c) => c.detail).join("; "),
-        checkedAt: new Date().toISOString(),
-        checks,
-      };
-    });
+        const failed = checks.filter((c) => !c.ok);
+        return {
+          drifted: failed.length > 0,
+          detail:
+            failed.length === 0
+              ? "rules and include in place"
+              : failed.map((c) => c.detail).join("; "),
+          checkedAt: new Date().toISOString(),
+          checks,
+        };
+      },
+      signal,
+    );
   }
 }

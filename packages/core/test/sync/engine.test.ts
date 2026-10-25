@@ -67,8 +67,11 @@ class FakeAdapter implements BlockAdapter {
     return Promise.resolve({ accountId: this.accountId, changes, basedOn: state });
   }
 
-  async apply(plan: Plan): Promise<ApplyResult> {
+  lastSignal: AbortSignal | undefined;
+
+  async apply(plan: Plan, signal?: AbortSignal): Promise<ApplyResult> {
     this.applyCalls++;
+    this.lastSignal = signal;
     if (this.hang) return new Promise<ApplyResult>(() => undefined);
     if (this.gate !== null) await this.gate;
     if (this.failWith !== null) throw this.failWith;
@@ -364,6 +367,36 @@ describe("SyncEngine retry after a failed sync", () => {
     a.failWith = null;
     await new Promise((r) => setTimeout(r, 80));
     expect(a.applyCalls).toBe(calls);
+  });
+
+  // Red-team KC-2b: a script edited by someone else reads the same on every retry, so retrying only repeats the stop.
+  it("does not retry when the rules script was changed by someone else", async () => {
+    const { store, engine, add } = track(setup(fast));
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("REMOTE_CHANGED", "rules script was edited on the server");
+    expect(await engine.sync("acct")).toMatchObject({ status: "failed", code: "REMOTE_CHANGED" });
+    const calls = a.applyCalls;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(a.applyCalls).toBe(calls);
+  });
+
+  // Red-team KC-2: giving up on a round must tell the adapter, or the stalled round writes later.
+  it("aborts the adapter's signal when a round passes its deadline", async () => {
+    const { store, engine, add } = track(setup({ timeoutMs: 20 }));
+    const a = add("acct");
+    store.add(addr());
+    a.hang = true;
+    expect(await engine.sync("acct")).toMatchObject({ status: "failed", code: "TRANSIENT" });
+    expect(a.lastSignal?.aborted).toBe(true);
+  });
+
+  it("leaves the signal alone when the round finishes in time", async () => {
+    const { store, engine, add } = track(setup());
+    const a = add("acct");
+    store.add(addr());
+    expect(await engine.sync("acct")).toMatchObject({ status: "applied" });
+    expect(a.lastSignal?.aborted).toBe(false);
   });
 
   // Red-team KC-3: every block, unblock and read-back used to open a fresh login with the bad password.

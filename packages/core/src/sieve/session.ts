@@ -21,4 +21,6 @@ export interface SieveSession {
   /** The server refuses to delete the active script. */
   deleteScript(name: string): Promise<void>;
   close(): Promise<void>;
+  /** Drops the connection at once, without LOGOUT; a command still waiting for its reply fails. */
+  destroy(): void;
 }

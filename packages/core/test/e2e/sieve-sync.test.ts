@@ -153,6 +153,59 @@ describe("Sieve + Store + SyncEngine", () => {
     expect((await adapter.verify(state)).drifted).toBe(true);
   });
 
+  // Red-team KC-2: a round the engine timed out used to finish later and put its older list back.
+  it("a round that outlives its deadline drops the connection and cannot write afterwards", async () => {
+    const server = new FakeSieveServer();
+    const store = new Store(openDatabase(":memory:"));
+    let release: () => void = () => undefined;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessions = 0;
+    const adapter = new SieveAdapter({
+      accountId: ACCOUNT,
+      connect: () => {
+        const session = server.session();
+        sessions += 1;
+        if (sessions > 1) return Promise.resolve(session);
+        return Promise.resolve({
+          ...session,
+          // Stalls after the round read the remote, so its idea of the remote goes stale.
+          haveSpace: async (name: string, size: number) => {
+            await stalled;
+            return session.haveSpace(name, size);
+          },
+        });
+      },
+    });
+    const engine = new SyncEngine(store, {
+      debounceMs: 5,
+      timeoutMs: 250, // the second round must fit inside it even on a loaded CI machine
+      retry: { baseMs: 600_000, maxMs: 600_000 },
+    });
+    engine.addAccount({ id: ACCOUNT, adapter, initialState: initialSieveState() });
+
+    const first = store.add(entry("exactAddress", "a@example.com"));
+    if (!first.ok) throw new Error("add failed");
+    expect(await engine.sync(ACCOUNT)).toMatchObject({ status: "failed", code: "TRANSIENT" });
+    expect(server.destroyed).toBe(1);
+
+    // The person changes their mind; the next round (a fresh connection) writes the new list.
+    store.remove(first.entry.id);
+    store.add(entry("exactAddress", "b@example.com"));
+    expect(await engine.sync(ACCOUNT)).toMatchObject({ status: "applied" });
+    const written = server.scripts.get("senderban-rules");
+    const putsAfterSecondRound = server.puts.length;
+    expect(written).toContain("b@example.com");
+
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(server.puts.length).toBe(putsAfterSecondRound);
+    expect(server.scripts.get("senderban-rules")).toBe(written);
+    engine.dispose();
+    store.close();
+  });
+
   it("reports QUOTA_EXCEEDED when the server has no room, without touching the remote", async () => {
     const server = new FakeSieveServer();
     server.maxScriptBytes = 10;

@@ -332,6 +332,10 @@ class ManageSieveSession implements SieveSession {
     expectOk(await this.#command(`DELETESCRIPT ${quoted(name)}\r\n`), "DELETESCRIPT");
   }
 
+  destroy(): void {
+    this.#channel.socket.destroy();
+  }
+
   async close(): Promise<void> {
     try {
       await this.#command("LOGOUT\r\n");

@@ -32,12 +32,16 @@ export function willRetry(code: AdapterErrorCode | "UNKNOWN"): boolean {
   return !PERMANENT.has(code);
 }
 
-/** Retrying these cannot help (wrong password, unsupported rule, provider says no) and risks a lockout. */
+/**
+ * Retrying these cannot help (wrong password, unsupported rule, provider says no, someone else edited our
+ * script: every retry reads the same remote and stops again) and risks a lockout.
+ */
 const PERMANENT: ReadonlySet<string> = new Set([
   "AUTH_REQUIRED",
   "CAPABILITY_NOT_SUPPORTED",
   "REJECTED",
   "QUOTA_EXCEEDED",
+  "REMOTE_CHANGED",
 ]);
 
 export interface EngineAccount {
@@ -108,12 +112,26 @@ interface Lane {
   authBlocked: { readonly outcome: FailedOutcome; readonly until: number } | null;
 }
 
-function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+/**
+ * Runs one provider call with a deadline. At the deadline the call's signal is aborted, so a round that
+ * outlives it closes its connection and sends nothing more (red-team KC-2): abandoning only the promise
+ * would let the stalled round finish later and undo what the next round wrote.
+ */
+function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const limit = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new AdapterError("TRANSIENT", `provider did not answer within ${String(ms)} ms`));
+      const error = new AdapterError(
+        "TRANSIENT",
+        `provider did not answer within ${String(ms)} ms`,
+      );
+      controller.abort(error);
+      reject(error);
     }, ms);
+  });
+  const work = new Promise<T>((resolve) => {
+    resolve(run(controller.signal));
   });
   return Promise.race([work, limit]).finally(() => {
     clearTimeout(timer);
@@ -204,7 +222,7 @@ export class SyncEngine {
     try {
       const state = this.#store.getState(accountId) ?? account.initialState;
       const drift = await this.#gate(() =>
-        withTimeout(account.adapter.verify(state), this.#timeoutMs),
+        withTimeout((signal) => account.adapter.verify(state, signal), this.#timeoutMs),
       );
       return drift.drifted
         ? { accountId, status: "drifted", detail: drift.detail.slice(0, 500) }
@@ -253,7 +271,7 @@ export class SyncEngine {
         try {
           const state = this.#store.getState(accountId) ?? account.initialState;
           const drift = await this.#gate(() =>
-            withTimeout(account.adapter.verify(state), this.#timeoutMs),
+            withTimeout((signal) => account.adapter.verify(state, signal), this.#timeoutMs),
           );
           return { accountId, interrupted, outcome, drift };
         } catch (error) {
@@ -351,13 +369,16 @@ export class SyncEngine {
       // The Sieve plan is local, but an adapter may read the provider while planning; a deadline keeps a stuck
       // read from holding a slot for good.
       const plan = await withTimeout(
-        account.adapter.plan(this.#store.list(), state),
+        () => account.adapter.plan(this.#store.list(), state),
         this.#timeoutMs,
       );
       if (plan.changes.length === 0) return { accountId, status: "unchanged" };
 
       seq = this.#store.beginSync(plan);
-      const result = await withTimeout(account.adapter.apply(plan), this.#timeoutMs);
+      const result = await withTimeout(
+        (signal) => account.adapter.apply(plan, signal),
+        this.#timeoutMs,
+      );
       this.#store.completeSync(seq, accountId, result);
       return {
         accountId,

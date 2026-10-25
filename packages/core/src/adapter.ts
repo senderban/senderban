@@ -85,8 +85,12 @@ export interface BlockAdapter {
   readonly id: string;
   capabilities(): Capabilities;
   plan(list: Blocklist, state: OpaqueState): Promise<Plan>;
-  apply(plan: Plan): Promise<ApplyResult>;
-  verify(state: OpaqueState): Promise<Drift>;
+  /**
+   * `signal` aborts when the engine gives up on the call: the adapter must then drop its connection and
+   * send nothing more, so a stalled write cannot land after a newer round has replaced it.
+   */
+  apply(plan: Plan, signal?: AbortSignal): Promise<ApplyResult>;
+  verify(state: OpaqueState, signal?: AbortSignal): Promise<Drift>;
   cleanup?(selector: { readonly address: string }): Promise<ApplyResult>;
   /** Removes everything this adapter wrote and restores the user's own rules; returns the empty state. */
   uninstall?(state: OpaqueState): Promise<OpaqueState>;
