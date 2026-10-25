@@ -53,7 +53,16 @@ export interface ImapConnection {
   readonly password: string;
 }
 
-function isAuthFailure(error: unknown): boolean {
+/** RFC 5530 s3: temporary refusals; AUTHENTICATIONFAILED (and no code) stay permanent. */
+const TEMPORARY_REFUSAL_CODES: ReadonlySet<string> = new Set(["UNAVAILABLE", "INUSE"]);
+/**
+ * A server may answer a wrong password with a "temporary" code, so these retries are bounded: with
+ * the watcher backoff (1 s base, 5 min cap) ten attempts last about 10 minutes, then the watcher halts
+ * and the person is told, instead of logging in 12-24 times an hour for good.
+ */
+export const MAX_TEMPORARY_REFUSALS = 10;
+
+function isCredentialRefusal(error: unknown): error is { serverResponseCode?: unknown } {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -62,8 +71,21 @@ function isAuthFailure(error: unknown): boolean {
   );
 }
 
+function isTemporaryRefusal(error: unknown): boolean {
+  if (!isCredentialRefusal(error)) return false;
+  const code =
+    typeof error.serverResponseCode === "string" ? error.serverResponseCode.toUpperCase() : "";
+  return TEMPORARY_REFUSAL_CODES.has(code);
+}
+
+/** True only for a refusal of the credentials; a throttled or unavailable server is retried, not halted. */
+export function isAuthFailure(error: unknown): boolean {
+  return isCredentialRefusal(error) && !isTemporaryRefusal(error);
+}
+
 /** Connects, opens INBOX read-only (EXAMINE: no flag side effects) and adapts ImapFlow to `MailboxSession`. */
 export function imapflowConnector(config: ImapConnection): () => Promise<MailboxSession> {
+  let temporaryRefusals = 0;
   return async () => {
     const client = new ImapFlow({
       host: config.host,
@@ -95,6 +117,7 @@ export function imapflowConnector(config: ImapConnection): () => Promise<Mailbox
         throw new FatalWatchError("server did not report UIDNEXT");
       }
       const openUidNext = mailbox.uidNext;
+      temporaryRefusals = 0;
 
       return {
         uidValidity: mailbox.uidValidity.toString(),
@@ -137,6 +160,14 @@ export function imapflowConnector(config: ImapConnection): () => Promise<Mailbox
       client.close();
       if (isAuthFailure(error)) {
         throw new FatalWatchError("authentication failed", { cause: error });
+      }
+      if (isTemporaryRefusal(error)) {
+        temporaryRefusals += 1;
+        if (temporaryRefusals >= MAX_TEMPORARY_REFUSALS) {
+          throw new FatalWatchError("server keeps refusing the login as temporarily unavailable", {
+            cause: error,
+          });
+        }
       }
       throw error;
     }

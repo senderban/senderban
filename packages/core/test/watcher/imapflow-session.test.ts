@@ -3,8 +3,35 @@ import {
   FETCH_LIMIT,
   FETCH_SCAN_MAX,
   fetchStartUid,
+  isAuthFailure,
   keepNewest,
 } from "../../src/watcher/imapflow-session.js";
+
+describe("isAuthFailure", () => {
+  const refused = (serverResponseCode?: string) =>
+    Object.assign(new Error("Command failed"), {
+      authenticationFailed: true,
+      ...(serverResponseCode === undefined ? {} : { serverResponseCode }),
+    });
+
+  it("halts on a plain refusal and on AUTHENTICATIONFAILED", () => {
+    expect(isAuthFailure(refused())).toBe(true);
+    expect(isAuthFailure(refused("AUTHENTICATIONFAILED"))).toBe(true);
+  });
+
+  it("does not halt on a temporary refusal (UNAVAILABLE, INUSE), so the watcher retries", () => {
+    expect(isAuthFailure(refused("UNAVAILABLE"))).toBe(false);
+    expect(isAuthFailure(refused("inuse"))).toBe(false);
+  });
+
+  it("ignores errors that are not credential refusals", () => {
+    expect(isAuthFailure(new Error("socket hang up"))).toBe(false);
+    expect(isAuthFailure(null)).toBe(false);
+    expect(isAuthFailure(Object.assign(new Error("x"), { authenticationFailed: false }))).toBe(
+      false,
+    );
+  });
+});
 
 function counting(total: number, pulled: { n: number }): AsyncIterable<number> {
   return {

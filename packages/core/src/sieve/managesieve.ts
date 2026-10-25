@@ -115,6 +115,20 @@ function failure(response: Response, what: string): AdapterError {
   return new AdapterError("REJECTED", `${what} - refused${text}`);
 }
 
+/**
+ * A refused AUTHENTICATE is a wrong password (permanent, never retried: some hosts block the address
+ * after repeated failures) unless the server says the failure is temporary. RFC 5804 s1.3 lets any
+ * NO/BYE carry TRYLATER ("temporary server failure"); a throttled login must be retried, not reported as a bad password.
+ */
+export function authFailure(response: Response): AdapterError {
+  const code = (response.code ?? "").toUpperCase();
+  // Fixed texts: the server's own words do not go into the log or the sync journal.
+  if (response.status === "BYE" || code === "TRYLATER") {
+    return new AdapterError("TRANSIENT", "ManageSieve login was deferred by the server");
+  }
+  return new AdapterError("AUTH_REQUIRED", "ManageSieve login was refused");
+}
+
 function expectOk(response: Response, what: string): void {
   if (response.status !== "OK") throw failure(response, what);
 }
@@ -229,11 +243,7 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
     const initial = Buffer.from(`\u0000${options.username}\u0000${options.password}`, "utf8");
     secure.write(`AUTHENTICATE "PLAIN" "${initial.toString("base64")}"\r\n`);
     const auth = await secure.read();
-    if (auth.status !== "OK") {
-      throw auth.status === "BYE"
-        ? failure(auth, "authentication")
-        : new AdapterError("AUTH_REQUIRED", "ManageSieve login was refused");
-    }
+    if (auth.status !== "OK") throw authFailure(auth);
 
     const extensions = new Set(
       (caps.get("SIEVE") ?? "")
