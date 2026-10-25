@@ -21,6 +21,7 @@
     "packages/*/test",
     "packages/*/contract",
     "apps/*/src",
+    "apps/*/test",
     "scripts",
     "*.config.*"
   ]

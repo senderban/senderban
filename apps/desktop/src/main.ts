@@ -21,7 +21,7 @@ import type {
 import { connectManageSieve, imapflowConnector } from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor } from "electron";
-import { addAccountFromFile } from "./add-account.js";
+import { AddAccountError, addAccountFromFile } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import { createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
@@ -293,7 +293,13 @@ if (addAccountArg !== undefined) {
       log("account-saved", { account: id });
       app.exit(0);
     } catch (error) {
-      log("account-save-failed", { detail: errorText(error) });
+      // Only our own fixed messages are logged: anything else may quote the file with the password.
+      log("account-save-failed", {
+        detail: error instanceof AddAccountError ? error.message : "unexpected error",
+      });
+      process.stderr.write(
+        `Account not saved. The plaintext file ${addAccountArg.slice("--add-account=".length)} still exists: delete it.\n`,
+      );
       app.exit(1);
     }
   });
