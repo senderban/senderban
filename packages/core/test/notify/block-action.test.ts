@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { blockPending, blockableDomain } from "../../src/notify/block-action.js";
+import { blockPending, blockableDomain, canRejectSender } from "../../src/notify/block-action.js";
 import type { BlockActionDeps } from "../../src/notify/block-action.js";
 import type { BlockEntry } from "../../src/blocklist.js";
 import { PendingBlocks } from "../../src/notify/pending.js";
@@ -13,6 +13,8 @@ function setup(
     check?: VerifyOutcome;
     sender?: string;
     existing?: BlockEntry[];
+    ownDomains?: string[];
+    ownAddresses?: string[];
   } = {},
 ) {
   const outcome = options.outcome ?? { accountId: "a", status: "applied", applied: 1, failed: 0 };
@@ -34,6 +36,10 @@ function setup(
     pending,
     store: { add, list },
     engine: { sync, requestSync, verify },
+    own: {
+      domains: new Set(options.ownDomains ?? []),
+      addresses: new Set(options.ownAddresses ?? []),
+    },
     accountIds: ["a", "b"],
     newId: () => "11111111-1111-4111-8111-111111111111",
     now: () => new Date("2026-10-25T00:00:00Z"),
@@ -109,6 +115,78 @@ describe("blockPending when a rule already exists", () => {
 
   it("lets a Junk choice through even when Trash covers it, because Junk is written first", async () => {
     const { deps } = setup({ existing: [entry("subdomains", "example.com", "trash")] });
+    const result = await blockPending(deps, ID, "address", "junk");
+    expect(result).toMatchObject({ status: "blocked", action: "junk" });
+  });
+
+  it("stores a refused address as a reject entry", async () => {
+    const { deps, add } = setup();
+    const result = await blockPending(deps, ID, "address", "reject");
+    expect(result).toMatchObject({ status: "blocked", action: "reject" });
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ action: "reject" }));
+  });
+
+  it("never stores a whole domain as a reject entry, whatever the caller passes", async () => {
+    const { deps, add } = setup();
+    const result = await blockPending(deps, ID, "domain", "reject");
+    expect(result).toMatchObject({ status: "refused" });
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it("does not report Trash for an address that is already refused, because its backup rule is Junk", async () => {
+    const { deps, add } = setup({
+      existing: [entry("exactAddress", "spam@news.example.com", "reject")],
+    });
+    const result = await blockPending(deps, ID, "address", "trash");
+    expect(result).toEqual({
+      status: "already-blocked",
+      target: "spam@news.example.com",
+      action: "reject",
+    });
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it("never refuses an address on the person's own mail domain: a forged From would bounce real mail", async () => {
+    const { deps, add } = setup({
+      sender: "colleague@example.com",
+      ownDomains: ["example.com"],
+    });
+    const result = await blockPending(deps, ID, "address", "reject");
+    expect(result).toMatchObject({ status: "refused" });
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it("treats a subdomain of an own domain as own, and a lookalike domain as someone else", () => {
+    const own = { domains: new Set(["example.com"]), addresses: new Set<string>() };
+    expect(canRejectSender("a@mail.example.com", own)).toBe(false);
+    expect(canRejectSender("a@example.com", own)).toBe(false);
+    expect(canRejectSender("a@notexample.com", own)).toBe(true);
+    expect(canRejectSender("a@example.com.evil.example", own)).toBe(true);
+  });
+
+  it("never refuses the person's own address, even on a freemail domain, but not the rest of that domain", () => {
+    const own = { domains: new Set<string>(), addresses: new Set(["me@gmail.com"]) };
+    expect(canRejectSender("me@gmail.com", own)).toBe(false);
+    expect(canRejectSender("ME@Gmail.com", own)).toBe(false);
+    expect(canRejectSender("someone@gmail.com", own)).toBe(true);
+  });
+
+  it("refuses an address the blacklist cannot take as a single entry", () => {
+    const none = { domains: new Set<string>(), addresses: new Set<string>() };
+    for (const sender of [
+      "*@gmail.com",
+      "o'brien@example.com",
+      "a/b@example.com",
+      "a%20b@example.com",
+      "@example.com",
+    ]) {
+      expect(canRejectSender(sender, none)).toBe(false);
+    }
+    expect(canRejectSender("ok+tag@example.com", none)).toBe(true);
+  });
+
+  it("still lets an own-domain address go to Junk", async () => {
+    const { deps } = setup({ sender: "colleague@example.com", ownDomains: ["example.com"] });
     const result = await blockPending(deps, ID, "address", "junk");
     expect(result).toMatchObject({ status: "blocked", action: "junk" });
   });

@@ -49,6 +49,21 @@ describe("renderRules", () => {
     expect(text).not.toContain('"Junk"');
   });
 
+  it("files a reject entry like Junk: the server refusal is another lane, this rule is the backup", () => {
+    const text = renderRules(
+      list(
+        entry(1, "exactAddress", "refused@example.com", "reject"),
+        entry(2, "exactAddress", "junked@example.com", "junk"),
+      ),
+      DEFAULT_RENDER_OPTIONS,
+    );
+    expect(text).toContain('"junked@example.com"');
+    expect(text).toContain('"refused@example.com"');
+    expect(text.match(/fileinto :create/gu)).toHaveLength(1);
+    expect(text).toContain('fileinto :create "Junk";');
+    expect(text).not.toContain("Trash");
+  });
+
   it("renders an empty list as a valid no-op script", () => {
     expect(renderRules([], DEFAULT_RENDER_OPTIONS)).toBe(
       'require ["fileinto", "mailbox", "envelope"];\n# senderban-managed v1\n',

@@ -21,7 +21,11 @@ const MATCH_LABEL = {
   exactDomain: "This domain only",
   subdomains: "Domain and its subdomains",
 };
-const ACTION_LABEL = { junk: "moved to Junk", trash: "moved to Trash" };
+const ACTION_LABEL = {
+  junk: "moved to Junk",
+  trash: "moved to Trash",
+  reject: "server block (Junk backup)",
+};
 
 let entries = [];
 let limits = { min: 3, max: 60 };

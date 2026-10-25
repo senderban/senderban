@@ -167,6 +167,36 @@ describe("watcher cursors", () => {
   });
 });
 
+describe("reject action", () => {
+  it("migrates a version-2 store (Junk and Trash only) and then accepts reject without losing the list", () => {
+    const file = tempFile();
+    const first = openDatabase(file);
+    new Store(first).add(entry("keep@example.com"));
+    // What a version-2 database looks like: the old CHECK, no `reject`.
+    first.exec("ALTER TABLE entries RENAME TO entries_now");
+    first.exec(`CREATE TABLE entries (
+      id text primary key, match text not null check (match in ('exactAddress','exactDomain','subdomains')),
+      value text not null, action text not null check (action in ('junk','trash')),
+      created_at text not null, unique (match, value)) strict`);
+    first.exec("INSERT INTO entries SELECT * FROM entries_now");
+    first.exec("DROP TABLE entries_now");
+    first.exec("PRAGMA user_version = 2");
+    first.close();
+
+    const upgraded = new Store(openDatabase(file));
+    expect(upgraded.list().map((e) => e.value)).toEqual(["keep@example.com"]);
+    const added = upgraded.add({ ...entry("refuse@example.com"), action: "reject" });
+    expect(added).toMatchObject({ ok: true, added: true });
+    expect(upgraded.list().map((e) => e.action)).toEqual(["junk", "reject"]);
+    upgraded.close();
+  });
+
+  it("still refuses an action the schema does not know", () => {
+    const store = new Store(openDatabase(":memory:"));
+    expect(store.add({ ...entry("x@example.com"), action: "discard" }).ok).toBe(false);
+  });
+});
+
 describe("sync journal", () => {
   it("writes intent before the provider is touched and closes it with the new state", () => {
     const store = new Store(openDatabase(":memory:"));

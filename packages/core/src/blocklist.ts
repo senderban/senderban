@@ -6,9 +6,20 @@ import { isCountrySuffix, isFreemail } from "./freemail.js";
 export const MATCH_KINDS = ["exactAddress", "exactDomain", "subdomains"] as const;
 export type MatchKind = (typeof MATCH_KINDS)[number];
 
-/** Reversible only. Permanent delete / discard is not offered in v0.1 (architecture K7). */
-export const ACTIONS = ["junk", "trash"] as const;
+/**
+ * Junk and Trash keep the mail, so they are reversible (architecture K7: no permanent delete / discard).
+ * `reject` is the ONE exception, decided in ADR 0008: the sender is put on the provider's server-side blacklist
+ * (MXroute) and the mail is refused at the door (the sender gets a 550) and kept nowhere, until Unblock. The
+ * Sieve lane keeps a Junk rule for it as the backup when the server lets a message through. It is never the
+ * default, only single addresses, and never an address on the person's own mail domains.
+ */
+export const ACTIONS = ["junk", "trash", "reject"] as const;
 export type BlockAction = (typeof ACTIONS)[number];
+
+/** The folder a Sieve rule files the mail into: `reject` is Junk there, so the backup is always reversible. */
+export function folderAction(action: BlockAction): "junk" | "trash" {
+  return action === "trash" ? "trash" : "junk";
+}
 
 // PROVISIONAL bound (entries): replaced by a measured value once the Gmail filter length loop (G1)
 // and the Sieve script size check (S4) have run.

@@ -10,6 +10,13 @@ import type { Gate } from "../gate.js";
 // MAX_CONCURRENT_LOGINS connections at once instead of one per account.
 
 export const SUBJECT_MAX = 200;
+/**
+ * Unit: SpamAssassin points. MXroute adds `X-Spam-Score: 1.6 (+)` (seen on a real message, 2026-10-25);
+ * typical scores run -15..+50, so a value outside this range is not trusted and shown as "no score".
+ */
+export const SPAM_SCORE = { min: -100, max: 100 } as const;
+/** Bytes of the header block parsed for the score: one header line, so anything longer is not ours. */
+export const SPAM_HEADER_MAX_BYTES = 512;
 /** Toasts per drain. A burst (offline weekend, spam run) must not become a toast flood. */
 export const DEFAULT_MAX_PER_DRAIN = 5;
 /**
@@ -26,6 +33,8 @@ export interface IncomingMessage {
   readonly from: string;
   /** Control and bidi characters removed, at most SUBJECT_MAX UTF-16 units. Display only. */
   readonly subject: string;
+  /** The server's own spam score, or null when it sent none or one outside SPAM_SCORE. Display only. */
+  readonly spamScore: number | null;
 }
 
 export interface MailboxSession {
@@ -81,16 +90,40 @@ export function sanitizeSubject(raw: string): string {
   return raw.replace(CONTROL_AND_BIDI, " ").replace(/\s+/gu, " ").trim().slice(0, SUBJECT_MAX);
 }
 
+const SPAM_SCORE_LINE = /^x-spam-score:[ \t]*(-?\d{1,3}(?:\.\d{1,2})?)(?=[ \t]*(?:\(|\r|\n|$))/gimu;
+
+/** `X-Spam-Score` out of a fetched header block, or null. The block is server text: bounded, strict number only. */
+export function parseSpamScore(headers: Uint8Array | undefined): number | null {
+  // The fetch asks for this one header only, so a real answer is tens of bytes. A longer block is padding: a sender can
+  // put its own score line first and push the server's out of the window, so no score is trusted.
+  if (headers === undefined || headers.length > SPAM_HEADER_MAX_BYTES) return null;
+  const text = Buffer.from(headers).toString("latin1");
+  // A sender can put its own `X-Spam-Score` line ahead of the server's: more than one line means no trusted score.
+  const lines = [...text.matchAll(SPAM_SCORE_LINE)];
+  const match = lines.length === 1 ? lines[0] : undefined;
+  if (match?.[1] === undefined) return null;
+  const score = Number(match[1]);
+  return Number.isFinite(score) && score >= SPAM_SCORE.min && score <= SPAM_SCORE.max
+    ? score
+    : null;
+}
+
 /** Envelope fields -> IncomingMessage, or null when the sender is not an address we can match. */
 export function toIncoming(
   uid: number,
   fromAddress: string | undefined,
   subject: string | undefined,
+  headers?: Uint8Array,
 ): IncomingMessage | null {
   if (fromAddress === undefined) return null;
   const parsed = parseAddress(fromAddress);
   if (!parsed.ok) return null;
-  return { uid, from: parsed.value.address, subject: sanitizeSubject(subject ?? "") };
+  return {
+    uid,
+    from: parsed.value.address,
+    subject: sanitizeSubject(subject ?? ""),
+    spamScore: parseSpamScore(headers),
+  };
 }
 
 async function closeQuietly(session: MailboxSession): Promise<void> {

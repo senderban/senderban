@@ -5,6 +5,9 @@ import {
   SUBJECT_MAX,
   sanitizeSubject,
   toIncoming,
+  parseSpamScore,
+  SPAM_HEADER_MAX_BYTES,
+  SPAM_SCORE,
 } from "../../src/watcher/watcher.js";
 import type {
   Cursor,
@@ -18,6 +21,7 @@ const msg = (uid: number, from = "a@example.com"): IncomingMessage => ({
   uid,
   from,
   subject: `m${String(uid)}`,
+  spamScore: null,
 });
 
 class FakeSession implements MailboxSession {
@@ -368,7 +372,50 @@ describe("header sanitising", () => {
       uid: 7,
       from: "bad.guy@example.com",
       subject: "hello",
+      spamScore: null,
     });
+  });
+
+  it.each([
+    ["X-Spam-Score: 1.6 (+)\r\n", 1.6],
+    ["x-spam-score: -2.35\r\n", -2.35],
+    ["X-Spam-Score:\t0\r\n", 0],
+    ["X-Spam-Status: No\r\nX-Spam-Score: 7.1 (+++++)\r\n", 7.1],
+  ])("reads the score from %j", (header, expected) => {
+    expect(parseSpamScore(Buffer.from(header))).toBe(expected);
+  });
+
+  it.each([
+    ["no header at all", ""],
+    ["a word instead of a number", "X-Spam-Score: high\r\n"],
+    ["an exponent", "X-Spam-Score: 1e9\r\n"],
+    ["too many digits", "X-Spam-Score: 99999\r\n"],
+    ["a score past the upper bound", `X-Spam-Score: ${String(SPAM_SCORE.max + 1)}\r\n`],
+    ["a score under the lower bound", `X-Spam-Score: ${String(SPAM_SCORE.min - 1)}\r\n`],
+    ["the header name inside another header", "X-Foo: x-spam-score: 3\r\n"],
+    ["trailing junk glued to the number", "X-Spam-Score: 1.6.7\r\n"],
+    [
+      "two score lines (a sender can forge the first one)",
+      "X-Spam-Score: -9.9\r\nX-Spam-Score: 14.2 (+++)\r\n",
+    ],
+  ])("gives no score for %s", (_name, header) => {
+    expect(parseSpamScore(Buffer.from(header))).toBeNull();
+  });
+
+  it("gives no score when a padded forged line could have pushed the server's out of the window", () => {
+    const forged = `X-Spam-Score: -9.9${" ".repeat(SPAM_HEADER_MAX_BYTES)}\r\nX-Spam-Score: 14.2\r\n`;
+    expect(parseSpamScore(Buffer.from(forged))).toBeNull();
+  });
+
+  it("gives no score when the header is missing or past the parsed bytes", () => {
+    expect(parseSpamScore(undefined)).toBeNull();
+    const padded = Buffer.from(`${"X-Pad: x\r\n".repeat(60)}X-Spam-Score: 3\r\n`);
+    expect(parseSpamScore(padded)).toBeNull();
+  });
+
+  it("carries the server's spam score from the fetched header", () => {
+    const header = Buffer.from("X-Spam-Score: 1.6 (+)\r\n\r\n");
+    expect(toIncoming(7, "a@example.com", "s", header)?.spamScore).toBe(1.6);
   });
 
   it("drops a message whose sender cannot be matched exactly", () => {

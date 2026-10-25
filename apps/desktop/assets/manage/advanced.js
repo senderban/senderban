@@ -67,12 +67,12 @@ function enableRow(account, index, message) {
   box.checked = account.enabled;
   const label = document.createElement("label");
   label.htmlFor = box.id;
-  label.textContent = "Also refuse blocked addresses at the MXroute server";
+  label.textContent = "Offer “Block at server” for single addresses";
   row.append(box, label);
   const help = document.createElement("p");
   help.className = "muted";
   help.textContent =
-    "Single addresses only. The server then rejects their mail at the door: the sender gets an error and the mail does not reach Junk or Trash. The MXroute blacklist covers the whole mail domain, so the address is refused for every mailbox on it. An address already on your blacklist is treated as Senderban's own and taken off again when you unblock it. Domain blocks keep moving mail to Junk. Whether MXroute drops it also depends on the spam-score limit in your MXroute panel, so try one block and check. Takes effect when Senderban starts; switching it off takes back what Senderban added.";
+    "New-mail notifications then offer “Block at server” for one sender: the server refuses their mail at the door, so the sender gets an error and the mail does not reach Junk or Trash. Junk and Trash stay available and never touch MXroute. The MXroute blacklist covers the whole mail domain, so a refused address is refused for every mailbox on it. An address already on your blacklist is treated as Senderban's own and taken off again when you unblock it. A whole domain is never refused at the server. Whether MXroute drops a sender also depends on the spam-score limit in your MXroute panel, so try one block and check. Takes effect when Senderban starts; switching it off takes back what Senderban added.";
   box.addEventListener("change", () => {
     if (mxBusy) {
       box.checked = !box.checked;

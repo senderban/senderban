@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { MATCH_KINDS, ACTIONS } from "../blocklist.js";
+import { MATCH_KINDS } from "../blocklist.js";
 
 export type Db = DatabaseSync;
 
@@ -9,6 +9,10 @@ export const UID_MAX = 4_294_967_295;
 
 const list = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(",");
 
+// Frozen per migration: a migration must produce the same table whatever ACTIONS says today.
+const ACTIONS_V1 = ["junk", "trash"] as const;
+const ACTIONS_V3 = ["junk", "trash", "reject"] as const;
+
 /** Forward-only. Index i is the migration that takes `user_version` from i to i + 1. */
 const MIGRATIONS: readonly string[] = [
   `
@@ -16,7 +20,7 @@ const MIGRATIONS: readonly string[] = [
     id         text primary key,
     match      text not null check (match in (${list(MATCH_KINDS)})),
     value      text not null,
-    action     text not null check (action in (${list(ACTIONS)})),
+    action     text not null check (action in (${list(ACTIONS_V1)})),
     created_at text not null,
     unique (match, value)
   ) strict;
@@ -48,6 +52,21 @@ const MIGRATIONS: readonly string[] = [
     last_uid     integer not null check (last_uid between 0 and ${String(UID_MAX)}),
     updated_at   text not null
   ) strict;
+  `,
+  // `reject` joins the actions. SQLite cannot change a CHECK in place, so the table is rebuilt (rows copied as they are).
+  `
+  create table entries_v3 (
+    id         text primary key,
+    match      text not null check (match in (${list(MATCH_KINDS)})),
+    value      text not null,
+    action     text not null check (action in (${list(ACTIONS_V3)})),
+    created_at text not null,
+    unique (match, value)
+  ) strict;
+  insert into entries_v3 (id, match, value, action, created_at)
+    select id, match, value, action, created_at from entries;
+  drop table entries;
+  alter table entries_v3 rename to entries;
   `,
 ];
 

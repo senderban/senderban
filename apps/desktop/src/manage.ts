@@ -96,7 +96,7 @@ export class ManageWindow {
       title: "Senderban — Blocked senders",
       icon: join(this.#assets, "icon.ico"),
       autoHideMenuBar: true,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1f24" : "#ffffff",
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#07182b" : "#f4f8fb",
       webPreferences: {
         preload: join(this.#assets, "manage/preload.cjs"),
         sandbox: true,

@@ -19,8 +19,8 @@ import {
   type Blocklist,
 } from "../blocklist.js";
 import {
-  BLACKLIST_ENTRY,
   EntryRefusedError,
+  canRefuseAtServer,
   RateLimitedError,
   type MxrouteClient,
 } from "./client.js";
@@ -89,15 +89,18 @@ const CAPABILITIES: Capabilities = {
   subdomains: false,
 };
 
-/** The entries this lane mirrors: valid single addresses the blacklist API accepts. Everything else stays with Sieve. */
+/**
+ * The entries this lane mirrors: single addresses the person chose to refuse at the server (`reject`) that the
+ * blacklist API accepts. A Junk or Trash choice never reaches MXroute; everything else stays with Sieve.
+ */
 function mirrored(list: Blocklist): Map<string, BlockEntry> {
   const out = new Map<string, BlockEntry>();
   for (const raw of list) {
     const checked = checkEntry(raw);
     if (!checked.ok || checked.entry.match !== "exactAddress") continue;
-    if (!BLACKLIST_ENTRY.test(checked.entry.value)) continue;
-    // `*` is legal in a mail address but a wildcard on the blacklist: `*@gmail.com` would refuse every Gmail sender.
-    if (checked.entry.value.includes("*")) continue;
+    if (checked.entry.action !== "reject") continue;
+    // Also leaves out `*` (legal in a mail address, a wildcard on the blacklist: `*@gmail.com` would refuse every Gmail sender).
+    if (!canRefuseAtServer(checked.entry.value)) continue;
     out.set(checked.entry.value, checked.entry);
   }
   return out;
@@ -119,7 +122,7 @@ export interface MxrouteAdapterOptions {
 }
 
 /**
- * Mirrors the block list's single addresses onto the MXroute spam blacklist, so the server refuses the mail
+ * Mirrors the block list's `reject` addresses onto the MXroute spam blacklist, so the server refuses the mail
  * at the door (measured 2026-10-25: `550 High scoring spam message has been dropped`). The blacklist belongs
  * to the whole mail domain, so the address is refused for every mailbox on it. An address that was already
  * on the blacklist counts as added (409) and is taken off again on Unblock; any other entry of the person

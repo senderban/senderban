@@ -1,33 +1,39 @@
 /*
  * Design tokens: the one place colours are defined. Every page links this file before its own
- * stylesheet. Contrast (WCAG 2.2, measured 2026-10-25): text >= 4.5:1 on --bg; --control-border
- * >= 3:1 on --bg (SC 1.4.11, the border is often the only mark of a button or field); --line is a
- * divider only and must not be the sole edge of a control.
+ * stylesheet. Palette: deep sea blue, one accent. Contrast (WCAG 2.2, measured 2026-10-25 with the
+ * relative-luminance formula): on --bg and on --surface, text (fg, muted, accent, ok, warn, error) is
+ * >= 4.5:1 in both themes (lowest: ok 5.02 light, error 6.79 dark); --control-border >= 3:1 (lowest
+ * 3.61); --accent-fg on --accent 7.21 light / 9.04 dark. --line is a divider only and must not be the
+ * sole edge of a control (SC 1.4.11).
  */
 :root {
   color-scheme: light dark;
-  --bg: #ffffff;
-  --fg: #1f2328;
-  --muted: #656d76;
-  --line: #d0d7de;
-  --control-border: #848d97;
-  --accent: #0b5fff;
+  --bg: #f4f8fb;
+  --surface: #ffffff;
+  --fg: #0b2239;
+  --muted: #4d6379;
+  --line: #d9e3ec;
+  --control-border: #6f8499;
+  --accent: #0a5c8a;
   --accent-fg: #ffffff;
-  --ok: #1a7f37;
-  --warn: #9a6700;
-  --error: #cf222e;
+  --ok: #0f7a4f;
+  --warn: #8a5a00;
+  --error: #b42318;
+  --radius-sm: 6px;
+  --radius-md: 10px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1f24;
-    --fg: #e6edf3;
-    --muted: #9198a1;
-    --line: #3d444d;
-    --control-border: #6e7681;
-    --accent: #4c8dff;
-    --accent-fg: #0b0d10;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --error: #ff7b72;
+    --bg: #07182b;
+    --surface: #0c2540;
+    --fg: #e4eef7;
+    --muted: #93aac0;
+    --line: #1b3956;
+    --control-border: #5f7d9a;
+    --accent: #4cc2e6;
+    --accent-fg: #04141f;
+    --ok: #3ecf9a;
+    --warn: #e3b04b;
+    --error: #ff8a80;
   }
 }

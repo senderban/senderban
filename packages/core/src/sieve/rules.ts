@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AdapterError } from "../adapter.js";
-import { ACTIONS, checkEntry, type BlockAction, type Blocklist } from "../blocklist.js";
+import { checkEntry, folderAction, type Blocklist } from "../blocklist.js";
 import { parseRequireBlock, quote, stripComments } from "./syntax.js";
 
 export const RULES_MARKER = "# senderban-managed v1";
@@ -38,18 +38,17 @@ export function renderRules(list: Blocklist, options: RenderOptions): string {
   if (!FOLDER_NAME.test(options.junkFolder) || !FOLDER_NAME.test(options.trashFolder)) {
     throw new AdapterError("REJECTED", "folder name not allowed");
   }
-  const folders: Record<BlockAction, string> = {
-    junk: options.junkFolder,
-    trash: options.trashFolder,
-  };
+  const folders = { junk: options.junkFolder, trash: options.trashFolder } as const;
 
   const out = ['require ["fileinto", "mailbox", "envelope"];', RULES_MARKER];
-  for (const action of ACTIONS) {
+  // Junk first, then Trash (each rule stops). A `reject` entry is filed like Junk: the server refusal is the
+  // MXroute lane's job and this rule is only the backup for a message that still gets through.
+  for (const action of ["junk", "trash"] as const) {
     const addresses = new Set<string>();
     const domains = new Set<string>();
     const patterns = new Set<string>();
     for (const raw of list) {
-      if (raw.action !== action) continue;
+      if (folderAction(raw.action) !== action) continue;
       const checked = checkEntry(raw);
       if (!checked.ok) {
         throw new AdapterError("REJECTED", `entry ${raw.id} refused: ${checked.reason}`);

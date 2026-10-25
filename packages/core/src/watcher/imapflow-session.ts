@@ -146,7 +146,7 @@ export function imapflowConnector(
           const rows = await keepNewest(
             client.fetch(
               `${String(fetchStartUid(uid, openUidNext))}:*`,
-              { uid: true, envelope: true },
+              { uid: true, envelope: true, headers: ["x-spam-score"] },
               { uid: true },
             ),
             FETCH_LIMIT,
@@ -157,6 +157,7 @@ export function imapflowConnector(
               row.uid,
               row.envelope?.from?.[0]?.address,
               row.envelope?.subject,
+              row.headers,
             );
             if (incoming !== null) out.push(incoming);
           }

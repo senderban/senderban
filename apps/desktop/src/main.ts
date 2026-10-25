@@ -10,6 +10,8 @@ import {
   createGate,
   willRetry,
   blockableDomain,
+  canRejectSender,
+  isFreemail,
   initialSieveState,
   unblock,
   MxrouteAdapter,
@@ -22,6 +24,7 @@ import type {
   BlockAction,
   BlockResult,
   IncomingMessage,
+  OwnMail,
   Settings,
   SyncOutcome,
   UnblockResult,
@@ -43,8 +46,8 @@ import {
   saveMxroute,
   setMxrouteEnabled,
 } from "./mxroute-settings.js";
-import { Popups } from "./popups.js";
-import type { PopupView } from "./popups.js";
+import { Toasts } from "./toasts.js";
+import type { ToastResult } from "./toasts.js";
 import { loadSettings, saveSettings } from "./settings-file.js";
 
 // Groups the windows under one taskbar identity. Placeholder id: confirm before the first installer ships.
@@ -71,6 +74,8 @@ interface Runtime {
   readonly pending: PendingBlocks;
   /** Account id -> the address the person knows it by. */
   readonly labels: ReadonlyMap<string, string>;
+  /** The person's own addresses and mail domains: never refused at the server. */
+  readonly own: OwnMail;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
@@ -79,23 +84,25 @@ let paused = false;
 let quitting = false;
 const states = new Map<string, WatcherState>();
 let tray: Tray | null = null;
-let popups: Popups | null = null;
+let toasts: Toasts | null = null;
 let manage: ManageWindow | null = null;
 /** Set once start() has finished; the manage window reads the list from it. */
 let runtime: Runtime | null = null;
 let settings: Settings = DEFAULT_SETTINGS;
 
-/** A popup without buttons: a state change the person should know about. */
+/** A toast without buttons: a state change the person should know about. */
 function notice(title: string, body: string): void {
-  popups?.show({ id: null, title, body, account: null, domain: null });
+  toasts?.notice(title, body);
 }
 
 /** Accounts whose last sync failed and whose person was told; cleared by the next sync that did not fail. */
 const unsynced = new Set<string>();
-/** Accounts a popup click is working on right now: the popup reports their outcome, a notice would repeat it. */
+/** Accounts a toast click is working on right now: the result toast reports their outcome, a notice would repeat it. */
 const clicking = new Set<string>();
 /** Engine lanes that write to an MXroute blacklist: their failures are about the API key, not the mail password. */
 const mxrouteLanes = new Set<string>();
+/** Accounts whose blocked single addresses are also refused at the MXroute server (live lane, switch on). */
+const rejectingAccounts = new Set<string>();
 
 const destination = (action: BlockAction): string =>
   action === "trash" ? "Trash (your provider may empty it after a while)" : "Junk";
@@ -103,7 +110,7 @@ const destination = (action: BlockAction): string =>
 /**
  * A sync that ran in the background (another account after a block, a retry, the start-up pass) and
  * failed: tell the person once per account until it succeeds, so a failure is never silent and a
- * retry loop never becomes a stream of popups.
+ * retry loop never becomes a stream of toasts.
  */
 function noticeIfUnsynced(outcome: SyncOutcome): void {
   const id = outcome.accountId;
@@ -131,13 +138,12 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
   notice("Senderban", `The block list is not up to date on ${label} (${why}). ${next}`);
 }
 
-/** What the popup says once a choice has run; the same window that showed the buttons. */
-function describe(result: BlockResult, labels: ReadonlyMap<string, string>): PopupView {
+/** What the result toast says once a choice has run. */
+function describe(result: BlockResult, labels: ReadonlyMap<string, string>): ToastResult {
   switch (result.status) {
     case "blocked": {
       if (!result.verified) {
         return {
-          phase: "done",
           tone: "warn",
           text: `${result.target}: rule written, not confirmed (${result.detail}).`,
         };
@@ -148,26 +154,29 @@ function describe(result: BlockResult, labels: ReadonlyMap<string, string>): Pop
         result.otherAccounts === 0
           ? ""
           : ` ${String(result.otherAccounts)} other place(s) are updating in the background.`;
+      if (result.action === "reject") {
+        return {
+          tone: "ok",
+          text: `✓ ${result.target}: backup rule verified on ${where}. The server is told to refuse this sender (that follows in the background); a message that still arrives goes to Junk.${others}`,
+        };
+      }
       return {
-        phase: "done",
         tone: "ok",
         text: `✓ ${result.target}: rule verified on ${where}. Future mail skips your inbox and goes to ${destination(result.action)}.${others}`,
       };
     }
     case "not-applied":
     case "refused":
-      return { phase: "done", tone: "error", text: `Not blocked: ${result.detail}` };
+      return { tone: "error", text: `Not blocked: ${result.detail}` };
     case "already-blocked":
       return {
-        phase: "done",
         tone: "warn",
-        text: `${result.target} is already blocked and goes to ${result.action === "trash" ? "Trash" : "Junk"}. Unblock it first to change that.`,
+        text: `${result.target} is already blocked and ${result.action === "reject" ? "refused at the server" : `goes to ${result.action === "trash" ? "Trash" : "Junk"}`}. Unblock it first to change that.`,
       };
     case "duplicate":
-      return { phase: "done", tone: "warn", text: "Already handled." };
+      return { tone: "warn", text: "Already handled." };
     case "unknown":
       return {
-        phase: "done",
         tone: "error",
         text: "This message has expired, so nothing was blocked.",
       };
@@ -268,6 +277,17 @@ async function start(): Promise<Runtime> {
   );
   const watchers = new Map<string, AccountWatcher>();
   const lanes = accounts.map((a) => a.id);
+  // The blacklist is shared by every mailbox of the account, so the person's own addresses and domains must never
+  // be refused there: a spammer can forge them in From, and real mail would bounce. Every account counts, not only
+  // the ones with a key, but a freemail domain (gmail.com) is not "owned": only the full login address is.
+  const own = { domains: new Set<string>(), addresses: new Set<string>() };
+  for (const a of accounts) {
+    for (const login of [a.imap.user, a.sieve.user]) {
+      if (login.includes("@")) own.addresses.add(login.toLowerCase());
+    }
+    const domain = mailDomain(a);
+    if (domain !== null && !isFreemail(domain)) own.domains.add(domain);
+  }
   // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
   // it would otherwise send the same entries five times. The first account owns the lane and its key.
   const mxrouteGroups = new Map<string, { owner: string; mirror: boolean }>();
@@ -335,6 +355,15 @@ async function start(): Promise<Runtime> {
       }
     }
 
+    // Every mailbox on a domain whose lane is live and switched on gets the server-side refusal, not only the owner.
+    if (
+      groupKey !== null &&
+      group?.mirror === true &&
+      mxrouteLanes.has(mxrouteLaneId(group.owner))
+    ) {
+      rejectingAccounts.add(account.id);
+    }
+
     watchers.set(
       account.id,
       new AccountWatcher({
@@ -353,12 +382,15 @@ async function start(): Promise<Runtime> {
             uid: message.uid,
             domain: domainOf(message.from),
           });
-          popups?.show({
+          toasts?.show({
             id,
-            title: message.from,
-            body: message.subject,
+            sender: message.from,
+            subject: message.subject,
             account: labels.get(accountId) ?? accountId,
+            spamScore: message.spamScore,
             domain: blockableDomain(message.from),
+            // A wildcard address is never written to the blacklist (it would refuse a whole provider).
+            rejectsAtServer: rejectingAccounts.has(accountId) && canRejectSender(message.from, own),
           });
         },
         onOverflow: (accountId, skipped) => {
@@ -404,14 +436,14 @@ async function start(): Promise<Runtime> {
     // A socket that slept is dead but not yet reported (ADR 0003): rebuild instead of trusting it.
     if (!paused) for (const watcher of watchers.values()) watcher.reconnectNow();
   });
-  return { store, engine, accounts, lanes, watchers, pending, labels };
+  return { store, engine, accounts, lanes, watchers, pending, labels, own };
 }
 
 async function shutdown(): Promise<void> {
   const current = await ready.promise.catch(() => null);
   if (current === null) return;
   log("quit");
-  popups?.closeAll();
+  toasts?.closeAll();
   manage?.closeAll();
   current.engine.dispose();
   await Promise.allSettled([...current.watchers.values()].map((w) => w.stop()));
@@ -478,17 +510,13 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       log("settings-invalid", { detail: errorText(error) });
     }
     const assets = join(import.meta.dirname, "../assets");
-    popups = new Popups(assets, {
-      getSeconds: () => settings.popupSeconds,
-      openSettings: () => {
-        manage?.show();
-      },
-      onDropped: (count) => {
-        log("popups-dropped", { count });
+    toasts = new Toasts({
+      onIgnored: (reason) => {
+        log("toast-ignored", { reason });
       },
       onError: logIpcError,
       choose: async (id, scope, action) => {
-        const { store, engine, lanes, pending, labels } = await ready.promise;
+        const { store, engine, lanes, pending, labels, own } = await ready.promise;
         let clicked = null as string | null;
         let result: BlockResult;
         try {
@@ -497,6 +525,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
               pending,
               store,
               engine,
+              own,
               accountIds: lanes,
               onClaimed: (accountId) => {
                 clicked = accountId;
@@ -510,7 +539,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         } finally {
           if (clicked !== null) clicking.delete(clicked);
         }
-        // The popup told the person about this account; a notice for the same failure would repeat it.
+        // The result toast tells the person about this account; a notice for the same failure would repeat it.
         if (result.status === "not-applied") unsynced.add(result.accountId);
         log("choice", {
           scope,

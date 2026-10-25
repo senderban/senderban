@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { validateDomain } from "../address.js";
+import { folderAction } from "../blocklist.js";
+import { canRefuseAtServer } from "../mxroute/client.js";
 import type { BlockAction, BlockEntry } from "../blocklist.js";
 import { isCountrySuffix, isFreemail } from "../freemail.js";
 import type { Store } from "../store/store.js";
@@ -21,10 +23,35 @@ export function blockableDomain(sender: string): string | null {
   return domain;
 }
 
+/** What is the person's own: login addresses, and the mail domains of those accounts (never a freemail domain). */
+export interface OwnMail {
+  readonly domains: ReadonlySet<string>;
+  readonly addresses: ReadonlySet<string>;
+}
+
+/**
+ * True when "Block at server" may be offered and run for this sender: the blacklist can take the address as a
+ * single entry, and it is neither one of the person's own addresses nor on a mail domain they own. A spammer can
+ * forge the From of the person's own address or a colleague's; refusing that at the server would bounce their real
+ * mail with no copy kept. Domains the account has that Senderban is not told about are not covered (ADR 0008).
+ */
+export function canRejectSender(sender: string, own: OwnMail): boolean {
+  if (!canRefuseAtServer(sender)) return false;
+  const lower = sender.toLowerCase();
+  if (own.addresses.has(lower)) return false;
+  const domain = lower.slice(lower.lastIndexOf("@") + 1);
+  for (const owned of own.domains) {
+    if (domain === owned || domain.endsWith(`.${owned}`)) return false;
+  }
+  return true;
+}
+
 export interface BlockActionDeps {
   readonly pending: PendingBlocks;
   readonly store: Pick<Store, "add" | "list">;
   readonly engine: Pick<SyncEngine, "sync" | "requestSync" | "verify">;
+  /** The person's own addresses and domains, lowercase: never refused at the server. Required, so a caller cannot forget it. */
+  readonly own: OwnMail;
   /** Every account on this device: the list is global, so each one must pick the new entry up. */
   readonly accountIds: readonly string[];
   readonly now?: () => Date;
@@ -102,13 +129,25 @@ export async function blockPending(
     return { status: "refused", detail: "this domain cannot be blocked as a whole" };
   }
 
+  // A whole domain is never refused at the server (its reach on the blacklist is not measured): refuse here,
+  // whatever a caller passes, so a `reject` domain entry cannot be stored.
+  if (action === "reject" && scope === "domain") {
+    return { status: "refused", detail: "a whole domain cannot be refused at the server" };
+  }
+
+  if (action === "reject" && !canRejectSender(target, deps.own)) {
+    return { status: "refused", detail: "this address cannot be refused at the server" };
+  }
+
   const match = scope === "domain" ? "subdomains" : "exactAddress";
-  // Junk rules are written first and each one stops, so Junk wins wherever both would match. Say so
-  // instead of reporting a Trash rule that never fires.
+  // Junk rules (a `reject` entry is filed like Junk) are written first and each one stops, so Junk wins wherever
+  // both would match. Say so instead of reporting a Trash rule that never fires.
   if (action === "trash") {
-    const winner = deps.store.list().find((e) => e.action === "junk" && covers(e, match, target));
+    const winner = deps.store
+      .list()
+      .find((e) => folderAction(e.action) === "junk" && covers(e, match, target));
     if (winner !== undefined) {
-      return { status: "already-blocked", target: winner.value, action: "junk" };
+      return { status: "already-blocked", target: winner.value, action: winner.action };
     }
   }
 

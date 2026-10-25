@@ -118,6 +118,20 @@ const isWildcard = (entry: string): boolean => entry.includes("*");
 /** `@163.com` blocks a whole domain: only the person writes those; this client handles single addresses. */
 const isDomainWide = (entry: string): boolean => entry.startsWith("@");
 
+/**
+ * True when the client would write this address to the blacklist as a single entry. One predicate for the
+ * adapter, this client, the toast (which offers "Block at server") and the block action, so what the person is
+ * offered is exactly what can be done.
+ */
+export function canRefuseAtServer(address: string): boolean {
+  return (
+    BLACKLIST_ENTRY.test(address) &&
+    !isDotSegment(address) &&
+    !isWildcard(address) &&
+    !isDomainWide(address)
+  );
+}
+
 export function createMxrouteClient(options: MxrouteClientOptions): MxrouteClient {
   const doFetch = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? MXROUTE_TIMEOUT_MS;

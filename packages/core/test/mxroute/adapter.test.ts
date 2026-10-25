@@ -23,7 +23,7 @@ let n = 0;
 const entry = (
   match: BlockEntry["match"],
   value: string,
-  action: BlockEntry["action"] = "junk",
+  action: BlockEntry["action"] = "reject",
 ) => ({
   id: crypto.randomUUID(),
   match,
@@ -104,12 +104,35 @@ describe("MxrouteAdapter plan", () => {
     expect(plan.changes.map((c) => c.entry.value)).toEqual(["ok@example.com"]);
   });
 
-  it("is a no-op when nothing changed, and treats Junk to Trash as no change", async () => {
+  it("is a no-op when nothing changed", async () => {
     const { adapter } = setup();
-    const first = entry("exactAddress", "a@example.com", "junk");
+    const first = entry("exactAddress", "a@example.com");
     const { result } = await sync(adapter, [first], initialMxrouteState("example.com"));
-    const again = await adapter.plan([{ ...first, action: "trash" }], result.state);
+    const again = await adapter.plan([first], result.state);
     expect(again.changes).toEqual([]);
+  });
+
+  it("never mirrors an address the person only sent to Junk or Trash", async () => {
+    const { adapter } = setup();
+    const plan = await adapter.plan(
+      [
+        entry("exactAddress", "junked@example.com", "junk"),
+        entry("exactAddress", "trashed@example.com", "trash"),
+        entry("exactAddress", "refused@example.com", "reject"),
+      ],
+      initialMxrouteState("example.com"),
+    );
+    expect(plan.changes.map((c) => c.entry.value)).toEqual(["refused@example.com"]);
+  });
+
+  it("takes an address off the blacklist when its action stops being reject", async () => {
+    const { adapter } = setup();
+    const first = entry("exactAddress", "a@example.com", "reject");
+    const { result } = await sync(adapter, [first], initialMxrouteState("example.com"));
+    const again = await adapter.plan([{ ...first, action: "junk" }], result.state);
+    expect(again.changes.map((c) => [c.kind, c.entry.value])).toEqual([
+      ["remove", "a@example.com"],
+    ]);
   });
 
   it("refuses a state from another adapter or with a bad domain", async () => {

@@ -2,16 +2,20 @@
 
 Block a sender once, from the Windows notification, on every mail account you own.
 
-> **Status: pre-alpha. Nothing works yet.** There is no installer, no release and no tested provider
-> integration. The code in this repository is the foundation (address/blocklist model, adapter
-> contract, provider registry). Do not point it at a real mailbox.
+> **Status: pre-alpha. Works today on MXroute only. Next: Gmail, then Hotmail / Outlook.** The
+> notification, the Sieve rule and the MXroute server-side block ran against one real MXroute mailbox
+> (2026-10-25). There is no installer and no release yet, and nothing is measured on other providers.
+> Do not point it at a mailbox you cannot afford to experiment on.
 
 ## The idea
 
-A new mail arrives. Senderban shows a notification with **[Block sender]**, **[Domain…]** and
-**[Open]**. One click writes a rule on the mail provider's own server (a Gmail filter, a Sieve
+A new mail arrives. Senderban shows a notification with a choice of what happens to future mail
+(**Block at server**, **Move to Junk**, **Move to Trash**) and two buttons, **This sender** and
+**Whole domain**. One click writes a rule on the mail provider's own server (a Gmail filter, a Sieve
 script, an Outlook rule), so the block also applies on your phone, in webmail and in whichever mail
-client you use. The result is shown per account and can be undone.
+client you use. On MXroute, **Block at server** also puts the address on the server's blacklist, so
+the sender gets an error (`550 High scoring spam message has been dropped`) and the mail never
+arrives. The result is shown per account and can be undone.
 
 It is not an email client. It does not send, sync, search or download message bodies.
 
@@ -25,11 +29,11 @@ It is not an email client. It does not send, sync, search or download message bo
 
 ## Planned provider support
 
-| Provider                | Mechanism                        | Target | Evidence                     |
-| ----------------------- | -------------------------------- | ------ | ---------------------------- |
-| MXroute                 | Sieve (ManageSieve)              | v0.1   | measured (2026-10-24)        |
-| Gmail / Workspace       | Gmail filters (own OAuth client) | v0.1   | documented, not yet measured |
-| Outlook / Microsoft 365 | Graph message rules              | v0.2   | documented, not yet measured |
+| Provider                          | Mechanism                           | Target             | Evidence                          |
+| --------------------------------- | ----------------------------------- | ------------------ | --------------------------------- |
+| MXroute                           | Sieve (ManageSieve) + blacklist API | v0.1 (works today) | measured (2026-10-24, 2026-10-25) |
+| Gmail / Workspace                 | Gmail filters (own OAuth client)    | v0.1               | documented, not yet measured      |
+| Outlook / Hotmail / Microsoft 365 | Graph message rules                 | v0.2               | documented, not yet measured      |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
 "Measured" means the adapter ran against a real account: for MXroute that is install, in-place update, read-back, uninstall, and one delivered mail from a blocked sender filed into Junk by the generated script (2026-10-24), on a mailbox with no existing Sieve script.
