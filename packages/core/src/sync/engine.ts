@@ -21,6 +21,12 @@ export const DEFAULT_TIMEOUT_MS = 60_000;
  * connection each); at most 200/hour at MAX_ACCOUNTS, and only for accounts that still have a difference to apply.
  */
 export const DEFAULT_RETRY = { baseMs: 30_000, maxMs: 1_800_000 } as const;
+/**
+ * After the provider refused the password, no round or read-back opens a connection for that account
+ * for this long, then one attempt is allowed again (a plain NO is not always a wrong password).
+ * Budget: at most 2 logins/hour per such account, 100/hour at MAX_ACCOUNTS.
+ */
+export const AUTH_BLOCK_MS = 1_800_000;
 /** Whether the engine tries a failed sync again by itself; false means the person has to act. */
 export function willRetry(code: AdapterErrorCode | "UNKNOWN"): boolean {
   return !PERMANENT.has(code);
@@ -83,6 +89,8 @@ export interface EngineOptions {
   readonly maxConcurrent?: number;
   /** Injectable for tests; returns [0, 1). */
   readonly random?: () => number;
+  /** Injectable clock for tests; milliseconds. */
+  readonly now?: () => number;
 }
 
 interface Lane {
@@ -93,6 +101,11 @@ interface Lane {
   retryTimer: ReturnType<typeof setTimeout> | null;
   /** Consecutive failed syncs that a retry may fix; 0 after any sync that did not fail. */
   failures: number;
+  /**
+   * Set when the provider refused the password. Until `until` no round or read-back opens a connection
+   * for this account: each one would be another failed login, and some providers lock the address after a few.
+   */
+  authBlocked: { readonly outcome: FailedOutcome; readonly until: number } | null;
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
@@ -131,6 +144,7 @@ export class SyncEngine {
   readonly #onOutcome: ((outcome: SyncOutcome) => void) | undefined;
   readonly #retry: { readonly baseMs: number; readonly maxMs: number };
   readonly #random: () => number;
+  readonly #now: () => number;
   readonly #gate: Gate;
   #disposed = false;
 
@@ -141,6 +155,7 @@ export class SyncEngine {
     this.#onOutcome = options.onOutcome;
     this.#retry = options.retry ?? DEFAULT_RETRY;
     this.#random = options.random ?? Math.random;
+    this.#now = options.now ?? Date.now;
     this.#gate = createGate(options.maxConcurrent ?? MAX_CONCURRENT_SYNCS);
   }
 
@@ -157,6 +172,7 @@ export class SyncEngine {
       timer: null,
       retryTimer: null,
       failures: 0,
+      authBlocked: null,
     });
   }
 
@@ -183,6 +199,8 @@ export class SyncEngine {
   async verify(accountId: string): Promise<VerifyOutcome> {
     const account = this.#accounts.get(accountId);
     if (account === undefined) return failure(accountId, new Error("unknown account"));
+    const blocked = this.#authBlock(accountId);
+    if (blocked !== null) return blocked;
     try {
       const state = this.#store.getState(accountId) ?? account.initialState;
       const drift = await this.#gate(() =>
@@ -192,7 +210,9 @@ export class SyncEngine {
         ? { accountId, status: "drifted", detail: drift.detail.slice(0, 500) }
         : { accountId, status: "verified" };
     } catch (error) {
-      return failure(accountId, error);
+      const outcome = failure(accountId, error);
+      this.#noteAuth(accountId, outcome);
+      return outcome;
     }
   }
 
@@ -260,6 +280,24 @@ export class SyncEngine {
     }
   }
 
+  /** The outcome to hand back instead of connecting, or null when the account may log in. */
+  #authBlock(accountId: string): FailedOutcome | null {
+    const lane = this.#lanes.get(accountId);
+    if (lane?.authBlocked === null || lane === undefined) return null;
+    if (this.#now() >= lane.authBlocked.until) {
+      lane.authBlocked = null;
+      return null;
+    }
+    return lane.authBlocked.outcome;
+  }
+
+  #noteAuth(accountId: string, outcome: SyncOutcome | FailedOutcome): void {
+    const lane = this.#lanes.get(accountId);
+    if (lane === undefined || outcome.status !== "failed" || outcome.code !== "AUTH_REQUIRED")
+      return;
+    lane.authBlocked = { outcome, until: this.#now() + AUTH_BLOCK_MS };
+  }
+
   /** Capped exponential backoff with equal jitter, so accounts that failed together do not retry in lockstep. */
   #scheduleRetry(accountId: string, outcome: SyncOutcome): void {
     const lane = this.#lanes.get(accountId);
@@ -285,12 +323,15 @@ export class SyncEngine {
     // The gate holds the round, not the lane: `running` includes the wait for a slot, and later calls queue
     // one follow-up behind it. A round still waiting when the engine is disposed never touches the provider
     // (shutdown closes the store right after).
+    const blocked = this.#authBlock(accountId);
+    if (blocked !== null) return blocked;
     const { outcome, skipped } = await this.#gate(async () =>
       this.#disposed
         ? { outcome: failure(accountId, new Error("engine disposed")), skipped: true }
         : { outcome: await this.#attempt(accountId), skipped: false },
     );
     if (skipped) return outcome;
+    this.#noteAuth(accountId, outcome);
     this.#scheduleRetry(accountId, outcome);
     try {
       this.#onOutcome?.(outcome);

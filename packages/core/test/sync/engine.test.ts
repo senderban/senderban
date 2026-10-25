@@ -11,7 +11,7 @@ import type {
 import type { Blocklist } from "../../src/blocklist.js";
 import { openDatabase } from "../../src/store/db.js";
 import { Store } from "../../src/store/store.js";
-import { MAX_ACCOUNTS, SyncEngine } from "../../src/sync/engine.js";
+import { AUTH_BLOCK_MS, MAX_ACCOUNTS, SyncEngine } from "../../src/sync/engine.js";
 import type { SyncOutcome } from "../../src/sync/engine.js";
 
 const NONE: Capabilities = {
@@ -34,6 +34,7 @@ class FakeAdapter implements BlockAdapter {
   hang = false;
   gate: Promise<void> | null = null;
   driftedOnVerify = false;
+  verifyFailWith: Error | null = null;
 
   constructor(private readonly accountId: string) {}
 
@@ -85,6 +86,7 @@ class FakeAdapter implements BlockAdapter {
   }
 
   verify(): Promise<Drift> {
+    if (this.verifyFailWith !== null) return Promise.reject(this.verifyFailWith);
     return Promise.resolve({
       drifted: this.driftedOnVerify,
       detail: "",
@@ -155,13 +157,13 @@ describe("SyncEngine.sync", () => {
     const { store, engine, add } = track(setup());
     const a = add("acct");
     store.add(addr());
-    a.failWith = new AdapterError("AUTH_REQUIRED", "password rejected");
+    a.failWith = new AdapterError("TRANSIENT", "offline");
 
     expect(await engine.sync("acct")).toEqual({
       accountId: "acct",
       status: "failed",
-      code: "AUTH_REQUIRED",
-      message: "password rejected",
+      code: "TRANSIENT",
+      message: "offline",
     });
     expect(store.journal("acct")[0]?.status).toBe("interrupted");
     expect(store.getState("acct")).toBeUndefined();
@@ -362,6 +364,72 @@ describe("SyncEngine retry after a failed sync", () => {
     a.failWith = null;
     await new Promise((r) => setTimeout(r, 80));
     expect(a.applyCalls).toBe(calls);
+  });
+
+  // Red-team KC-3: every block, unblock and read-back used to open a fresh login with the bad password.
+  it("stops opening connections for an account whose password was refused", async () => {
+    const { store, engine, add } = track(setup());
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("AUTH_REQUIRED", "password rejected");
+    expect(await engine.sync("acct")).toMatchObject({ status: "failed", code: "AUTH_REQUIRED" });
+    expect(a.applyCalls).toBe(1);
+
+    a.failWith = null;
+    store.add(addr());
+    for (let i = 0; i < 5; i++) {
+      expect(await engine.sync("acct")).toMatchObject({ status: "failed", code: "AUTH_REQUIRED" });
+    }
+    expect(await engine.verify("acct")).toMatchObject({ status: "failed", code: "AUTH_REQUIRED" });
+    expect(a.applyCalls).toBe(1);
+  });
+
+  it("allows one new attempt once the block has run out", async () => {
+    let now = 1_000_000;
+    const { store, engine, add } = track(setup({ now: () => now }));
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("AUTH_REQUIRED", "password rejected");
+    await engine.sync("acct");
+    now += AUTH_BLOCK_MS - 1;
+    await engine.sync("acct");
+    expect(a.applyCalls).toBe(1);
+
+    now += 1;
+    a.failWith = null;
+    expect(await engine.sync("acct")).toMatchObject({ status: "applied" });
+    expect(a.applyCalls).toBe(2);
+  });
+
+  it("blocks the account when a read-back is the call that is refused", async () => {
+    const { store, engine, add } = track(setup());
+    const a = add("acct");
+    store.add(addr());
+    a.verifyFailWith = new AdapterError("AUTH_REQUIRED", "password rejected");
+    expect(await engine.verify("acct")).toMatchObject({ status: "failed", code: "AUTH_REQUIRED" });
+    expect(await engine.sync("acct")).toMatchObject({ status: "failed", code: "AUTH_REQUIRED" });
+    expect(a.applyCalls).toBe(0);
+  });
+
+  it("does not let one account's refused password block another account", async () => {
+    const { store, engine, add } = track(setup());
+    const bad = add("bad");
+    const good = add("good");
+    store.add(addr());
+    bad.failWith = new AdapterError("AUTH_REQUIRED", "password rejected");
+    await engine.sync("bad");
+    expect(await engine.sync("good")).toMatchObject({ status: "applied" });
+    expect(good.applyCalls).toBe(1);
+  });
+
+  it("keeps retrying a transient failure: only a refused password stops the account", async () => {
+    const { store, engine, add } = track(setup());
+    const a = add("acct");
+    store.add(addr());
+    a.failWith = new AdapterError("TRANSIENT", "offline");
+    await engine.sync("acct");
+    a.failWith = null;
+    expect(await engine.sync("acct")).toMatchObject({ status: "applied" });
   });
 
   it("backs off between attempts instead of retrying in a tight loop", async () => {

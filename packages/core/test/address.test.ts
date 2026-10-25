@@ -35,6 +35,53 @@ describe("parseAddress", () => {
     expect(parseAddress(input).ok).toBe(false);
   });
 
+  // Red-team KC-1: each of these used to canonicalise to a clean ASCII sender.
+  it.each([
+    ["noreply@\u{1D41B}\u{1D41A}\u{1D427}\u{1D424}.com", "math-bold letters"],
+    ["noreply@ｂａｎｋ.com", "full-width letters"],
+    ["noreply@ﬁnance.com", "fi ligature"],
+    ["noreply@bank。com", "ideographic full stop"],
+    ["noreply@Kelly.com", "Kelvin sign in the domain"],
+    ["Kelly@bank.com", "Kelvin sign in the local part"],
+    ["noreply@ba­nk.com", "soft hyphen"],
+    ["noreply@ba​nk.com", "zero-width space"],
+    ["noreply@ba‮nk.com", "bidi override"],
+  ])("rejects look-alike or invisible characters: %s (%s)", (input) => {
+    expect(parseAddress(input).ok).toBe(false);
+  });
+
+  // Red-team KC-4: control characters are rejected, not folded into the next token.
+  it.each([
+    ["a@x.com\r\nb", "CR LF then text"],
+    ["a@x\t.com", "tab inside the domain"],
+    ["a@x.com\u0000", "NUL"],
+    ["a\u0085@x.com", "NEL"],
+  ])("rejects control characters: %j (%s)", (input) => {
+    expect(parseAddress(input).ok).toBe(false);
+  });
+
+  it.each([
+    ["noreply@\u0451\u3002bank.com", "ideographic dot hides a fold behind a label boundary"],
+    ["noreply@xn--e1a\uFF0Ebank.com", "full-width dot after a punycode label"],
+  ])("rejects a fold hidden behind a dot variant: %s (%s)", (input) => {
+    expect(parseAddress(input).ok).toBe(false);
+  });
+
+  it("accepts punycode input as it is, in any case, and rejects a trailing dot", () => {
+    const r = parseAddress("a@XN--BCHER-KVA.example");
+    expect(r.ok && r.value.domain).toBe("xn--bcher-kva.example");
+    expect(parseAddress("a@example.com.").ok).toBe(false);
+  });
+
+  it("keeps a real IDN as visible punycode, including a Cyrillic look-alike", () => {
+    const r = parseAddress("noreply@bаnk.com");
+    expect(r.ok && r.value.domain).toBe("xn--bnk-6cd.com");
+  });
+
+  it("still trims whitespace around the address", () => {
+    expect(parseAddress("\r\n a@example.com \t").ok).toBe(true);
+  });
+
   it("enforces the RFC 5321 length limits", () => {
     expect(parseAddress(`${"a".repeat(64)}@example.com`).ok).toBe(true);
     expect(parseAddress(`${"a".repeat(65)}@example.com`).ok).toBe(false);
