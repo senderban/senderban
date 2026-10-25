@@ -1,11 +1,11 @@
 import { join } from "node:path";
-import { BLOCK_SCOPES, isNotificationId } from "@senderban/core";
-import type { BlockScope } from "@senderban/core";
+import { ACTIONS, BLOCK_SCOPES, isNotificationId } from "@senderban/core";
+import type { BlockAction, BlockScope } from "@senderban/core";
 import { BrowserWindow, ipcMain, nativeTheme, screen } from "electron";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 
 const WIDTH = 380;
-const MAIL_HEIGHT = 170;
+const MAIL_HEIGHT = 200;
 const NOTICE_HEIGHT = 104;
 const MARGIN = 12;
 const GAP = 8;
@@ -33,7 +33,7 @@ export type PopupView =
 
 export interface PopupHandlers {
   /** Runs the block and describes the outcome for the same popup. */
-  readonly choose: (id: string, scope: BlockScope) => Promise<PopupView>;
+  readonly choose: (id: string, scope: BlockScope, action: BlockAction) => Promise<PopupView>;
   readonly getSeconds: () => number;
   /** The gear: opens the Blocked senders window, where the settings live (ADR 0005). */
   readonly openSettings: () => void;
@@ -66,7 +66,9 @@ export class Popups {
     this.#assets = assetsDir;
     this.#handlers = handlers;
     ipcMain.handle("popup:init", (event) => this.#init(event));
-    ipcMain.handle("popup:choose", (event, scope: unknown) => this.#choose(event, scope));
+    ipcMain.handle("popup:choose", (event, scope: unknown, action: unknown) =>
+      this.#choose(event, scope, action),
+    );
     ipcMain.on("popup:hover", (event, value: unknown) => {
       const popup = this.#from(event);
       if (popup === null) return;
@@ -203,16 +205,17 @@ export class Popups {
     };
   }
 
-  async #choose(event: IpcMainInvokeEvent, scope: unknown): Promise<void> {
+  async #choose(event: IpcMainInvokeEvent, scope: unknown, action: unknown): Promise<void> {
     const popup = this.#from(event);
     const id = popup?.model.id;
     if (popup === null || !isNotificationId(id)) return;
-    if (!BLOCK_SCOPES.some((s) => s === scope) || popup.view.phase !== "idle") return;
+    if (!BLOCK_SCOPES.some((s) => s === scope) || !ACTIONS.some((a) => a === action)) return;
+    if (popup.view.phase !== "idle") return;
 
     this.#setView(popup, { phase: "working", text: "Blocking…" });
     let view: PopupView;
     try {
-      view = await this.#handlers.choose(id, scope as BlockScope);
+      view = await this.#handlers.choose(id, scope as BlockScope, action as BlockAction);
     } catch {
       view = { phase: "done", tone: "error", text: "Something went wrong. See the log." };
     }

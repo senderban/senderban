@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld("senderban", {
       callback(view);
     });
   },
-  choose: (scope) => ipcRenderer.invoke("popup:choose", scope),
+  choose: (scope, action) => ipcRenderer.invoke("popup:choose", scope, action),
   hover: (value) => {
     ipcRenderer.send("popup:hover", value === true);
   },

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { blockPending, blockableDomain } from "../../src/notify/block-action.js";
 import type { BlockActionDeps } from "../../src/notify/block-action.js";
+import type { BlockEntry } from "../../src/blocklist.js";
 import { PendingBlocks } from "../../src/notify/pending.js";
 import type { SyncOutcome, VerifyOutcome } from "../../src/sync/engine.js";
 
@@ -11,22 +12,27 @@ function setup(
     outcome?: SyncOutcome;
     check?: VerifyOutcome;
     sender?: string;
+    existing?: BlockEntry[];
   } = {},
 ) {
   const outcome = options.outcome ?? { accountId: "a", status: "applied", applied: 1, failed: 0 };
   const check = options.check ?? { accountId: "a", status: "verified" };
   const pending = new PendingBlocks({ newId: () => ID });
-  const add = vi.fn((input: unknown) => ({
-    ok: true as const,
-    entry: input as never,
-    added: true,
-  }));
+  const existing: BlockEntry[] = options.existing ?? [];
+  const add = vi.fn((input: unknown) => {
+    const wanted = input as BlockEntry;
+    const same = existing.find((e) => e.match === wanted.match && e.value === wanted.value);
+    return same === undefined
+      ? { ok: true as const, entry: wanted, added: true }
+      : { ok: true as const, entry: same, added: false };
+  });
+  const list = vi.fn(() => existing);
   const sync = vi.fn(() => Promise.resolve(outcome));
   const verify = vi.fn(() => Promise.resolve(check));
   const requestSync = vi.fn();
   const deps: BlockActionDeps = {
     pending,
-    store: { add },
+    store: { add, list },
     engine: { sync, requestSync, verify },
     accountIds: ["a", "b"],
     newId: () => "11111111-1111-4111-8111-111111111111",
@@ -55,6 +61,62 @@ describe("blockableDomain", () => {
       expect(blockableDomain(sender)).toBeNull();
     }
     expect(blockableDomain("a@shop.co.uk")).toBe("shop.co.uk");
+  });
+});
+
+describe("blockPending action", () => {
+  it("files into Junk unless Trash is chosen", async () => {
+    const junk = setup();
+    await blockPending(junk.deps, ID, "address");
+    expect(junk.add).toHaveBeenCalledWith(expect.objectContaining({ action: "junk" }));
+
+    const trash = setup();
+    await blockPending(trash.deps, ID, "domain", "trash");
+    expect(trash.add).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "trash", match: "subdomains", value: "news.example.com" }),
+    );
+  });
+});
+
+describe("blockPending when a rule already exists", () => {
+  const entry = (match: BlockEntry["match"], value: string, action: BlockEntry["action"]) => ({
+    id: "22222222-2222-4222-8222-222222222222",
+    match,
+    value,
+    action,
+    createdAt: "2026-10-24T00:00:00.000Z",
+  });
+
+  it("says where mail really goes when the same target is on the other action", async () => {
+    const { deps, sync } = setup({
+      existing: [entry("exactAddress", "spam@news.example.com", "junk")],
+    });
+    const result = await blockPending(deps, ID, "address", "trash");
+    expect(result).toEqual({
+      status: "already-blocked",
+      target: "spam@news.example.com",
+      action: "junk",
+    });
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("does not report Trash for an address under a domain that is already on Junk", async () => {
+    const { deps, add } = setup({ existing: [entry("subdomains", "example.com", "junk")] });
+    const result = await blockPending(deps, ID, "address", "trash");
+    expect(result).toEqual({ status: "already-blocked", target: "example.com", action: "junk" });
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it("lets a Junk choice through even when Trash covers it, because Junk is written first", async () => {
+    const { deps } = setup({ existing: [entry("subdomains", "example.com", "trash")] });
+    const result = await blockPending(deps, ID, "address", "junk");
+    expect(result).toMatchObject({ status: "blocked", action: "junk" });
+  });
+
+  it("ignores an unrelated Junk rule", async () => {
+    const { deps } = setup({ existing: [entry("subdomains", "other.org", "junk")] });
+    const result = await blockPending(deps, ID, "address", "trash");
+    expect(result).toMatchObject({ status: "blocked", action: "trash" });
   });
 });
 

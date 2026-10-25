@@ -11,6 +11,7 @@ const els = {
   body: $("body"),
   account: $("account"),
   actions: $("actions"),
+  where: $("where"),
   blockAddress: $("block-address"),
   blockDomain: $("block-domain"),
   status: $("status"),
@@ -21,6 +22,7 @@ let isMail = false;
 function render(view) {
   const idle = view.phase === "idle";
   els.actions.hidden = !idle || !isMail;
+  els.where.hidden = els.actions.hidden;
   els.status.hidden = idle;
   if (idle) return;
   els.status.textContent = view.text;
@@ -48,8 +50,11 @@ async function start() {
     els.blockDomain.title = `Block ${model.domain} and its subdomains`;
   }
 
-  els.blockAddress.addEventListener("click", () => void api.choose("address"));
-  els.blockDomain.addEventListener("click", () => void api.choose("domain"));
+  // Junk unless Trash is ticked; main re-validates both values.
+  const action = () =>
+    document.querySelector('input[name="where"]:checked')?.value === "trash" ? "trash" : "junk";
+  els.blockAddress.addEventListener("click", () => void api.choose("address", action()));
+  els.blockDomain.addEventListener("click", () => void api.choose("domain", action()));
   els.gear.addEventListener("click", () => {
     api.openSettings();
   });

@@ -19,8 +19,18 @@ status change; on a dev run it also showed "Electron" as its title. A window giv
 - **In-place result.** The same popup goes Blocking… -> done. "Verified" means the engine wrote the
   rule _and_ read it back from the provider (`SyncEngine.verify`, `BlockAdapter.verify`); a failed or
   differing read-back says "rule written, not confirmed", never "verified".
-- **Action is still Junk.** The rule files mail into Junk, so it skips the inbox but is not discarded
-  (architecture K7: reversible only in v0.1). The popup text says so.
+- **Action: Junk by default, Trash on request (2026-10-25, Ali).** A "Move future mail to" choice
+  (Junk | Trash, Junk pre-selected on every popup, not remembered) travels with the click as
+  `BlockAction`; main accepts only `ACTIONS` values. Both keep the mail, so K7 (reversible only in
+  v0.1) still holds; there is still no discard. Trash is weaker than Junk in one way the popup says:
+  a provider may empty Trash after a while, so a wrongly blocked mail can be gone later. The Sieve
+  rule uses the `Trash` folder name from `DEFAULT_RENDER_OPTIONS`; that the folder exists under that
+  name on a given provider is NOT measured live (MXroute/Dovecot default is `Trash`).
+  Where both could match, Junk wins: the rules script writes Junk first and each rule `stop`s. So a
+  Trash choice for a target that is already on Junk (same entry, or an address under a Junk domain)
+  is not added; the popup says where that mail really goes ("already blocked ... Junk"). A provider
+  whose real trash is not named `Trash` (Outlook: `Deleted Items`) would get a second folder; the
+  Gmail and Graph adapters must map the action themselves.
 - **Gear -> settings.** _(Changed by ADR 0005: the gear now opens the Blocked senders window and the popup
   has no settings panel; the limits and the file below still stand.)_ One setting: how long a popup stays, in seconds, `{min 3, max 60, default 10}`
   (`POPUP_SECONDS` in core is the single source for schema, UI limits and the file). Stored in

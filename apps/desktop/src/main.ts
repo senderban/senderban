@@ -75,7 +75,7 @@ function describe(result: BlockResult): PopupView {
         ? {
             phase: "done",
             tone: "ok",
-            text: `✓ ${result.target}: rule verified. Future mail skips your inbox and goes to Junk.`,
+            text: `✓ ${result.target}: rule verified. Future mail skips your inbox and goes to ${result.action === "trash" ? "Trash (your provider may empty it after a while)" : "Junk"}.`,
           }
         : {
             phase: "done",
@@ -85,6 +85,12 @@ function describe(result: BlockResult): PopupView {
     case "not-applied":
     case "refused":
       return { phase: "done", tone: "error", text: `Not blocked: ${result.detail}` };
+    case "already-blocked":
+      return {
+        phase: "done",
+        tone: "warn",
+        text: `${result.target} is already blocked and goes to ${result.action === "trash" ? "Trash" : "Junk"}. Unblock it first to change that.`,
+      };
     case "duplicate":
       return { phase: "done", tone: "warn", text: "Already handled." };
     case "unknown":
@@ -343,15 +349,17 @@ if (addAccountArg !== undefined) {
       onDropped: (count) => {
         log("popups-dropped", { count });
       },
-      choose: async (id, scope) => {
+      choose: async (id, scope, action) => {
         const { store, engine, accounts, pending } = await ready.promise;
         const result = await blockPending(
           { pending, store, engine, accountIds: accounts.map((a) => a.id) },
           id,
           scope,
+          action,
         );
         log("choice", {
           scope,
+          action,
           result: result.status,
           verified: result.status === "blocked" ? result.verified : undefined,
         });
