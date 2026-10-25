@@ -51,6 +51,7 @@ function row(entry) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = "Unblock";
+  button.setAttribute("aria-label", `Unblock ${entry.value}`);
   button.disabled = busy;
   button.addEventListener("click", () => void unblock(entry));
 
