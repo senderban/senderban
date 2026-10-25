@@ -67,6 +67,32 @@ describe("parseAddress", () => {
     expect(parseAddress(input).ok).toBe(false);
   });
 
+  // Pre-push security review BLOCK-1: domainToASCII percent-decodes after the guards, so a plain-ASCII
+  // `%62ank.com` read as the real `bank.com` and the popup offered to block it.
+  it.each([
+    ["noreply@%62ank.com", "percent-encoded letter"],
+    ["noreply@ba%6Ek.com", "percent-encoded letter, middle"],
+    ["noreply@bank%2Ecom", "percent-encoded dot makes a label boundary"],
+    ["noreply@evil%2Ebank.com", "percent-encoded dot, subdomain"],
+    ["noreply@%F0%9D%90%9Bank.com", "percent-encoded math-bold letter"],
+    ["noreply@ba%C2%ADnk.com", "percent-encoded soft hyphen"],
+    ["noreply@ba%E2%80%8Bnk.com", "percent-encoded zero-width space"],
+    ["noreply@bank%E3%80%82com", "percent-encoded ideographic dot"],
+    ["x@%67mail.com", "percent-encoded freemail domain"],
+    ["noreply@ba_nk.com", "underscore"],
+    ["noreply@bank.com:25", "port"],
+    ["noreply@bank.com/x", "path"],
+  ])("rejects a domain that only turns into a clean one by decoding: %s (%s)", (input) => {
+    expect(parseAddress(input).ok).toBe(false);
+  });
+
+  it("keeps every accepted ASCII domain exactly as written, lowercased", () => {
+    for (const domain of ["Bank.COM", "a-b.example.org", "xn--bcher-kva.example", "1a.example"]) {
+      const r = parseAddress(`a@${domain}`);
+      expect(r.ok && r.value.domain).toBe(domain.toLowerCase());
+    }
+  });
+
   it("accepts punycode input as it is, in any case, and rejects a trailing dot", () => {
     const r = parseAddress("a@XN--BCHER-KVA.example");
     expect(r.ok && r.value.domain).toBe("xn--bcher-kva.example");

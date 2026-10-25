@@ -49,7 +49,11 @@ describe("watcher login gate", () => {
     vi.useRealTimers();
   });
 
-  const make = (id: string, connect: () => Promise<MailboxSession>, gate = createGate(1)) => {
+  const make = (
+    id: string,
+    connect: (signal?: AbortSignal) => Promise<MailboxSession>,
+    gate = createGate(1),
+  ) => {
     const watcher = new AccountWatcher({
       accountId: id,
       cursors: cursors(),
@@ -88,6 +92,20 @@ describe("watcher login gate", () => {
     finishFirst(idleSession(() => (closed += 1)));
     await vi.advanceTimersByTimeAsync(0);
     expect(closed).toBe(1); // the late session is not leaked
+  });
+
+  // Pre-push performance review W2: freeing the slot must also free the socket, or a provider-wide stall holds 5x the cap.
+  it("aborts the login's signal when it passes the slot deadline, and only then", async () => {
+    let seen: AbortSignal | undefined;
+    const watcher = make("a", (signal) => {
+      seen = signal;
+      return new Promise<MailboxSession>(() => undefined);
+    });
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(CONNECT_SLOT_MS - 1);
+    expect(seen?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(seen?.aborted).toBe(true);
   });
 
   it("opens no login for a waiter that reconnectNow replaced while it was queued", async () => {

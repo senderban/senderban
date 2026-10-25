@@ -36,8 +36,9 @@ Unit = account. `MAX_ACCOUNTS = 50` (`sync/engine.ts`). Everything below is line
 2. **Every gated job has a deadline**, otherwise one stuck account would hold a slot for good: a login is abandoned after
    `CONNECT_SLOT_MS = 60 s` (a late session is closed, not leaked); the engine's `plan` now has the same timeout as
    `apply` and `verify` (the Sieve plan is local; this guards adapters that read the provider while planning). The deadline frees
-   the slot but cannot cancel a hung login: it ends by imapflow's own timeouts (30 s connect, 15 s greeting, 300 s socket), so a hung
-   socket can outlive its slot.
+   the slot and aborts a signal: the IMAP connector closes its socket at once (measured by the pre-push performance review: without
+   it a provider-wide stall held 25 sockets, 5x the cap). A ManageSieve `connect()` is not cancelled; it ends by its own 15 s steps
+   (at most 30 s past the deadline), so a hung Sieve login can still outlive its slot briefly (simulation peak 10 sockets, 2x the cap).
 3. **A watcher that is stopped or replaced while it waits for a slot opens no login.**
 4. **Resume needs no extra jitter.** Fifty `reconnectNow()` calls queue behind the gate and start five at a time.
 5. **5 is a starting value, not a measured limit.** It is two named constants to tune once a provider's login throttle is measured.

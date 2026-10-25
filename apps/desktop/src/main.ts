@@ -106,7 +106,7 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
       : willRetry(outcome.code)
         ? "Senderban will try again."
         : outcome.code === "AUTH_REQUIRED"
-          ? "The password was refused: fix it, then restart Senderban (it tries again in 30 minutes)."
+          ? "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
           : outcome.code === "REMOTE_CHANGED"
             ? "Someone else changed Senderban's script on the server, so it stopped instead of overwriting it. It will not try again by itself."
             : "Check the account in Senderban.";
@@ -274,11 +274,11 @@ async function start(): Promise<Runtime> {
         accountId: account.id,
         cursors: store.cursors,
         gate: loginGate,
-        connect: async () =>
-          imapflowConnector({
-            ...account.imap,
-            password: await decryptPassword(account.passwordCipher),
-          })(),
+        // One connector per account: its temporary-refusal counter must outlive a single attempt.
+        connect: imapflowConnector({
+          ...account.imap,
+          password: () => decryptPassword(account.passwordCipher),
+        }),
         onMessage: (accountId: string, message: IncomingMessage) => {
           const id = pending.add({ accountId, sender: message.from });
           log("announce", {

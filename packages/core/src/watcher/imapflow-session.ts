@@ -49,8 +49,11 @@ export interface ImapConnection {
   /** true = implicit TLS (993). false = STARTTLS, which is required, never optional. */
   readonly secure: boolean;
   readonly user: string;
-  /** Decrypted by the caller just before connecting; never stored or logged here. */
-  readonly password: string;
+  /**
+   * Decrypted by the caller just before connecting; never stored or logged here. A function is called for
+   * every attempt, so one connector (and its refusal counter) can live as long as the account.
+   */
+  readonly password: string | (() => Promise<string>);
 }
 
 /** RFC 5530 s3: temporary refusals; AUTHENTICATIONFAILED (and no code) stay permanent. */
@@ -83,16 +86,26 @@ export function isAuthFailure(error: unknown): boolean {
   return isCredentialRefusal(error) && !isTemporaryRefusal(error);
 }
 
-/** Connects, opens INBOX read-only (EXAMINE: no flag side effects) and adapts ImapFlow to `MailboxSession`. */
-export function imapflowConnector(config: ImapConnection): () => Promise<MailboxSession> {
+/**
+ * Connects, opens INBOX read-only (EXAMINE: no flag side effects) and adapts ImapFlow to `MailboxSession`.
+ * Create it once per account: it counts consecutive temporary refusals across attempts. When `signal`
+ * aborts (the watcher gave up on the login) the socket is closed at once instead of living out imapflow's
+ * own timeouts while its login slot is already reused.
+ */
+export function imapflowConnector(
+  config: ImapConnection,
+): (signal?: AbortSignal) => Promise<MailboxSession> {
   let temporaryRefusals = 0;
-  return async () => {
+  return async (signal) => {
+    signal?.throwIfAborted();
+    const pass = typeof config.password === "function" ? await config.password() : config.password;
+    signal?.throwIfAborted();
     const client = new ImapFlow({
       host: config.host,
       port: config.port,
       secure: config.secure,
       doSTARTTLS: config.secure ? undefined : true,
-      auth: { user: config.user, pass: config.password },
+      auth: { user: config.user, pass },
       logger: false,
       maxIdleTime: IDLE_RESTART_MS,
       connectionTimeout: CONNECT_TIMEOUT_MS,
@@ -109,9 +122,15 @@ export function imapflowConnector(config: ImapConnection): () => Promise<Mailbox
     client.on("exists", () => existsListener?.());
     client.on("close", () => closeListener?.(lastError));
 
+    const onAbort = (): void => {
+      client.close();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
       await client.connect();
+      signal?.throwIfAborted();
       const mailbox = await client.mailboxOpen("INBOX", { readOnly: true });
+      signal?.throwIfAborted();
       // Without UIDNEXT the cursor would be NaN and every reconnect would fail the same way.
       if (!Number.isSafeInteger(mailbox.uidNext) || mailbox.uidNext < 1) {
         throw new FatalWatchError("server did not report UIDNEXT");
@@ -158,6 +177,8 @@ export function imapflowConnector(config: ImapConnection): () => Promise<Mailbox
       };
     } catch (error) {
       client.close();
+      // The watcher gave up on this login: its own deadline is the failure, not what the dying socket said.
+      if (signal?.aborted === true) throw signal.reason;
       if (isAuthFailure(error)) {
         throw new FatalWatchError("authentication failed", { cause: error });
       }
@@ -170,6 +191,8 @@ export function imapflowConnector(config: ImapConnection): () => Promise<Mailbox
         }
       }
       throw error;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
   };
 }

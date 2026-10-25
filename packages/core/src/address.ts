@@ -28,6 +28,16 @@ const LABEL = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 // silently delete them and the sender would read as a different, clean domain.
 const HIDDEN_OR_SPACE = /[\p{Cc}\p{Cf}\p{Z}\s]/u;
 const ASCII_ONLY = /^\p{ASCII}*$/u;
+/** An ASCII character a domain cannot contain (everything but letters, digits, `-`, `.`). */
+const NON_LDH_ASCII = /[^A-Za-z0-9.\-\u0080-￿]/;
+
+/** The converted domain has the raw one's labels, and every raw ASCII label survived unchanged (lowercased). */
+function sameShape(rawDomain: string, converted: string): boolean {
+  const raw = rawDomain.split(".");
+  const out = converted.split(".");
+  if (raw.length !== out.length) return false;
+  return raw.every((label, i) => !ASCII_ONLY.test(label) || label.toLowerCase() === out[i]);
+}
 
 const fail = (reason: string): ParseResult => ({ ok: false, reason });
 
@@ -65,9 +75,15 @@ export function parseAddress(input: string): ParseResult {
   const rawDomain = trimmed.slice(at + 1);
   // Checked before lowercasing: toLowerCase maps the Kelvin sign to a plain k.
   if (!ASCII_ONLY.test(rawLocal)) return fail("unsupported local part");
+  // domainToASCII follows the WHATWG host parser, which percent-decodes (`%62ank.com` -> `bank.com`) after
+  // every check below would have run. No ASCII character outside letters, digits, `-` and `.` is a valid
+  // domain character anyway, so a `%` (or any other transform trigger) is refused before it can be decoded.
+  if (NON_LDH_ASCII.test(rawDomain)) return fail("unsupported character in the domain");
   if (foldsToAscii(rawDomain)) return fail("look-alike characters in the domain");
   const local = rawLocal.toLowerCase();
   const domain = domainToASCII(rawDomain.toLowerCase());
+  // Belt and braces: mapping may rewrite a non-ASCII label, never add or remove a label or touch an ASCII one.
+  if (!sameShape(rawDomain, domain)) return fail("look-alike characters in the domain");
 
   if (local.length > ADDRESS_LIMITS.localMax) return fail("local part too long");
   if (!LOCAL_ATOM.test(local)) return fail("unsupported local part");

@@ -58,7 +58,8 @@ export type WatcherState = "stopped" | "connecting" | "watching" | "backoff" | "
 
 export interface WatcherOptions {
   readonly accountId: string;
-  readonly connect: () => Promise<MailboxSession>;
+  /** `signal` aborts when the login passes its slot deadline: the connector must then drop its socket. */
+  readonly connect: (signal?: AbortSignal) => Promise<MailboxSession>;
   /** Shared by every watcher of the device; bounds simultaneous logins. Unlimited when absent. */
   readonly gate?: Gate;
   readonly cursors: CursorStore;
@@ -212,11 +213,15 @@ export class AccountWatcher {
     const gate = this.options.gate ?? unlimited;
     return gate(async () => {
       if (epoch !== this.epoch) return null;
-      const attempt = this.options.connect();
+      const controller = new AbortController();
+      const attempt = this.options.connect(controller.signal);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`login did not finish within ${String(CONNECT_SLOT_MS)} ms`));
+          const error = new Error(`login did not finish within ${String(CONNECT_SLOT_MS)} ms`);
+          // The slot is freed now, so the socket must be too (or 50 stalled logins hold 50 sockets).
+          controller.abort(error);
+          reject(error);
         }, CONNECT_SLOT_MS);
       });
       try {
