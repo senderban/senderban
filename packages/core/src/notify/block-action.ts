@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { validateDomain } from "../address.js";
-import { isFreemail } from "../freemail.js";
+import { isCountrySuffix, isFreemail } from "../freemail.js";
 import type { Store } from "../store/store.js";
 import type { SyncEngine, SyncOutcome } from "../sync/engine.js";
 import type { PendingBlocks } from "./pending.js";
@@ -16,7 +16,7 @@ export type BlockScope = (typeof BLOCK_SCOPES)[number];
  */
 export function blockableDomain(sender: string): string | null {
   const domain = sender.slice(sender.lastIndexOf("@") + 1);
-  if (validateDomain(domain) !== null || isFreemail(domain)) return null;
+  if (validateDomain(domain) !== null || isFreemail(domain) || isCountrySuffix(domain)) return null;
   return domain;
 }
 

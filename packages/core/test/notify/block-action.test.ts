@@ -42,6 +42,20 @@ describe("blockableDomain", () => {
     expect(blockableDomain("someone@gmail.com")).toBeNull();
     expect(blockableDomain("someone@mail.gmail.com")).toBeNull();
   });
+
+  it("offers nothing for a country public suffix or a country freemail variant", () => {
+    for (const sender of [
+      "news@co.uk",
+      "a@com.tr",
+      "a@org.uk",
+      "a@ac.jp",
+      "x@hotmail.co.uk",
+      "x@yahoo.co.jp",
+    ]) {
+      expect(blockableDomain(sender)).toBeNull();
+    }
+    expect(blockableDomain("a@shop.co.uk")).toBe("shop.co.uk");
+  });
 });
 
 describe("blockPending", () => {

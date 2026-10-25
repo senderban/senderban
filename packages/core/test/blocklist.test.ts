@@ -25,6 +25,13 @@ describe("checkEntry", () => {
     }
   });
 
+  it("refuses domain blocks on a country public suffix, not on a name under it", () => {
+    for (const value of ["co.uk", "com.tr", "ac.jp"]) {
+      expect(checkEntry({ ...base, match: "subdomains", value }).ok).toBe(false);
+    }
+    expect(checkEntry({ ...base, match: "subdomains", value: "shop.co.uk" }).ok).toBe(true);
+  });
+
   it("still allows blocking one address at a freemail provider", () => {
     expect(checkEntry({ ...base, match: "exactAddress", value: "spammer@gmail.com" }).ok).toBe(
       true,

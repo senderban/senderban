@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ADDRESS_LIMITS, parseAddress, validateDomain } from "./address.js";
-import { isFreemail } from "./freemail.js";
+import { isCountrySuffix, isFreemail } from "./freemail.js";
 
 /** `exactAddress` = one mailbox; `exactDomain` = that domain only; `subdomains` = domain and everything under it. */
 export const MATCH_KINDS = ["exactAddress", "exactDomain", "subdomains"] as const;
@@ -47,5 +47,7 @@ export function checkEntry(input: unknown): EntryCheck {
   if (domainError !== null) return { ok: false, reason: domainError };
   if (isFreemail(domain))
     return { ok: false, reason: "freemail domains cannot be blocked as a domain" };
+  if (isCountrySuffix(domain))
+    return { ok: false, reason: "a country public suffix cannot be blocked as a domain" };
   return { ok: true, entry: { ...entry, value: domain } };
 }
