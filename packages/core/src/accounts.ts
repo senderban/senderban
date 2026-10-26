@@ -138,6 +138,10 @@ export const GoogleSignInRequestSchema = z.strictObject({
   accountId: z.string().regex(ACCOUNT_ID).optional(),
 });
 
+/** Seconds since 1970. Unit: seconds. Bounds 2001-09-09 to 2100-01-01: any real expiry date lies inside, a stray number does not. */
+const EPOCH_SECONDS = { min: 1_000_000_000, max: 4_102_444_800 } as const;
+const EpochSeconds = z.number().int().min(EPOCH_SECONDS.min).max(EPOCH_SECONDS.max);
+
 /**
  * A Gmail mailbox (ADR 0009). Only the refresh token is stored, as ciphertext; the OAuth client ID is app-wide, not
  * per account. `refreshCipher` is missing while the account is signed out (the app-wide client changed, so the old
@@ -145,7 +149,12 @@ export const GoogleSignInRequestSchema = z.strictObject({
  */
 export const GmailAccountConfigSchema = z.strictObject({
   id: z.string().regex(ACCOUNT_ID),
-  gmail: z.strictObject({ email: GmailAddress, refreshCipher: Ciphertext.optional() }),
+  gmail: z.strictObject({
+    email: GmailAddress,
+    refreshCipher: Ciphertext.optional(),
+    /** When Google ends a time-limited refresh token ("Testing": 7 days after sign-in); absent when it did not say. */
+    accessEndsAt: EpochSeconds.optional(),
+  }),
 });
 export type GmailAccountConfig = z.infer<typeof GmailAccountConfigSchema>;
 

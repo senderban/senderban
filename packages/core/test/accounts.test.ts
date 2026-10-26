@@ -237,6 +237,16 @@ describe("MXroute key (advanced)", () => {
 describe("Gmail account signed out (client changed)", () => {
   const signedOut = { id: "g1", gmail: { email: "me@gmail.com" } };
 
+  it("keeps when Google ends the token, in epoch seconds, within bounds", () => {
+    const ends = (accessEndsAt: unknown) =>
+      AccountsFileSchema.safeParse(
+        file([{ ...signedOut, gmail: { ...signedOut.gmail, accessEndsAt } }]),
+      ).success;
+    expect(ends(1_800_000_000)).toBe(true);
+    for (const bad of [0, 999_999_999, 4_102_444_801, 1.5, "1800000000", -1, null])
+      expect(ends(bad)).toBe(false);
+  });
+
   it("is accepted without a token, and still refuses an unknown key", () => {
     expect(AccountsFileSchema.safeParse(file([signedOut])).success).toBe(true);
     const withToken = { ...signedOut, gmail: { ...signedOut.gmail, refreshToken: "1//x" } };

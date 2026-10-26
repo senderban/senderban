@@ -26,3 +26,43 @@ export function collectOwnMail(accounts: readonly AccountConfig[]): OwnMail {
   }
   return { domains, addresses };
 }
+
+/**
+ * The never-refuse set, kept current. It is read when a popup offers "Block at server" and when a choice runs, so a
+ * Gmail account signed in after start-up must be in it by then: `refresh` re-reads accounts.json. A failed read keeps
+ * the old set (it never shrinks on an error), and the caller logs the error.
+ */
+export interface OwnMailSet {
+  get(): OwnMail;
+  refresh(): Promise<void>;
+}
+
+export function createOwnMail(
+  initial: OwnMail,
+  load: () => Promise<readonly AccountConfig[]>,
+): OwnMailSet {
+  let current = initial;
+  return {
+    get: () => current,
+    refresh: async () => {
+      current = collectOwnMail(await load());
+    },
+  };
+}
+
+/**
+ * The `onAccountsChanged` callback for the Google accounts: refreshes the never-refuse set, and reports (never throws)
+ * a failed read, so a stored sign-in is not turned into an error by it.
+ */
+export function refreshOwnOnChange(
+  own: () => Promise<OwnMailSet>,
+  onError: (error: unknown) => void,
+): () => Promise<void> {
+  return async () => {
+    try {
+      await (await own()).refresh();
+    } catch (error) {
+      onError(error);
+    }
+  };
+}

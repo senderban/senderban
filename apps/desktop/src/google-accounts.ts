@@ -20,7 +20,12 @@ import {
   saveAccounts,
   serialized,
 } from "./accounts-file.js";
-import { clientSecretGetter, loadGoogleClient, saveGoogleClient } from "./google-client.js";
+import {
+  ClientFileInvalid,
+  clientSecretGetter,
+  loadGoogleClient,
+  saveGoogleClient,
+} from "./google-client.js";
 
 /** Token revokes in flight at once when the app-wide client changes: 50 accounts drain in 10 waves of one <= 15 s call. */
 export const MAX_CONCURRENT_REVOKES = 5;
@@ -34,6 +39,13 @@ export interface GoogleDeps {
   readonly signIn: (options: SignInOptions) => Promise<SignInResult>;
   /** Already limited to Google's consent page. */
   readonly openBrowser: (url: string) => Promise<void>;
+  /**
+   * Told after this module changed accounts.json (a sign-in stored, accounts signed out, one removed): whatever was
+   * derived from the file, such as the never-refuse addresses, must follow. A throw is swallowed here; the caller logs it.
+   */
+  readonly onAccountsChanged?: () => Promise<void> | void;
+  /** The clock in milliseconds; tests move it. */
+  readonly now?: () => number;
 }
 
 /** What the manage page may know: the client's ID (not secret), and per account the address and whether it can act. */
@@ -42,7 +54,12 @@ export interface GooglePageState {
   readonly accounts: readonly {
     readonly accountId: string;
     readonly email: string;
+    /** A token is stored (it may have expired: see `expired`). */
     readonly signedIn: boolean;
+    /** Google's limit on the stored token has passed: the account must sign in again. */
+    readonly expired: boolean;
+    /** Epoch seconds when Google ends the stored token, or null when it did not limit it. */
+    readonly accessEndsAt: number | null;
   }[];
 }
 
@@ -82,7 +99,13 @@ export type GoogleClientReply =
   | "revoke-failed"
   | "busy";
 
-export type GoogleRemoveReply = "removed" | "unknown-account" | "revoke-failed" | "busy";
+export type GoogleRemoveReply =
+  | "removed"
+  /** Removed, but the account held no token, so no revoke ran: Google may still list the access. */
+  | "removed-not-revoked"
+  | "unknown-account"
+  | "revoke-failed"
+  | "busy";
 
 /** One Google operation at a time: a client change must not land between a sign-in and its save. */
 let working = false;
@@ -104,22 +127,42 @@ export function cancelGoogleSignIn(): void {
 
 const SECONDS_PER_DAY = 86_400;
 
+const nowSeconds = (deps: GoogleDeps): number => Math.floor((deps.now ?? Date.now)() / 1000);
+
+async function notifyChanged(deps: GoogleDeps): Promise<void> {
+  try {
+    await deps.onAccountsChanged?.();
+  } catch {
+    // The change is already saved; a failing listener must not turn a stored sign-in into an error.
+  }
+}
+
 function gmailAccounts(accounts: readonly AccountConfig[]): GmailAccountConfig[] {
   return accounts.filter(isGmailAccount);
 }
 
 export async function googleState(deps: GoogleDeps): Promise<GooglePageState> {
   const [client, accounts] = await Promise.all([
-    // An unreadable client file shows as "no client": the person can save one over it (see saveGoogleClientSettings).
-    loadGoogleClient(deps.clientPath).catch(() => null),
+    // An invalid client file shows as "no client": the person can save one over it (see saveGoogleClientSettings).
+    // An I/O error is not that: it throws and the page says it could not load.
+    loadGoogleClient(deps.clientPath).catch((error: unknown) => {
+      if (error instanceof ClientFileInvalid) return null;
+      throw error;
+    }),
     loadAccounts(deps.accountsPath),
   ]);
+  const now = nowSeconds(deps);
   return {
     client: client === null ? null : { clientId: client.clientId },
     accounts: gmailAccounts(accounts).map((a) => ({
       accountId: a.id,
       email: a.gmail.email,
       signedIn: a.gmail.refreshCipher !== undefined,
+      expired:
+        a.gmail.refreshCipher !== undefined &&
+        a.gmail.accessEndsAt !== undefined &&
+        a.gmail.accessEndsAt <= now,
+      accessEndsAt: a.gmail.accessEndsAt ?? null,
     })),
   };
 }
@@ -172,10 +215,15 @@ export function signInGoogle(
     }
 
     const refreshCipher = await encryptPassword(result.refreshToken);
+    const accessEndsAt =
+      result.refreshTokenExpiresInSeconds === undefined
+        ? undefined
+        : nowSeconds(deps) + result.refreshTokenExpiresInSeconds;
     const stored = await serialized(() =>
-      storeSignIn(deps.accountsPath, request.accountId, result.email, refreshCipher),
+      storeSignIn(deps.accountsPath, request.accountId, result.email, refreshCipher, accessEndsAt),
     );
     if (stored !== "stored") return { reply: stored };
+    await notifyChanged(deps);
     return {
       reply: "signed-in",
       ...(result.refreshTokenExpiresInSeconds === undefined
@@ -195,7 +243,13 @@ async function storeSignIn(
   accountId: string | undefined,
   email: string,
   refreshCipher: string,
+  accessEndsAt: number | undefined,
 ): Promise<"stored" | "unknown-account" | "duplicate" | "full"> {
+  // A new token replaces the old limit: the date of the last sign-in is the only one that counts.
+  const stored = {
+    refreshCipher,
+    ...(accessEndsAt === undefined ? {} : { accessEndsAt }),
+  };
   const accounts = await loadAccounts(path);
   if (accountId !== undefined) {
     // The address was checked against the account's own in `signIn` (expectEmail); the account may be gone since.
@@ -204,7 +258,7 @@ async function storeSignIn(
       path,
       accounts.map((a) =>
         a.id === accountId && isGmailAccount(a)
-          ? { ...a, gmail: { ...a.gmail, refreshCipher } }
+          ? { ...a, gmail: { email: a.gmail.email, ...stored } }
           : a,
       ),
     );
@@ -221,7 +275,7 @@ async function storeSignIn(
   const ids = new Set(accounts.map((a) => a.id));
   let id = `gmail-${randomUUID().slice(0, 8)}`;
   while (ids.has(id)) id = `gmail-${randomUUID().slice(0, 8)}`;
-  await saveAccounts(path, [...accounts, { id, gmail: { email, refreshCipher } }]);
+  await saveAccounts(path, [...accounts, { id, gmail: { email, ...stored } }]);
   return "stored";
 }
 
@@ -269,8 +323,12 @@ export function saveGoogleClientSettings(
   input: GoogleClientInput,
 ): Promise<GoogleClientReply> {
   return exclusive<GoogleClientReply>("busy", async () => {
-    // A client file that cannot be read must not be a dead end: it is replaced, and what it held cannot be revoked.
-    const old = await loadGoogleClient(deps.clientPath).catch(() => "unreadable" as const);
+    // A client file that is not ours must not be a dead end: it is replaced, and what it held cannot be revoked.
+    // Only that: an I/O error (a scanner holding the file) throws and the person tries again, nothing is dropped.
+    const old = await loadGoogleClient(deps.clientPath).catch((error: unknown) => {
+      if (error instanceof ClientFileInvalid) return "unreadable" as const;
+      throw error;
+    });
     const changed = old === "unreadable" || (old !== null && old.clientId !== input.clientId);
     let leftAccess = false;
     if (changed) {
@@ -294,6 +352,7 @@ export function saveGoogleClientSettings(
             signOut(await loadAccounts(deps.accountsPath), gone),
           );
         });
+        await notifyChanged(deps);
         if (gone.size !== signedIn.length) return "revoke-failed";
       }
     }
@@ -316,7 +375,8 @@ export function removeGoogleAccount(
       (a) => a.id === accountId,
     );
     if (account === undefined) return "unknown-account";
-    if (account.gmail.refreshCipher !== undefined) {
+    const hadToken = account.gmail.refreshCipher !== undefined;
+    if (hadToken) {
       const client = await loadGoogleClient(deps.clientPath);
       if (client === null) return "revoke-failed";
       const revoked = await revokeAll(deps.makeOAuth(client.clientId, clientSecretGetter(client)), [
@@ -324,13 +384,15 @@ export function removeGoogleAccount(
       ]);
       if (revoked.get(account.id) !== true) return "revoke-failed";
     }
-    return serialized(async () => {
+    await serialized(async () => {
       const accounts = await loadAccounts(deps.accountsPath);
       await saveAccounts(
         deps.accountsPath,
         accounts.filter((a) => a.id !== accountId),
       );
-      return "removed" as const;
     });
+    await notifyChanged(deps);
+    // No token, no revoke: the page must not say the access was revoked.
+    return hadToken ? "removed" : "removed-not-revoked";
   });
 }

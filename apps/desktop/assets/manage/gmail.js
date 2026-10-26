@@ -70,6 +70,10 @@ const G_CLIENT_REPLY = {
 };
 const G_REMOVE_REPLY = {
   removed: ["ok", "Removed. Senderban's access to that account was revoked."],
+  "removed-not-revoked": [
+    "warn",
+    `Removed. This account held no stored access, so nothing was revoked. ${G_PERMISSIONS}`,
+  ],
   "unknown-account": ["error", "That account is no longer set up."],
   "revoke-failed": [
     "error",
@@ -111,6 +115,16 @@ function gDrawClient() {
   gEls.add.disabled = gBusy || gState.client === null;
 }
 
+/** What the stored token is worth today. Text and colour-free: the state is said in words (never by colour alone). */
+function gStateText(account) {
+  if (!account.signedIn) return "Signed out. Sign in again to use it.";
+  if (account.expired) return "Access expired. Sign in again to use it.";
+  if (Number.isFinite(account.accessEndsAt)) {
+    return `Signed in. Google ends this access on ${new Date(account.accessEndsAt * 1000).toLocaleDateString()}.`;
+  }
+  return "Signed in";
+}
+
 function gAccountRow(account) {
   const li = document.createElement("li");
   const title = document.createElement("div");
@@ -119,7 +133,7 @@ function gAccountRow(account) {
   title.title = account.email;
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = account.signedIn ? "Signed in" : "Signed out. Sign in again to use it.";
+  meta.textContent = gStateText(account);
 
   const again = document.createElement("button");
   again.type = "button";

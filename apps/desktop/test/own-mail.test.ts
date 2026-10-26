@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // own-mail.ts reaches Electron only through the accounts file helpers; a stand-in is enough.
 vi.mock("electron", () => ({ safeStorage: {} }));
 
-const { collectOwnMail } = await import("../src/own-mail.js");
+const { collectOwnMail, createOwnMail, refreshOwnOnChange } = await import("../src/own-mail.js");
 const { canRejectSender } = await import("@senderban/core");
 
 const imap = (id: string, user: string, sieveUser = user) => ({
@@ -65,5 +65,40 @@ describe("collectOwnMail", () => {
     const own = collectOwnMail([imap("a", "me@example.com"), gmail("g", "me@gmail.com")]);
     expect([...own.addresses].sort()).toEqual(["me@example.com", "me@gmail.com"]);
     expect([...own.domains]).toEqual(["example.com"]);
+  });
+});
+
+describe("createOwnMail and refreshOwnOnChange", () => {
+  it("re-reads the accounts when told, and keeps the old set when the read fails", async () => {
+    let accounts: ReturnType<typeof gmail>[] = [];
+    let failing = false;
+    const own = createOwnMail(collectOwnMail([]), () =>
+      failing ? Promise.reject(new Error("locked")) : Promise.resolve(accounts),
+    );
+    expect(canRejectSender("me@gmail.com", own.get())).toBe(true);
+
+    accounts = [gmail("g", "me@gmail.com")];
+    const errors: unknown[] = [];
+    const onChange = refreshOwnOnChange(
+      () => Promise.resolve(own),
+      (error) => errors.push(error),
+    );
+    await onChange();
+    expect(canRejectSender("me@gmail.com", own.get())).toBe(false);
+
+    failing = true;
+    await expect(onChange()).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect(canRejectSender("me@gmail.com", own.get())).toBe(false);
+  });
+
+  it("reports a set that is not ready yet instead of throwing", async () => {
+    const errors: unknown[] = [];
+    const onChange = refreshOwnOnChange(
+      () => Promise.reject(new Error("not started")),
+      (error) => errors.push(error),
+    );
+    await expect(onChange()).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1);
   });
 });

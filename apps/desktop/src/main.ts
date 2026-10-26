@@ -24,7 +24,6 @@ import type {
   BlockResult,
   ImapAccountConfig,
   IncomingMessage,
-  OwnMail,
   SyncOutcome,
   UnblockResult,
   WatcherState,
@@ -43,7 +42,8 @@ import {
 } from "./google-accounts.js";
 import type { GoogleDeps } from "./google-accounts.js";
 import { openGoogleAuthUrl } from "./google-url.js";
-import { collectOwnMail } from "./own-mail.js";
+import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
+import type { OwnMailSet } from "./own-mail.js";
 import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
@@ -82,8 +82,8 @@ interface Runtime {
   readonly pending: PendingBlocks;
   /** Account id -> the address the person knows it by. */
   readonly labels: ReadonlyMap<string, string>;
-  /** The person's own addresses and mail domains: never refused at the server. */
-  readonly own: OwnMail;
+  /** The person's own addresses and mail domains: never refused at the server. Follows accounts.json (own-mail.ts). */
+  readonly own: OwnMailSet;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
@@ -291,7 +291,9 @@ async function start(): Promise<Runtime> {
   const watchers = new Map<string, AccountWatcher>();
   const lanes = accounts.map((a) => a.id);
   // Never-refuse set for "Block at server" (ADR 0008 point 3); see own-mail.ts.
-  const own = collectOwnMail(configured);
+  const own = createOwnMail(collectOwnMail(configured), () =>
+    loadAccounts(join(dir, "accounts.json")),
+  );
   // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
   // it would otherwise send the same entries five times. The first account owns the lane and its key.
   const mxrouteGroups = new Map<string, { owner: string; mirror: boolean }>();
@@ -394,7 +396,8 @@ async function start(): Promise<Runtime> {
             spamScore: message.spamScore,
             domain: blockableDomain(message.from),
             // A wildcard address is never written to the blacklist (it would refuse a whole provider).
-            rejectsAtServer: rejectingAccounts.has(accountId) && canRejectSender(message.from, own),
+            rejectsAtServer:
+              rejectingAccounts.has(accountId) && canRejectSender(message.from, own.get()),
           });
         },
         onOverflow: (accountId, skipped) => {
@@ -523,6 +526,13 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         }),
       signIn,
       openBrowser: openGoogleAuthUrl((url) => shell.openExternal(url)),
+      // A Gmail address connected or removed while the app runs changes who must never be refused at the server.
+      onAccountsChanged: refreshOwnOnChange(
+        async () => (await ready.promise).own,
+        (error) => {
+          log("own-refresh-failed", { detail: errorText(error) });
+        },
+      ),
     };
     toasts = new Toasts({
       onActivation: () => {
@@ -542,7 +552,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
               pending,
               store,
               engine,
-              own,
+              own: own.get(),
               accountIds: lanes,
               onClaimed: (accountId) => {
                 clicked = accountId;

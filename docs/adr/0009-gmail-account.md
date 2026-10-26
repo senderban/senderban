@@ -98,6 +98,8 @@ a **different ID** needs the person's confirmation, revokes the stored tokens wi
 A client file that cannot be read is replaceable from the page (it shows as "no client"): the signed-in accounts are signed out **without** a revoke (there is no
 client to revoke with) and the page says the access Google still lists can be removed under Google Account permissions.
 A signed-out account keeps its id and address and has no `refreshCipher` (the field is optional since A1b).
+`gmail.accessEndsAt` (optional, epoch seconds, 2001-09-09 to 2100-01-01) is stored at sign-in as now + `refresh_token_expires_in` when Google limits the token
+("Testing": 7 days); the page shows the end date and, after it, "Access expired" (a token that cannot refresh must not read as "Signed in"). A new sign-in replaces it or clears it.
 The secret is not confidential for a Desktop client (read), so `secretCipher` is hygiene, not protection.
 Bounds (PROVISIONAL until a real value is seen, tighten then, same rule as `MXROUTE_LIMITS`): clientId 1–128 ASCII, matching
 `^[0-9]+-[A-Za-z0-9_]+\.apps\.googleusercontent\.com$` (shape from memory); ciphertext reuses `Ciphertext` (≤ 8192). `email` is checked
@@ -210,6 +212,12 @@ adapter exists and must be added there.
 
 A refused sign-in tells the person the access Google already gave can be removed under Google Account permissions, **except `duplicate`**: the token of a mailbox that is
 already set up belongs to the same grant as the working account, so removing it there would break that account. `full` carries the note.
+
+Security review follow-ups (2026-10-26): the never-refuse address set (ADR 0008 point 3) follows `accounts.json` while the app runs (`createOwnMail`, refreshed by
+`onAccountsChanged` after a sign-in, a sign-out or a removal; a failed read keeps the old set), so a Gmail address connected after start-up is protected at once. A removal
+shrinks it at once too. Removing an account that held no token answers `removed-not-revoked` and says nothing was revoked. Only a client file that is there but invalid
+(`ClientFileInvalid`) counts as unreadable; an I/O error (a scanner holding the file) fails the step and drops nothing. Not done: security FLAG-4 (the loopback's 20-request
+cap is spent by unauthenticated requests).
 
 Open (not done in A1b): an account whose stored token cannot be decrypted (profile restored on another machine, Windows password reset) cannot be removed from the page
 (the revoke never succeeds); it needs a "remove here anyway, I removed the access in my Google account" confirmation. Also unmeasured: whether Google ignores a wrong

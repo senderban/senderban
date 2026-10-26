@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,8 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { AdapterError, isGmailAccount } = await import("@senderban/core");
+const { AdapterError, canRejectSender, isGmailAccount } = await import("@senderban/core");
+const { collectOwnMail, createOwnMail } = await import("../src/own-mail.js");
 const { decryptPassword, encryptPassword, loadAccounts, saveAccounts, serialized } =
   await import("../src/accounts-file.js");
 const { loadGoogleClient, saveGoogleClient } = await import("../src/google-client.js");
@@ -182,7 +183,13 @@ describe("sign in", () => {
     const [account] = await loadAccounts(accountsPath);
     expect(account && isGmailAccount(account) && account.gmail.refreshCipher).toBeTruthy();
     expect((await googleState(deps)).accounts).toEqual([
-      { accountId: "g1", email: "me@gmail.com", signedIn: true },
+      {
+        accountId: "g1",
+        email: "me@gmail.com",
+        signedIn: true,
+        expired: false,
+        accessEndsAt: null,
+      },
     ]);
     expect(await readFile(accountsPath, "utf8")).not.toContain("1//new-token");
   });
@@ -376,9 +383,9 @@ describe("remove an account", () => {
     expect((await loadAccounts(accountsPath)).length).toBe(1);
   });
 
-  it("removes a signed-out account without calling Google", async () => {
+  it("removes a signed-out account without calling Google, and does not say it revoked anything", async () => {
     await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", null)]);
-    expect(await removeGoogleAccount(deps, "g1")).toBe("removed");
+    expect(await removeGoogleAccount(deps, "g1")).toBe("removed-not-revoked");
     expect(revoke).not.toHaveBeenCalled();
   });
 
@@ -504,5 +511,124 @@ describe("a client file that cannot be read", () => {
     expect(revoke).not.toHaveBeenCalled();
     expect((await googleState(deps)).accounts[0]?.signedIn).toBe(false);
     expect((await loadGoogleClient(clientPath))?.clientId).toBe(NEW_ID);
+  });
+});
+
+describe("access that ends (Google's 7 days in Testing)", () => {
+  const DAY = 86_400_000;
+  const T0 = 1_800_000_000_000;
+
+  it("keeps the date of the sign-in and shows the account as expired once it has passed", async () => {
+    deps = { ...deps, now: () => T0 };
+    signInFake.mockResolvedValue(
+      signedIn("me@gmail.com", TOKEN, { refreshTokenExpiresInSeconds: 604_799 }),
+    );
+    expect(await signInGoogle(deps, {})).toEqual({ reply: "signed-in", accessEndsInDays: 7 });
+
+    const endsAt = T0 / 1000 + 604_799;
+    let [account] = (await googleState(deps)).accounts;
+    expect(account).toMatchObject({ signedIn: true, expired: false, accessEndsAt: endsAt });
+
+    deps = { ...deps, now: () => T0 + 6 * DAY };
+    [account] = (await googleState(deps)).accounts;
+    expect(account?.expired).toBe(false);
+    deps = { ...deps, now: () => T0 + 8 * DAY };
+    [account] = (await googleState(deps)).accounts;
+    expect(account).toMatchObject({ signedIn: true, expired: true, accessEndsAt: endsAt });
+  });
+
+  it("drops the old date when the new sign-in has none (Google no longer limits it)", async () => {
+    deps = { ...deps, now: () => T0 };
+    signInFake.mockResolvedValue(
+      signedIn("me@gmail.com", TOKEN, { refreshTokenExpiresInSeconds: 604_799 }),
+    );
+    await signInGoogle(deps, {});
+    const id = (await googleState(deps)).accounts[0]?.accountId ?? "";
+    signInFake.mockResolvedValue(signedIn("me@gmail.com", "1//unlimited"));
+    await signInGoogle(deps, { accountId: id });
+    expect((await googleState(deps)).accounts[0]).toMatchObject({
+      signedIn: true,
+      expired: false,
+      accessEndsAt: null,
+    });
+  });
+});
+
+describe("what listens to accounts.json changes", () => {
+  it("is told after a sign-in is stored, accounts are signed out, and an account is removed", async () => {
+    const told = vi.fn();
+    deps = { ...deps, onAccountsChanged: told };
+    await signInGoogle(deps, {});
+    expect(told).toHaveBeenCalledTimes(1);
+
+    const id = (await googleState(deps)).accounts[0]?.accountId ?? "";
+    await saveGoogleClientSettings(deps, {
+      clientId: NEW_ID,
+      clientSecret: SECRET,
+      confirmSignOut: true,
+    });
+    expect(told).toHaveBeenCalledTimes(2);
+
+    await removeGoogleAccount(deps, id);
+    expect(told).toHaveBeenCalledTimes(3);
+  });
+
+  it("is not told when nothing was stored", async () => {
+    const told = vi.fn();
+    deps = { ...deps, onAccountsChanged: told };
+    signInFake.mockResolvedValue({ status: "cancelled" });
+    await signInGoogle(deps, {});
+    await removeGoogleAccount(deps, "none");
+    expect(told).not.toHaveBeenCalled();
+  });
+
+  it("does not turn a stored sign-in into an error when the listener throws", async () => {
+    deps = {
+      ...deps,
+      onAccountsChanged: () => Promise.reject(new Error("boom")),
+    };
+    expect(await signInGoogle(deps, {})).toEqual({ reply: "signed-in" });
+    expect((await loadAccounts(accountsPath)).length).toBe(1);
+  });
+});
+
+describe("a client file that is there but cannot be read right now", () => {
+  it("is not 'unreadable': nothing is signed out, the client file is untouched, the step fails", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    // A directory where the file should be: stat works, reading it fails with an I/O error (like a locked file).
+    await rm(clientPath);
+    await mkdir(clientPath);
+    const before = await readFile(accountsPath, "utf8");
+    await expect(
+      saveGoogleClientSettings(deps, {
+        clientId: NEW_ID,
+        clientSecret: SECRET,
+        confirmSignOut: true,
+      }),
+    ).rejects.toThrow();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await readFile(accountsPath, "utf8")).toBe(before);
+    // The page says it could not load, not "no client".
+    await expect(googleState(deps)).rejects.toThrow();
+  });
+});
+
+describe("the never-refuse set follows a Gmail sign-in made after start-up (security FLAG-1)", () => {
+  it("stops offering 'Block at server' for the new address and its spellings, and keeps them after a failed refresh", async () => {
+    const own = createOwnMail(collectOwnMail([]), () => loadAccounts(accountsPath));
+    deps = { ...deps, onAccountsChanged: () => own.refresh() };
+    // Before the sign-in the address is nobody's: a forged mail from it could be refused.
+    expect(canRejectSender("me@gmail.com", own.get())).toBe(true);
+
+    expect(await signInGoogle(deps, {})).toEqual({ reply: "signed-in" });
+    for (const forged of ["me@gmail.com", "m.e@gmail.com", "me+x@gmail.com", "me@googlemail.com"]) {
+      expect(canRejectSender(forged, own.get())).toBe(false);
+    }
+    expect(canRejectSender("someone-else@gmail.com", own.get())).toBe(true);
+
+    // A read that fails does not shrink the set.
+    await writeFile(accountsPath, "{ not json");
+    await expect(own.refresh()).rejects.toThrow();
+    expect(canRejectSender("me@gmail.com", own.get())).toBe(false);
   });
 });
