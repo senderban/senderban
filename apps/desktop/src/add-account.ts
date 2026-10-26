@@ -1,5 +1,5 @@
 import { readFile, stat, unlink } from "node:fs/promises";
-import { AccountConfigSchema, NewAccountSchema } from "@senderban/core";
+import { ImapAccountConfigSchema, NewAccountSchema } from "@senderban/core";
 import { encryptPassword, loadAccounts, saveAccounts } from "./accounts-file.js";
 
 /** A file with one account in it is a few hundred bytes; anything past this is not one. */
@@ -30,7 +30,7 @@ export async function addAccountFromFile(inputPath: string, accountsPath: string
   const existing = await loadAccounts(accountsPath);
   if (existing.some((a) => a.id === rest.id))
     throw new AddAccountError(`account ${rest.id} already exists`);
-  const account = AccountConfigSchema.parse({
+  const account = ImapAccountConfigSchema.parse({
     ...rest,
     passwordCipher: await encryptPassword(password),
   });

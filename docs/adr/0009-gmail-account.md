@@ -35,7 +35,7 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
 MXroute) loads unchanged and needs no migration:
 
 - IMAP/Sieve account — today's shape.
-- Gmail account — `{ id, gmail: { clientId, refreshCipher, email } }`, `strictObject`, no `imap`/`sieve`.
+- Gmail account — `{ id, gmail: { email, refreshCipher } }` (shipped in step A0), `strictObject`, no `imap`/`sieve`. `email` must be in the canonical form `parseAddress` returns.
 
 App-wide, once, not per account: `googleClient: { clientId, secretCipher? }` (one Desktop client serves several Gmail accounts).
 Bounds (PROVISIONAL until a real value is seen, tighten then, same rule as `MXROUTE_LIMITS`): clientId 1–128 ASCII, matching

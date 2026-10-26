@@ -1,5 +1,5 @@
-import { AdapterError, createMxrouteClient, validateDomain } from "@senderban/core";
-import type { AccountConfig, MxrouteInput } from "@senderban/core";
+import { AdapterError, createMxrouteClient, isImapAccount, validateDomain } from "@senderban/core";
+import type { AccountConfig, ImapAccountConfig, MxrouteInput } from "@senderban/core";
 import { encryptPassword, loadAccounts, saveAccounts } from "./accounts-file.js";
 
 /** What the manage page may know about an account's MXroute key. The key itself never leaves this process. */
@@ -48,7 +48,7 @@ function serialized<T>(work: () => Promise<T>): Promise<T> {
 
 /** Everything the page needs to draw the Advanced section: no ciphertext, no key. */
 export async function listMxroute(path: string): Promise<MxroutePageAccount[]> {
-  return (await loadAccounts(path)).map((a) => ({
+  return (await loadAccounts(path)).filter(isImapAccount).map((a) => ({
     accountId: a.id,
     label: a.imap.user,
     hasKey: a.mxroute !== undefined,
@@ -58,17 +58,22 @@ export async function listMxroute(path: string): Promise<MxroutePageAccount[]> {
   }));
 }
 
+/** Changes one IMAP account; a missing id, or a Gmail account (no MXroute key to hold), counts as unknown. */
 function replaceAccount(
   accounts: readonly AccountConfig[],
   id: string,
-  change: (account: AccountConfig) => AccountConfig,
+  change: (account: ImapAccountConfig) => ImapAccountConfig,
 ): AccountConfig[] | null {
-  if (!accounts.some((a) => a.id === id)) return null;
-  return accounts.map((a) => (a.id === id ? change(a) : a));
+  if (!accounts.some((a) => a.id === id && isImapAccount(a))) return null;
+  return accounts.map((a) => (a.id === id && isImapAccount(a) ? change(a) : a));
+}
+
+function findImap(accounts: readonly AccountConfig[], id: string): ImapAccountConfig | undefined {
+  return accounts.filter(isImapAccount).find((a) => a.id === id);
 }
 
 /** The mail domain of an account (the part after the @ of its login), or null when it has none to use. */
-export function mailDomain(account: AccountConfig): string | null {
+export function mailDomain(account: ImapAccountConfig): string | null {
   const domain = account.imap.user.split("@")[1];
   return domain !== undefined && validateDomain(domain.toLowerCase()) === null
     ? domain.toLowerCase()
@@ -79,7 +84,7 @@ export function mailDomain(account: AccountConfig): string | null {
  * Which MXroute blacklist an account writes to: (server, user name, mail domain), or null when it has no key or
  * no mail domain. Accounts with the same key string share one blacklist and so one engine lane.
  */
-export function mxrouteGroupKey(account: AccountConfig): string | null {
+export function mxrouteGroupKey(account: ImapAccountConfig): string | null {
   const domain = mailDomain(account);
   if (account.mxroute === undefined || domain === null) return null;
   return `${account.mxroute.server}|${account.mxroute.username}|${domain}`;
@@ -94,7 +99,7 @@ export async function saveMxroute(
   input: MxrouteInput,
   check: KeyCheck = checkWithMxroute,
 ): Promise<MxrouteSaveResult> {
-  const account = (await loadAccounts(path)).find((a) => a.id === input.accountId);
+  const account = findImap(await loadAccounts(path), input.accountId);
   if (account === undefined) return "unknown-account";
   const domain = mailDomain(account);
   if (domain === null) return "no-domain";
@@ -131,7 +136,7 @@ export function setMxrouteEnabled(
 ): Promise<MxrouteSaveResult> {
   return serialized(async () => {
     const accounts = await loadAccounts(path);
-    const account = accounts.find((a) => a.id === accountId);
+    const account = findImap(accounts, accountId);
     if (account === undefined) return "unknown-account";
     if (account.mxroute === undefined) return "no-key";
     const next = replaceAccount(accounts, accountId, (a) =>

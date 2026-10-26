@@ -4,6 +4,7 @@ import {
   MXROUTE_LIMITS,
   MxrouteInputSchema,
   NewAccountSchema,
+  isImapAccount,
 } from "../src/accounts.js";
 import { MAX_ACCOUNTS } from "../src/sync/engine.js";
 
@@ -47,6 +48,81 @@ describe("AccountsFileSchema", () => {
   });
 });
 
+describe("Gmail account (ADR 0009)", () => {
+  const gmail = (id = "g1") => ({
+    id,
+    gmail: { email: "me@gmail.com", refreshCipher: "AAECAw==" },
+  });
+
+  it("is accepted next to an IMAP account, and only the IMAP kind passes isImapAccount", () => {
+    const parsed = AccountsFileSchema.safeParse(file([account(), gmail()]));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.accounts.map(isImapAccount)).toEqual([true, false]);
+  });
+
+  it.each([
+    ["an extra key", { ...gmail(), password: "hunter2" }],
+    ["an extra key inside gmail", { ...gmail(), gmail: { ...gmail().gmail, accessToken: "ya29" } }],
+    ["both kinds in one record", { ...account(), gmail: gmail().gmail }],
+    [
+      "a plaintext refresh token",
+      { ...gmail(), gmail: { email: "me@gmail.com", refreshToken: "1//x" } },
+    ],
+    [
+      "a refresh token that is not base64",
+      { ...gmail(), gmail: { ...gmail().gmail, refreshCipher: "1//not base64!" } },
+    ],
+    ["an upper-case address", { ...gmail(), gmail: { ...gmail().gmail, email: "Me@gmail.com" } }],
+    [
+      "an address with a display name",
+      { ...gmail(), gmail: { ...gmail().gmail, email: "Me <me@gmail.com>" } },
+    ],
+    [
+      "an address past the RFC 5321 limit",
+      {
+        ...gmail(),
+        gmail: {
+          ...gmail().gmail,
+          email: `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.com`,
+        },
+      },
+    ],
+    ["no address", { ...gmail(), gmail: { refreshCipher: "AAECAw==" } }],
+    ["a bad account id", gmail("bad id")],
+  ])("refuses %s", (_name, entry) => {
+    expect(AccountsFileSchema.safeParse(file([entry])).success).toBe(false);
+  });
+
+  it("counts toward MAX_ACCOUNTS and the unique-id rule with the other kind", () => {
+    expect(AccountsFileSchema.safeParse(file([account("a"), gmail("a")])).success).toBe(false);
+    const many = Array.from({ length: MAX_ACCOUNTS + 1 }, (_, i) =>
+      i % 2 === 0 ? account(`a${String(i)}`) : gmail(`a${String(i)}`),
+    );
+    expect(AccountsFileSchema.safeParse(file(many)).success).toBe(false);
+  });
+
+  it("takes an address of exactly 254 characters and nothing longer", () => {
+    // 64 + "@" + 63 + "." + 63 + "." + 61 = 254 (RFC 5321 §4.5.3.1: local 64, path 256 minus brackets).
+    const at254 = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`;
+    expect(at254).toHaveLength(254);
+    const withEmail = (email: string) => ({ ...gmail(), gmail: { ...gmail().gmail, email } });
+    expect(AccountsFileSchema.safeParse(file([withEmail(at254)])).success).toBe(true);
+    expect(AccountsFileSchema.safeParse(file([withEmail(`${at254}d`)])).success).toBe(false);
+  });
+
+  it("takes exactly MAX_ACCOUNTS mixed accounts", () => {
+    const mixed = Array.from({ length: MAX_ACCOUNTS }, (_, i) =>
+      i % 2 === 0 ? account(`a${String(i)}`) : gmail(`a${String(i)}`),
+    );
+    expect(AccountsFileSchema.safeParse(file(mixed)).success).toBe(true);
+  });
+
+  it("is not something a person can add from a file with a password", () => {
+    expect(NewAccountSchema.safeParse({ ...gmail(), password: "pw" }).success).toBe(false);
+  });
+});
+
 describe("MXroute key (advanced)", () => {
   const stored = {
     server: "mx.example.net",
@@ -79,9 +155,11 @@ describe("MXroute key (advanced)", () => {
     const parse = (mxroute: unknown) =>
       AccountsFileSchema.safeParse(file([{ ...account(), mxroute }]));
     const off = parse(stored);
-    expect(off.success && off.data.accounts[0]?.mxroute?.enabled).toBe(false);
+    const first = (r: typeof off) =>
+      r.success ? r.data.accounts.filter(isImapAccount)[0] : undefined;
+    expect(first(off)?.mxroute?.enabled).toBe(false);
     const on = parse({ ...stored, enabled: true });
-    expect(on.success && on.data.accounts[0]?.mxroute?.enabled).toBe(true);
+    expect(first(on)?.mxroute?.enabled).toBe(true);
     expect(parse({ ...stored, enabled: "yes" }).success).toBe(false);
   });
 

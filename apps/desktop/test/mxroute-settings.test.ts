@@ -15,7 +15,7 @@ vi.mock("electron", () => ({
 
 const { listMxroute, removeMxroute, saveMxroute, setMxrouteEnabled } =
   await import("../src/mxroute-settings.js");
-const { AdapterError } = await import("@senderban/core");
+const { AdapterError, isImapAccount } = await import("@senderban/core");
 const { loadAccounts, saveAccounts } = await import("../src/accounts-file.js");
 
 const account = (id: string) => ({
@@ -68,7 +68,7 @@ describe("MXroute key storage", () => {
 
   it("changes only the account it was given, and keeps the mail password", async () => {
     await saveMxroute(file, input("a"), ok);
-    const [a, b] = await loadAccounts(file);
+    const [a, b] = (await loadAccounts(file)).filter(isImapAccount);
     expect(a?.mxroute?.username).toBe("exampleuser");
     expect(a?.passwordCipher).toBe("AAECAw==");
     expect(b?.mxroute).toBeUndefined();
@@ -77,7 +77,7 @@ describe("MXroute key storage", () => {
   it("replaces an earlier key and removes it on request", async () => {
     await saveMxroute(file, input("a"), ok);
     await saveMxroute(file, { ...input("a"), username: "other" }, ok);
-    expect((await loadAccounts(file))[0]?.mxroute?.username).toBe("other");
+    expect((await loadAccounts(file)).filter(isImapAccount)[0]?.mxroute?.username).toBe("other");
     expect(await removeMxroute(file, "a")).toBe("saved");
     // Back to exactly the account that was there before the key, so nothing else was dropped.
     expect((await loadAccounts(file))[0]).toEqual(account("a"));
@@ -94,7 +94,10 @@ describe("MXroute key storage", () => {
   it("does not lose a key when two accounts are saved at the same time", async () => {
     await Promise.all([saveMxroute(file, input("a"), ok), saveMxroute(file, input("b"), ok)]);
     const accounts = await loadAccounts(file);
-    expect(accounts.map((a) => a.mxroute !== undefined)).toEqual([true, true]);
+    expect(accounts.filter(isImapAccount).map((a) => a.mxroute !== undefined)).toEqual([
+      true,
+      true,
+    ]);
   });
 
   it("does not store a key that MXroute refuses or cannot be asked about", async () => {
@@ -115,6 +118,25 @@ describe("MXroute key storage", () => {
       return Promise.resolve();
     });
     expect(seen).toEqual([[KEY, "example.com"]]);
+  });
+
+  describe("with a Gmail account in the file (ADR 0009)", () => {
+    const gmail = { id: "g", gmail: { email: "me@gmail.com", refreshCipher: "AAECAw==" } };
+
+    it("keeps it through a save, leaves it off the MXroute page, and refuses a key for it", async () => {
+      await saveAccounts(file, [account("a"), gmail]);
+      expect((await listMxroute(file)).map((a) => a.accountId)).toEqual(["a"]);
+
+      const before = await readFile(file, "utf8");
+      expect(await saveMxroute(file, input("g"), ok)).toBe("unknown-account");
+      expect(await setMxrouteEnabled(file, "g", true)).toBe("unknown-account");
+      expect(await removeMxroute(file, "g")).toBe("unknown-account");
+      expect(await readFile(file, "utf8")).toBe(before);
+
+      // A change to the IMAP account rewrites the file; the Gmail record must come out the same.
+      expect(await saveMxroute(file, input("a"), ok)).toBe("saved");
+      expect((await loadAccounts(file))[1]).toEqual(gmail);
+    });
   });
 
   it("refuses an account whose login is not an address", async () => {

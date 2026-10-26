@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ADDRESS_LIMITS, parseAddress } from "./address.js";
 import { ACCOUNT_ID, MAX_ACCOUNTS } from "./sync/engine.js";
 
 // RFC 1035 §2.3.4: a host name is at most 253 characters of letters, digits, dots and hyphens
@@ -72,7 +73,8 @@ const MxrouteConfig = z.strictObject({
 });
 export type MxrouteConfig = z.infer<typeof MxrouteConfig>;
 
-export const AccountConfigSchema = z.strictObject({
+/** A mailbox reached over IMAP, blocked through ManageSieve (and, optionally, the MXroute blacklist). */
+export const ImapAccountConfigSchema = z.strictObject({
   id: z.string().regex(ACCOUNT_ID),
   imap: z.strictObject({ host: Host, port: Port, secure: z.boolean(), user: User }),
   sieve: z.strictObject({ host: Host, port: Port, user: User }),
@@ -80,7 +82,34 @@ export const AccountConfigSchema = z.strictObject({
   /** Advanced, off by default: lets Senderban ask the MXroute server to refuse a sender at the door. */
   mxroute: MxrouteConfig.optional(),
 });
+export type ImapAccountConfig = z.infer<typeof ImapAccountConfigSchema>;
+
+/** The login address, in the form `parseAddress` returns (lowercase, punycode): the person knows the account by it. */
+const GmailAddress = z
+  .string()
+  .max(ADDRESS_LIMITS.totalMax)
+  .refine((value) => {
+    const parsed = parseAddress(value);
+    return parsed.ok && parsed.value.address === value;
+  });
+
+/**
+ * A Gmail mailbox (ADR 0009, proposed). Only the refresh token is stored, as ciphertext; the OAuth client ID is
+ * app-wide, not per account. Nothing runs these accounts yet: the app skips them and says so in the log.
+ */
+export const GmailAccountConfigSchema = z.strictObject({
+  id: z.string().regex(ACCOUNT_ID),
+  gmail: z.strictObject({ email: GmailAddress, refreshCipher: Ciphertext }),
+});
+export type GmailAccountConfig = z.infer<typeof GmailAccountConfigSchema>;
+
+export const AccountConfigSchema = z.union([ImapAccountConfigSchema, GmailAccountConfigSchema]);
 export type AccountConfig = z.infer<typeof AccountConfigSchema>;
+
+/** Narrows to the IMAP/Sieve kind; every reader of `imap` or `sieve` goes through this. */
+export function isImapAccount(account: AccountConfig): account is ImapAccountConfig {
+  return "imap" in account;
+}
 
 export const AccountsFileSchema = z
   .strictObject({
@@ -93,7 +122,7 @@ export const AccountsFileSchema = z
 export type AccountsFile = z.infer<typeof AccountsFileSchema>;
 
 /** What a person types when adding an account: the plaintext password exists only until it is encrypted. */
-export const NewAccountSchema = AccountConfigSchema.omit({
+export const NewAccountSchema = ImapAccountConfigSchema.omit({
   passwordCipher: true,
   mxroute: true,
 }).extend({

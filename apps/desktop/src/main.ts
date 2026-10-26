@@ -16,12 +16,13 @@ import {
   MxrouteAdapter,
   createMxrouteClient,
   initialMxrouteState,
+  isImapAccount,
   mxrouteLaneId,
 } from "@senderban/core";
 import type {
-  AccountConfig,
   BlockAction,
   BlockResult,
+  ImapAccountConfig,
   IncomingMessage,
   OwnMail,
   SyncOutcome,
@@ -64,7 +65,7 @@ const domainOf = (address: string): string => address.slice(address.lastIndexOf(
 interface Runtime {
   readonly store: Store;
   readonly engine: SyncEngine;
-  readonly accounts: readonly AccountConfig[];
+  readonly accounts: readonly ImapAccountConfig[];
   /** Every engine lane: each account's own, plus one per MXroute blacklist (server, user, domain) in use. */
   readonly lanes: readonly string[];
   readonly watchers: ReadonlyMap<string, AccountWatcher>;
@@ -250,9 +251,15 @@ async function setPaused(value: boolean): Promise<void> {
 
 async function start(): Promise<Runtime> {
   const dir = app.getPath("userData");
-  const accounts = await loadAccounts(join(dir, "accounts.json"));
+  const configured = await loadAccounts(join(dir, "accounts.json"));
+  // Only IMAP/Sieve accounts run so far (ADR 0009: Gmail accounts are in the file schema, not yet in the app).
+  const accounts = configured.filter(isImapAccount);
   const store = new Store(openDatabase(join(dir, "senderban.db")));
-  log("start", { accounts: accounts.length, electron: process.versions.electron });
+  log("start", {
+    accounts: accounts.length,
+    skipped: configured.length - accounts.length,
+    electron: process.versions.electron,
+  });
   const engine = new SyncEngine(store, {
     onOutcome: (outcome) => {
       log("sync", {
@@ -283,6 +290,13 @@ async function start(): Promise<Runtime> {
     }
     const domain = mailDomain(a);
     if (domain !== null && !isFreemail(domain)) own.domains.add(domain);
+  }
+  // A Gmail account is not run yet, but its address is still the person's own: a forged From with it must not be refused.
+  for (const a of configured) {
+    if (isImapAccount(a)) continue;
+    own.addresses.add(a.gmail.email);
+    const domain = a.gmail.email.slice(a.gmail.email.lastIndexOf("@") + 1);
+    if (!isFreemail(domain)) own.domains.add(domain);
   }
   // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
   // it would otherwise send the same entries five times. The first account owns the lane and its key.
