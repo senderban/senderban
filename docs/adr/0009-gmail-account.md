@@ -9,7 +9,7 @@ Gmail joins as a second account kind, v0.1 **bring your own OAuth client only** 
 Desktop-app client and gives Senderban its client ID. No client ID or secret is in the repository.
 
 1. **Sign-in.** Authorization code + **PKCE (S256)** + loopback redirect `http://127.0.0.1:<random port>` — read: Google requires PKCE for
-   native apps, a Desktop client is a public client, `client_secret` is optional in the token request, `redirect_uri` must match the
+   native apps, a Desktop client is a public client, `client_secret` is documented as optional (live: it is required, see Data), `redirect_uri` must match the
    registered one exactly (<https://developers.google.com/identity/protocols/oauth2/native-app>). The browser is opened with
    `shell.openExternal` on a URL Senderban builds itself (fixed host `accounts.google.com`, never a value from the renderer).
    The listener (RFC 8252 §8.3: open the port only for the request, close it when the answer is in) keeps listening until a request
@@ -38,7 +38,8 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
    client** makes every stored refresh token unusable (a token is bound to its client): it revokes the old tokens first, signs every Gmail
    account out, and says so before it saves.
 4. **Filters** (`BlockAdapter`): Gmail has `create`, `delete`, `get`, `list` and **no update** (read), so a change is create-then-delete,
-   as K8 already says. Default action: add label `TRASH` (reversible, K7); `SPAM` only if G2 shows it is accepted. No `reject` and no
+   as K8 already says. Default and only action: add label `TRASH` (reversible, K7); a filter does **not** accept `SPAM` (measured, G2:
+   `400 Invalid label SPAM in AddLabelIds`). No `reject` and no
    domain-wide server refusal on Gmail (ADR 0008 stays MXroute-only).
    - **Query encoding contract** (security review 2026-10-26, BLOCK-1: `parseAddress` accepts `-x@spam.example`, `+x@…`, `{a}@…`,
      `*@gmail.com`, and `criteria.query` "supports the same query format as the Gmail search box", where `-` excludes and `{ }` is OR; how
@@ -70,8 +71,8 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
    `parseAddress`; anything else (two mailboxes, two `From` headers, group syntax, comment, display name that looks like an address) is
    announced without Block buttons, or not at all, and logged as the fixed word `from-unparsable`. A display name is never an address
    (`"boss@co.com" <x@spam.example>` must offer `x@spam.example`). The subject goes through the same sanitiser as on IMAP.
-6. **Toast.** The choices a Gmail account can honour decide the buttons: Trash always; Junk only if G2 is positive; "Block at server"
-   never. When one block spans accounts of different kinds, the person's choice is applied where it exists and the result toast says
+6. **Toast.** The choices a Gmail account can honour decide the buttons: Trash only ("Move to Junk" is not offered for Gmail: a filter
+   cannot add `SPAM`, measured); "Block at server" never. When one block spans accounts of different kinds, the person's choice is applied where it exists and the result toast says
    where it was not (same wording rule as ADR 0008 point 3).
 
 ## Data
@@ -85,9 +86,11 @@ MXroute) loads unchanged and needs no migration:
 `gmail.email` is unique across Gmail accounts and does not equal any IMAP/Sieve login (a second lane over one mailbox would plan and
 delete over one filter set).
 
-App-wide, once, not per account: `googleClient: { clientId, secretCipher? }` (one Desktop client serves several Gmail accounts).
+App-wide, once, not per account: `googleClient: { clientId, secretCipher }` (one Desktop client serves several Gmail accounts). **The
+secret is required, not optional**: Google's page calls `client_secret` optional for a Desktop client, but a refresh without it was
+answered `400` live (2026-10-26, measured); the real client made on that day has a 72-character ID and a 35-character secret.
 It is entered through one IPC channel that follows the MXroute key precedent (`manage.ts`): trusted-frame check, a `strictObject`
-`{ clientId, clientSecret? }` with the named limits below (secret: printable ASCII without space, PROVISIONAL 1–256), a reply that is a
+`{ clientId, clientSecret }` with the named limits below (secret: printable ASCII without space, PROVISIONAL 1–256), a reply that is a
 fixed word, the secret never sent back. The sign-in channel carries no URL and no scope, at most an `accountId` for a re-sign-in. Where it
 is stored (a second file next to `accounts.json`, since `AccountsFileSchema` is a strict `{ version, accounts }`) is decided in step 2.
 The secret is not confidential for a Desktop client (read), so `secretCipher` is hygiene, not protection.
@@ -145,10 +148,37 @@ A Google error body is never copied into a log, a toast or the renderer; the Gma
 400/401/403 body holding an address and a `ya29.`-shaped string and finds neither anywhere). `invalid_grant` after a password change is expected (read: refresh
 token dies on a password change for Gmail scopes, after 6 months unused, and in "Testing" after 7 days) and is shown as sign-in again.
 
+## Measured live (2026-10-26, Ali's own test mailbox, project `senderban-byo`, "Testing")
+
+Sign-in through the real `signIn` against Google, in a real browser; probes with filters that match nothing (fake `.invalid`
+addresses), each deleted at once, filter count checked before and after (1 and 1).
+
+- **Sign-in works end to end:** `signed-in`, mailbox identified by `getProfile`, 38 s including the person's clicks; token call 323 ms,
+  profile call 211 ms. `http://127.0.0.1:<port>` with no path is accepted as the redirect; `access_type=offline` + `prompt=consent` are
+  accepted. Google's consent page shows both permissions **unticked by default** (granular consent), so the scope check matters.
+  The "Google hasn't verified this app" warning comes first and is expected for a Testing app and its test user.
+- **`client_secret` is required** (see Data). A refresh without it: `400`, which `tokenFailure` maps to `REJECTED`; step A1b should show
+  "the client secret is missing or wrong" for it, not "sign in again".
+- **G2:** `addLabelIds: ["SPAM"]` → `400 invalidArgument`; `["TRASH"]` → 200. So Gmail's lane is Trash only.
+- **G1:** `criteria.query` of 353 up to **14,003** characters (400 quoted addresses) was accepted; **28,003** characters answered
+  `500 backendError` (an undocumented limit lies between). The earlier ~1,400–1,500 figure (secondary source) is wrong for the API.
+  Consequences: capacity per filter is a named constant far below the wall (PROVISIONAL **50 addresses**, about 1.8 k characters);
+  a `5xx` on `filters.create` is **not** retried blindly: the adapter retries at most twice, then reports the entry as failed and
+  visible, because an oversized query would otherwise loop forever as "transient".
+- **Scope:** `filters.list`, `create` and `delete` all worked with `gmail.settings.basic` + `gmail.metadata`; `getProfile` works with
+  that set. The filters page does not name the scope; this is the measurement.
+- **Token life:** in "Testing" Google returned `refresh_token_expires_in: 604799` (7 days): `signIn` passes it on as
+  `refreshTokenExpiresInSeconds`. Access token `expires_in` 3599; refresh token 103 characters (limit 512).
+
 ## Not decided / open
 
-- G4: token life of an unverified project set to "In production" — not documented on the expiry page (read), measure on day 8.
-- G1–G3, G5, G6 (query length, `SPAM`, new-mail-only filter, filters scope, notification latency and unit use).
+- G4: "In production" is **blocked by Google until the Branding page has a homepage URL and a privacy policy URL** (the Publish button
+  is disabled with that text). Needs Ali: two URLs (a privacy policy that carries the Limited Use statement of 008). Until then the
+  refresh token lives 7 days and a Gmail account must be signed in again every week. The check that closes G4: after publishing, sign
+  in again and see whether `refresh_token_expires_in` is gone.
+- G3, G5, G6 (new-mail-only filter, the label read for the old "magic folder" idea, notification latency and unit use). The BLOCK-1
+  probe (how `-term` inside `from:( … )` is read) needs a read scope we do not request; the contract (quoted terms + local-part
+  allowlist) is kept regardless.
 - Whether one verified Senderban client can ever replace BYO (needs restricted-scope verification and a security assessment, read:
   scopes page; out of v0.1).
 
