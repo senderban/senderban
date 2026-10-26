@@ -51,7 +51,7 @@ describe("AccountsFileSchema", () => {
 describe("Gmail account (ADR 0009)", () => {
   const gmail = (id = "g1") => ({
     id,
-    gmail: { email: "me@gmail.com", refreshCipher: "AAECAw==" },
+    gmail: { email: `${id.replace(/[^a-z0-9]/g, "x")}@gmail.com`, refreshCipher: "AAECAw==" },
   });
 
   it("is accepted next to an IMAP account, and only the IMAP kind passes isImapAccount", () => {
@@ -100,6 +100,19 @@ describe("Gmail account (ADR 0009)", () => {
       i % 2 === 0 ? account(`a${String(i)}`) : gmail(`a${String(i)}`),
     );
     expect(AccountsFileSchema.safeParse(file(many)).success).toBe(false);
+  });
+
+  it("allows one mailbox once: not twice as Gmail, not also as an IMAP login", () => {
+    const twice = {
+      ...gmail("g2"),
+      gmail: { ...gmail("g2").gmail, email: gmail("g1").gmail.email },
+    };
+    expect(AccountsFileSchema.safeParse(file([gmail("g1"), twice])).success).toBe(false);
+    const sameAsImap = { ...gmail("g1"), gmail: { ...gmail().gmail, email: "me@example.com" } };
+    expect(AccountsFileSchema.safeParse(file([account("a"), sameAsImap])).success).toBe(false);
+    expect(
+      AccountsFileSchema.safeParse(file([account("a"), gmail("g1"), gmail("g2")])).success,
+    ).toBe(true);
   });
 
   it("takes an address of exactly 254 characters and nothing longer", () => {

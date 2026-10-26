@@ -118,7 +118,25 @@ export const AccountsFileSchema = z
   })
   .refine((file) => new Set(file.accounts.map((a) => a.id)).size === file.accounts.length, {
     message: "duplicate account id",
-  });
+  })
+  // One mailbox, one lane: two lanes over the same Gmail filter set would each see the other's filters as foreign.
+  .refine(
+    (file) => {
+      const seen = new Set<string>();
+      for (const a of file.accounts) {
+        if (isImapAccount(a)) {
+          for (const login of [a.imap.user, a.sieve.user]) seen.add(login.toLowerCase());
+        }
+      }
+      for (const a of file.accounts) {
+        if (isImapAccount(a)) continue;
+        if (seen.has(a.gmail.email)) return false;
+        seen.add(a.gmail.email);
+      }
+      return true;
+    },
+    { message: "duplicate mailbox address" },
+  );
 export type AccountsFile = z.infer<typeof AccountsFileSchema>;
 
 /** What a person types when adding an account: the plaintext password exists only until it is encrypted. */
