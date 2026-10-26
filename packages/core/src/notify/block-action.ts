@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { validateDomain } from "../address.js";
+import { mailboxKey, validateDomain } from "../address.js";
 import { folderAction } from "../blocklist.js";
 import { canRefuseAtServer } from "../mxroute/client.js";
 import type { BlockAction, BlockEntry } from "../blocklist.js";
@@ -23,7 +23,10 @@ export function blockableDomain(sender: string): string | null {
   return domain;
 }
 
-/** What is the person's own: login addresses, and the mail domains of those accounts (never a freemail domain). */
+/**
+ * What is the person's own: login addresses as mailbox keys (`mailboxKey`: the lowercase address, with Gmail's dot, +tag and
+ * googlemail.com spellings folded into one), and the mail domains of those accounts (never a freemail domain).
+ */
 export interface OwnMail {
   readonly domains: ReadonlySet<string>;
   readonly addresses: ReadonlySet<string>;
@@ -38,7 +41,8 @@ export interface OwnMail {
 export function canRejectSender(sender: string, own: OwnMail): boolean {
   if (!canRefuseAtServer(sender)) return false;
   const lower = sender.toLowerCase();
-  if (own.addresses.has(lower)) return false;
+  // By mailbox too: a forged `m.e@gmail.com` is the person's own `me@gmail.com` to Gmail.
+  if (own.addresses.has(lower) || own.addresses.has(mailboxKey(lower))) return false;
   const domain = lower.slice(lower.lastIndexOf("@") + 1);
   for (const owned of own.domains) {
     if (domain === owned || domain.endsWith(`.${owned}`)) return false;
@@ -50,7 +54,7 @@ export interface BlockActionDeps {
   readonly pending: PendingBlocks;
   readonly store: Pick<Store, "add" | "list">;
   readonly engine: Pick<SyncEngine, "sync" | "requestSync" | "verify">;
-  /** The person's own addresses and domains, lowercase: never refused at the server. Required, so a caller cannot forget it. */
+  /** The person's own mailbox keys and domains, lowercase: never refused at the server. Required, so a caller cannot forget it. */
   readonly own: OwnMail;
   /** Every account on this device: the list is global, so each one must pick the new entry up. */
   readonly accountIds: readonly string[];

@@ -1,4 +1,4 @@
-import { isFreemail, isImapAccount } from "@senderban/core";
+import { isFreemail, isImapAccount, mailboxKey } from "@senderban/core";
 import type { AccountConfig, OwnMail } from "@senderban/core";
 import { mailDomain } from "./mxroute-settings.js";
 
@@ -14,12 +14,12 @@ export function collectOwnMail(accounts: readonly AccountConfig[]): OwnMail {
   for (const a of accounts) {
     if (isImapAccount(a)) {
       for (const login of [a.imap.user, a.sieve.user]) {
-        if (login.includes("@")) addresses.add(login.toLowerCase());
+        if (login.includes("@")) addresses.add(mailboxKey(login.toLowerCase()));
       }
       const domain = mailDomain(a);
       if (domain !== null && !isFreemail(domain)) domains.add(domain);
     } else {
-      addresses.add(a.gmail.email);
+      addresses.add(mailboxKey(a.gmail.email));
       const domain = a.gmail.email.slice(a.gmail.email.lastIndexOf("@") + 1);
       if (!isFreemail(domain)) domains.add(domain);
     }

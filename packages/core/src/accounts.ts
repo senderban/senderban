@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ADDRESS_LIMITS, parseAddress } from "./address.js";
+import { ADDRESS_LIMITS, mailboxKey, parseAddress } from "./address.js";
 import { ACCOUNT_ID, MAX_ACCOUNTS } from "./sync/engine.js";
 
 // RFC 1035 §2.3.4: a host name is at most 253 characters of letters, digits, dots and hyphens
@@ -122,16 +122,19 @@ export const AccountsFileSchema = z
   // One mailbox, one lane: two lanes over the same Gmail filter set would each see the other's filters as foreign.
   .refine(
     (file) => {
+      // Compared by mailbox, not by text: Gmail reads `m.e@gmail.com` and `me@googlemail.com` as `me@gmail.com`.
       const seen = new Set<string>();
       for (const a of file.accounts) {
         if (isImapAccount(a)) {
-          for (const login of [a.imap.user, a.sieve.user]) seen.add(login.toLowerCase());
+          for (const login of [a.imap.user, a.sieve.user])
+            seen.add(mailboxKey(login.toLowerCase()));
         }
       }
       for (const a of file.accounts) {
         if (isImapAccount(a)) continue;
-        if (seen.has(a.gmail.email)) return false;
-        seen.add(a.gmail.email);
+        const key = mailboxKey(a.gmail.email);
+        if (seen.has(key)) return false;
+        seen.add(key);
       }
       return true;
     },

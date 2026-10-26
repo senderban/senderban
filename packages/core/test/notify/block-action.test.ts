@@ -164,6 +164,23 @@ describe("blockPending when a rule already exists", () => {
     expect(canRejectSender("a@example.com.evil.example", own)).toBe(true);
   });
 
+  it("reads Gmail's other spellings of the person's own inbox as the person's own", () => {
+    // `own.addresses` holds the mailbox key (what `collectOwnMail` stores): the dotless, tagless gmail.com form.
+    const own = { domains: new Set<string>(), addresses: new Set(["me@gmail.com"]) };
+    for (const forged of [
+      "m.e@gmail.com",
+      "me+x@gmail.com",
+      "me@googlemail.com",
+      "M.E@Gmail.com",
+    ]) {
+      expect(canRejectSender(forged, own)).toBe(false);
+    }
+    expect(canRejectSender("me2@gmail.com", own)).toBe(true);
+    // A non-Gmail address with a dot is a different address: only exact matches count there.
+    const other = { domains: new Set<string>(), addresses: new Set(["me@example.com"]) };
+    expect(canRejectSender("m.e@example.com", other)).toBe(true);
+  });
+
   it("never refuses the person's own address, even on a freemail domain, but not the rest of that domain", () => {
     const own = { domains: new Set<string>(), addresses: new Set(["me@gmail.com"]) };
     expect(canRejectSender("me@gmail.com", own)).toBe(false);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAddress } from "../src/address.js";
+import { mailboxKey, parseAddress } from "../src/address.js";
 
 describe("parseAddress", () => {
   it("normalises case and trims", () => {
@@ -116,5 +116,39 @@ describe("parseAddress", () => {
       parseAddress(`a@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.${"e".repeat(63)}.com`)
         .ok,
     ).toBe(false);
+  });
+});
+
+describe("mailboxKey", () => {
+  it.each([
+    ["me@gmail.com", "me@gmail.com"],
+    ["m.e@gmail.com", "me@gmail.com"],
+    ["m.e.@gmail.com", "me@gmail.com"],
+    ["me+news@gmail.com", "me@gmail.com"],
+    ["m.e+a+b@gmail.com", "me@gmail.com"],
+    ["me@googlemail.com", "me@gmail.com"],
+    ["m.e+x@googlemail.com", "me@gmail.com"],
+  ])("reads %s as the Gmail mailbox %s", (address, key) => {
+    expect(mailboxKey(address)).toBe(key);
+  });
+
+  it.each([
+    "m.e@example.com",
+    "me+news@example.com",
+    "me@mail.gmail.com",
+    "me@gmail.com.example.com",
+    "me@notgmail.com",
+  ])("leaves %s alone: dots and tags count outside Gmail's own domains", (address) => {
+    expect(mailboxKey(address)).toBe(address);
+  });
+
+  it("never turns an address into an empty local part", () => {
+    expect(mailboxKey("+tag@gmail.com")).toBe("+tag@gmail.com");
+    expect(mailboxKey("...@gmail.com")).toBe("...@gmail.com");
+  });
+
+  it("keeps different mailboxes apart", () => {
+    expect(mailboxKey("me@gmail.com")).not.toBe(mailboxKey("you@gmail.com"));
+    expect(mailboxKey("me2@gmail.com")).not.toBe(mailboxKey("me@gmail.com"));
   });
 });

@@ -39,6 +39,20 @@ describe("collectOwnMail", () => {
     expect(canRejectSender("someone-else@gmail.com", own)).toBe(true);
   });
 
+  it("does not offer 'Block at server' for a look-alike spelling of the person's own Gmail inbox", () => {
+    const own = collectOwnMail([gmail("g", "me@gmail.com"), imap("a", "you@googlemail.com")]);
+    for (const forged of [
+      "m.e@gmail.com",
+      "me+x@gmail.com",
+      "me@googlemail.com",
+      "y.ou@gmail.com",
+      "you@gmail.com",
+    ]) {
+      expect(canRejectSender(forged, own)).toBe(false);
+    }
+    expect(canRejectSender("m.e2@gmail.com", own)).toBe(true);
+  });
+
   it("owns the whole domain of a Gmail account on a custom domain", () => {
     const own = collectOwnMail([gmail("g", "me@mycompany.example")]);
     expect([...own.domains]).toEqual(["mycompany.example"]);

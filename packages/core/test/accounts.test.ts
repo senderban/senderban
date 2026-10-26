@@ -115,6 +115,32 @@ describe("Gmail account (ADR 0009)", () => {
     ).toBe(true);
   });
 
+  it("reads Gmail's spellings of one inbox as one mailbox (dots, +tag, googlemail.com)", () => {
+    const as = (id: string, email: string) => ({
+      ...gmail(id),
+      gmail: { ...gmail(id).gmail, email },
+    });
+    for (const alias of ["m.e@gmail.com", "me+news@gmail.com", "me@googlemail.com"]) {
+      expect(
+        AccountsFileSchema.safeParse(file([as("g1", "me@gmail.com"), as("g2", alias)])).success,
+      ).toBe(false);
+    }
+    // Also against an IMAP login that is the same Gmail inbox.
+    const imapGmail = {
+      ...account("a"),
+      imap: { ...account().imap, user: "m.e@gmail.com" },
+      sieve: { ...account().sieve, user: "m.e@gmail.com" },
+    };
+    expect(
+      AccountsFileSchema.safeParse(file([imapGmail, as("g1", "me@googlemail.com")])).success,
+    ).toBe(false);
+    // A different mailbox is still fine.
+    expect(
+      AccountsFileSchema.safeParse(file([as("g1", "me@gmail.com"), as("g2", "me2@gmail.com")]))
+        .success,
+    ).toBe(true);
+  });
+
   it("takes an address of exactly 254 characters and nothing longer", () => {
     // 64 + "@" + 63 + "." + 63 + "." + 61 = 254 (RFC 5321 §4.5.3.1: local 64, path 256 minus brackets).
     const at254 = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`;

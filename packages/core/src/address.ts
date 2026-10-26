@@ -112,3 +112,22 @@ export function validateDomain(domain: string): string | null {
   if (tld !== undefined && /^[0-9]+$/.test(tld)) return "numeric top-level label";
   return null;
 }
+
+const GMAIL_DOMAINS: ReadonlySet<string> = new Set(["gmail.com", "googlemail.com"]);
+
+/**
+ * The key two addresses share when Gmail delivers them to one mailbox: `me@gmail.com`, `m.e@gmail.com`,
+ * `me+news@gmail.com` and `me@googlemail.com` all reach the same inbox (Google: dots in the local part are ignored,
+ * everything after `+` is a label, googlemail.com is the same domain). Any other address is its own key.
+ * Input is canonical (`parseAddress`). Used to compare mailboxes, never to store or send an address: the
+ * direction is the safe one both ways (a duplicate account is refused, a forged look-alike of the person's own
+ * Gmail address is not offered "Block at server").
+ */
+export function mailboxKey(address: string): string {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return address;
+  const domain = address.slice(at + 1);
+  if (!GMAIL_DOMAINS.has(domain)) return address;
+  const base = (address.slice(0, at).split("+")[0] ?? "").replaceAll(".", "");
+  return base === "" ? address : `${base}@gmail.com`;
+}
