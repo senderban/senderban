@@ -14,7 +14,7 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
    `shell.openExternal` on a URL Senderban builds itself (fixed host `accounts.google.com`, never a value from the renderer).
    The listener (RFC 8252 §8.3: open the port only for the request, close it when the answer is in) keeps listening until a request
    arrives that is `GET`, on the exact redirect path, with `Host` exactly `127.0.0.1:<port>` and the matching `state`; anything else gets
-   a 400 with no echo, at most 20 requests, then it closes. It also closes after a time limit (5 min, PROVISIONAL, unit seconds), at
+   a 400 with no echo, at most 20 requests, then it closes. It also closes after a time limit (5 min, PROVISIONAL; the code keeps it in milliseconds), at
    once on `error=access_denied` (shown as "cancelled"), and on quit. Sign-in is single-flight (a double click starts one listener, one
    tab). The answer page is static: `error_description` is never reflected.
 2. **Scopes.** `gmail.settings.basic` (filters) and `gmail.metadata` (From/Subject for the toast), nothing wider. All four Gmail scopes
@@ -28,9 +28,13 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
 3. **Tokens.** Refresh token only, as `safeStorage` ciphertext (DPAPI) like the IMAP password; the access token stays in memory and is
    never written to disk or log. A refresh answering `invalid_grant` is shown as "sign in again", never retried in a loop.
    **Identity:** `email` always comes from `users.getProfile.emailAddress` (it accepts `gmail.metadata`), never typed. A re-sign-in that
-   returns another address is refused, because it would rebind the lane to another mailbox and orphan the first one's filters.
+   returns another address is refused, because it would rebind the lane to another mailbox and orphan the first one's filters. The
+   mailbox is compared by `mailboxKey` (Gmail's dot, `+tag` and `googlemail.com` spellings are one inbox). **A refused sign-in does not
+   revoke the token it got** (read: Google's revoke removes every grant of the project, so it would break an account that is already set
+   up); the person is told the leftover access can be removed under Google Account permissions.
    **Removal** of a Gmail account is, in this order: uninstall our filters, revoke the token (`POST oauth2.googleapis.com/revoke`), delete
-   the ciphertext; if the revoke fails, tell the person to revoke it under Google Account permissions. **Changing the app-wide OAuth
+   the ciphertext; only a revoke that Google answered with `invalid_token` counts as "already gone", any other failure keeps the stored
+   token and says so (the person can retry, or revoke it under Google Account permissions). **Changing the app-wide OAuth
    client** makes every stored refresh token unusable (a token is bound to its client): it revokes the old tokens first, signs every Gmail
    account out, and says so before it saves.
 4. **Filters** (`BlockAdapter`): Gmail has `create`, `delete`, `get`, `list` and **no update** (read), so a change is create-then-delete,
@@ -110,7 +114,8 @@ project against 1.2M/min. Each Gmail account is its own "user", so the 6,000/min
 The wall that matters is not quota but **sleep/resume**: 50 accounts reconnecting at once must be spread (jitter + a cap on parallel
 refreshes), as in the watcher's backoff (`DEFAULT_BACKOFF`). Not measured: real mail volume, push-less poll latency (G6), what Google
 does to an unverified production project that polls every minute.
-Shared resource per account: one lane, one timeout per call (60 s), a 429 or `rateLimitExceeded` is shown and backed off, never
+Shared resource per account: one lane, one deadline per call (15 s for the OAuth, profile and Gmail calls, as for MXroute; the engine's
+60 s round contains them), a 429 or `rateLimitExceeded` is shown and backed off, never
 swallowed; a write is not retried blindly (read the remote state first, RFC 9110 §9.2.2). Paid upstream: none (own project, own quota).
 
 ### Budget lines still to be written into the adapter (performance review 2026-10-26, W1–W4)
