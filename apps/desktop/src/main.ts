@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import {
   AccountWatcher,
-  DEFAULT_SETTINGS,
   MAX_CONCURRENT_LOGINS,
   PendingBlocks,
   SieveAdapter,
@@ -25,7 +24,6 @@ import type {
   BlockResult,
   IncomingMessage,
   OwnMail,
-  Settings,
   SyncOutcome,
   UnblockResult,
   WatcherState,
@@ -48,7 +46,6 @@ import {
 } from "./mxroute-settings.js";
 import { Toasts } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
-import { loadSettings, saveSettings } from "./settings-file.js";
 
 // Groups the windows under one taskbar identity. Placeholder id: confirm before the first installer ships.
 const APP_USER_MODEL_ID = "com.senderban.desktop";
@@ -88,7 +85,6 @@ let toasts: Toasts | null = null;
 let manage: ManageWindow | null = null;
 /** Set once start() has finished; the manage window reads the list from it. */
 let runtime: Runtime | null = null;
-let settings: Settings = DEFAULT_SETTINGS;
 
 /** A toast without buttons: a state change the person should know about. */
 function notice(title: string, body: string): void {
@@ -501,14 +497,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     });
   });
 
-  void app.whenReady().then(async () => {
-    const settingsPath = join(app.getPath("userData"), "settings.json");
+  void app.whenReady().then(() => {
     const accountsPath = join(app.getPath("userData"), "accounts.json");
-    try {
-      settings = await loadSettings(settingsPath);
-    } catch (error) {
-      log("settings-invalid", { detail: errorText(error) });
-    }
     const assets = join(import.meta.dirname, "../assets");
     toasts = new Toasts({
       onActivation: () => {
@@ -556,7 +546,6 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     });
     manage = new ManageWindow(assets, {
       list: () => runtime?.store.list() ?? [],
-      getSeconds: () => settings.popupSeconds,
       onError: logIpcError,
       mxrouteList: () => listMxroute(accountsPath),
       mxrouteSave: async (input) => {
@@ -574,13 +563,6 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const result = await setMxrouteEnabled(accountsPath, accountId, enabled);
         log("mxroute-enabled", { account: accountTag(accountId), enabled, result });
         return result;
-      },
-      setSeconds: async (popupSeconds) => {
-        const next = { ...settings, popupSeconds };
-        await saveSettings(settingsPath, next);
-        settings = next;
-        log("settings-saved", { popupSeconds });
-        return popupSeconds;
       },
       unblock: async (id) => {
         const { store, engine, lanes, labels } = await ready.promise;

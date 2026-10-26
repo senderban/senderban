@@ -81,8 +81,6 @@ beforeEach(() => {
   new ManageWindow("assets", {
     list: () => [],
     unblock: () => Promise.resolve({ tone: "ok", text: "" }),
-    getSeconds: () => 10,
-    setSeconds: (s: number) => Promise.resolve(s),
     mxrouteList,
     mxrouteSave,
     mxrouteRemove,

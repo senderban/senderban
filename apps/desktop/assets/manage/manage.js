@@ -9,9 +9,6 @@ const els = {
   list: $("list"),
   empty: $("empty"),
   status: $("status"),
-  seconds: $("seconds"),
-  save: $("save"),
-  settingsMessage: $("settings-message"),
 };
 
 // A list can hold thousands of entries; the page draws a bounded slice and the filter narrows it.
@@ -28,7 +25,6 @@ const ACTION_LABEL = {
 };
 
 let entries = [];
-let limits = { min: 3, max: 60 };
 let busy = false;
 
 function setStatus(tone, text) {
@@ -93,11 +89,6 @@ async function refresh() {
   const init = await api.init();
   if (init === null) return;
   entries = init.entries;
-  limits = init.limits;
-  els.seconds.min = String(limits.min);
-  els.seconds.max = String(limits.max);
-  if (document.activeElement !== els.seconds) els.seconds.value = String(init.seconds);
-  els.settingsMessage.textContent = `Between ${limits.min} and ${limits.max} seconds.`;
   render();
 }
 
@@ -114,23 +105,6 @@ async function unblock(entry) {
   else setStatus(result.tone, result.text);
 }
 
-async function save() {
-  const value = Number(els.seconds.value);
-  const valid = Number.isInteger(value) && value >= limits.min && value <= limits.max;
-  if (!valid) {
-    els.settingsMessage.dataset.tone = "error";
-    els.settingsMessage.textContent = `Enter a whole number from ${limits.min} to ${limits.max}.`;
-    return;
-  }
-  const saved = await api.saveSeconds(value);
-  els.settingsMessage.dataset.tone = saved === null ? "error" : "ok";
-  els.settingsMessage.textContent = saved === null ? "Could not save the setting." : "Saved.";
-}
-
 els.filter.addEventListener("input", render);
-els.save.addEventListener("click", () => void save());
-els.seconds.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") void save();
-});
 api.onChanged(() => void refresh());
 void refresh();

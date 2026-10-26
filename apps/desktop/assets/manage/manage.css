@@ -49,10 +49,6 @@ p {
   flex-direction: column;
   gap: 8px;
 }
-#settings {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
 #list {
   flex: 1;
   min-height: 0;
@@ -107,9 +103,6 @@ input {
   color: var(--fg);
   font: inherit;
 }
-input[type="number"] {
-  width: 84px;
-}
 button {
   padding: 5px 12px;
   border: 1px solid var(--control-border);
@@ -118,15 +111,6 @@ button {
   color: var(--fg);
   font: inherit;
   cursor: pointer;
-}
-#save {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-fg);
-  font-weight: 600;
-}
-#save:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 88%, var(--fg));
 }
 button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fg) 8%, transparent);

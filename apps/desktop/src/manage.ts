@@ -4,8 +4,6 @@ import {
   MXROUTE_LIMITS,
   MxrouteEnableSchema,
   MxrouteInputSchema,
-  POPUP_SECONDS,
-  SettingsSchema,
   isEntryId,
 } from "@senderban/core";
 import type { BlockEntry } from "@senderban/core";
@@ -35,9 +33,6 @@ export interface ManageHandlers {
   readonly list: () => readonly BlockEntry[];
   /** Takes the entry off the list and every account; describes what happened. */
   readonly unblock: (id: string) => Promise<ManageOutcome>;
-  readonly getSeconds: () => number;
-  /** Persists the value and returns what is now in effect. */
-  readonly setSeconds: (seconds: number) => Promise<number>;
   /** Advanced: the accounts with their MXroute key status (the key itself stays in the main process). */
   readonly mxrouteList: () => Promise<readonly ManageMxrouteAccount[]>;
   /** Stores the key encrypted. The input has already passed the core schema. */
@@ -53,8 +48,8 @@ export interface ManageHandlers {
 
 /**
  * The "Blocked senders" window (ADR 0005): the block list with an Unblock button per entry, and the
- * settings. One instance. The renderer is untrusted: sandboxed, no Node, and every payload is
- * re-validated here (entry ids as UUIDs, seconds with the core schema).
+ * MXroute key panel. One instance. The renderer is untrusted: sandboxed, no Node, and every payload is
+ * re-validated here (entry ids as UUIDs, key input with the core schema).
  */
 export class ManageWindow {
   readonly #assets: string;
@@ -68,7 +63,6 @@ export class ManageWindow {
     this.#handlers = handlers;
     ipcMain.handle("manage:init", (event) => this.#init(event));
     ipcMain.handle("manage:unblock", (event, id: unknown) => this.#unblock(event, id));
-    ipcMain.handle("manage:save-seconds", (event, value: unknown) => this.#save(event, value));
     ipcMain.handle("manage:mxroute-list", (event) => this.#mxrouteList(event));
     ipcMain.handle("manage:mxroute-save", (event, value: unknown) =>
       this.#mxrouteSave(event, value),
@@ -147,11 +141,7 @@ export class ManageWindow {
   #init(event: IpcMainInvokeEvent) {
     if (!this.#trusted(event)) return null;
     try {
-      return {
-        entries: this.#handlers.list(),
-        seconds: this.#handlers.getSeconds(),
-        limits: { min: POPUP_SECONDS.min, max: POPUP_SECONDS.max },
-      };
+      return { entries: this.#handlers.list() };
     } catch (error) {
       this.#handlers.onError("manage:init", error);
       return null;
@@ -169,18 +159,6 @@ export class ManageWindow {
       return null;
     } finally {
       this.#unblocking = false;
-    }
-  }
-
-  async #save(event: IpcMainInvokeEvent, value: unknown): Promise<number | null> {
-    if (!this.#trusted(event)) return null;
-    const parsed = SettingsSchema.safeParse({ version: 1, popupSeconds: value });
-    if (!parsed.success) return null;
-    try {
-      return await this.#handlers.setSeconds(parsed.data.popupSeconds);
-    } catch (error) {
-      this.#handlers.onError("manage:save-seconds", error);
-      return null;
     }
   }
 

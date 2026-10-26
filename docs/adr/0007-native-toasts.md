@@ -30,7 +30,10 @@ selection (what happens to future mail) and the buttons "This sender" and "Whole
 
 ## Cost of the move
 
-- The "popup stays N seconds" setting no longer does anything (toast `duration="long"`, 25 s). Open item.
+- The "popup stays N seconds" setting is removed (2026-10-26): a native toast only knows `short` or `long` (25 s used here),
+  and honouring N seconds would need a timer and `close()` per toast (not measured whether `close()` also removes it from
+  the Action Center). How long a toast stays is Windows' own setting (Settings > Accessibility > Visual effects > Dismiss
+  notifications after; read from memory, not checked on this machine). No settings file remains; a leftover `settings.json` in the user data folder is ignored. ADRs 0004 and 0005 describe the old setting.
 - A toast keeps the sender and subject in the Action Center and may show them on the lock screen. Not checked on a machine.
 - The old popup's drop counter is gone; the watcher still caps announcements per drain (`DEFAULT_MAX_PER_DRAIN` = 5 per account).
 
