@@ -204,11 +204,22 @@ describe("startLoopback", () => {
     await expect(startLoopback({ state: newState(), ...bad })).rejects.toThrow(RangeError);
   });
 
-  it("gives up after the request cap and closes", async () => {
-    const { loopback } = await setup({ maxRequests: 3 });
-    for (let i = 0; i < 4; i += 1) await hit(loopback, "/?state=x");
+  it("gives up after the request cap of requests that carry the state, and closes", async () => {
+    const { state, loopback } = await setup({ maxRequests: 3 });
+    for (let i = 0; i < 4; i += 1) await hit(loopback, `/?state=${state}`);
     expect(await loopback.result).toEqual({ kind: "failed", reason: "too-many-requests" });
     expect(await refused(loopback)).toBe(true);
+  });
+
+  it("does not count requests that lack the state, so a stranger cannot spend the cap (FLAG-4)", async () => {
+    const { state, loopback } = await setup({ maxRequests: 3 });
+    for (let i = 0; i < 10; i += 1) await hit(loopback, "/?state=x");
+    await hit(loopback, `/?state=${state}`, { host: "evil.example" });
+    await hit(loopback, `/?state=${state}`, { method: "POST" });
+    await hit(loopback, `/favicon.ico?state=${state}`);
+    expect(await settledWithin(loopback)).toBe("waiting");
+    expect((await hit(loopback, `/?code=real&state=${state}`)).status).toBe(200);
+    expect(await loopback.result).toEqual({ kind: "code", code: "real" });
   });
 
   it("gives up at its time limit and closes", async () => {

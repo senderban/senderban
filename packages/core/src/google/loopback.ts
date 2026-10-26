@@ -10,8 +10,9 @@ import { GOOGLE_TOKEN_BYTES, loopbackRedirectUri, stateMatches } from "./oauth.j
  */
 export const LOOPBACK_TIMEOUT_MS = 300_000;
 /**
- * Requests the listener answers before it gives up. Unit: requests. A real sign-in is one (two with a favicon
- * probe); 20 leaves room for a browser's retries and stops a local process that hammers the port.
+ * Requests that carry this sign-in's `state` the listener answers before it gives up. Unit: requests. A real
+ * sign-in is one; 20 leaves room for a browser's retries. Requests without the state do not count (they cannot
+ * end the sign-in), so a local process that hammers the port is bounded by the time limit instead.
  */
 export const LOOPBACK_MAX_REQUESTS = 20;
 /** What a caller may ask for. Unit: milliseconds and requests. Outside it is a bug, not a setting: a `setTimeout` past 2^31-1 ms fires at once. */
@@ -102,7 +103,7 @@ function reply(
  * name or a second origin cannot use it) and the `state` of this sign-in, compared in constant time. Anything else
  * gets a bare 400 that echoes nothing and the listener keeps waiting: a stray request from another program must not
  * end the sign-in, and cannot finish it. It stops on the first believed answer, at the time limit, after
- * `maxRequests` requests, on abort and on `close()`.
+ * `maxRequests` requests that carry the state, on abort and on `close()`.
  */
 export async function startLoopback(options: LoopbackOptions): Promise<Loopback> {
   const maxRequests = options.maxRequests ?? LOOPBACK_MAX_REQUESTS;
@@ -157,13 +158,6 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
       reply(res, 400, "Bad request", "text/plain; charset=utf-8");
       return;
     }
-    requests += 1;
-    if (requests > maxRequests) {
-      reply(res, 400, "Bad request", "text/plain; charset=utf-8", () => {
-        finish({ kind: "failed", reason: "too-many-requests" });
-      });
-      return;
-    }
     const bad = (): void => {
       reply(res, 400, "Bad request", "text/plain; charset=utf-8");
     };
@@ -188,6 +182,15 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
     const received = url.searchParams.get("state");
     if (url.pathname !== "/" || received === null || !stateMatches(options.state, received)) {
       bad();
+      return;
+    }
+    // Counted only here: a request that does not know the state is not the sign-in, so a local process hammering the
+    // port cannot spend the cap and end the sign-in (it can still only be answered 400, within the time limit).
+    requests += 1;
+    if (requests > maxRequests) {
+      reply(res, 400, "Bad request", "text/plain; charset=utf-8", () => {
+        finish({ kind: "failed", reason: "too-many-requests" });
+      });
       return;
     }
     const error = url.searchParams.get("error");
