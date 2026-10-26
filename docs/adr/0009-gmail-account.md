@@ -113,6 +113,20 @@ does to an unverified production project that polls every minute.
 Shared resource per account: one lane, one timeout per call (60 s), a 429 or `rateLimitExceeded` is shown and backed off, never
 swallowed; a write is not retried blindly (read the remote state first, RFC 9110 §9.2.2). Paid upstream: none (own project, own quota).
 
+### Budget lines still to be written into the adapter (performance review 2026-10-26, W1–W4)
+
+- **Client-side limits** (global CLAUDE.md item 7): a per-minute request cap, a per-account 24 h unit quota and a global daily ceiling, as
+  named constants with a test, so one account's loop cannot eat the project's quota or trip Google's per-user limit.
+- **Polling:** 1,440 `history.list` per account per day is 5× the IMAP idle rate. One poll in flight per account, polls spread with jitter
+  (50 accounts must not tick together after a resume), and the HTTP agent keeps connections alive longer than Node's default 4 s so a poll
+  is not a new TLS handshake each time (measure, do not assume).
+- **Filter assignment must be stable.** "≈ 12 units per block" holds only when one added address changes one filter. Addresses are packed
+  into filters append-only with a fixed capacity per filter (never by sorted position, which would shift every later address and rewrite
+  every filter: worst case ≈ 10,000 requests per block at 50 accounts). One added address = one `create` + one `delete` of the filter it
+  joined. A counting fake Gmail over a 24 h fake clock asserts this and the three limits above.
+- **Log fields** for the poll and the sync (account tag, status, units, duration, a fixed reason word; no address, no token), and a
+  distinct state for "no new mail" versus "token dead / polling stopped", so silence is not read as "all quiet".
+
 ## Security notes (owasp-security §5)
 
 Attack path for the loopback listener: another local process connecting first or replaying the redirect → `state` is random

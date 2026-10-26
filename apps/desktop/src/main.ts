@@ -10,7 +10,6 @@ import {
   willRetry,
   blockableDomain,
   canRejectSender,
-  isFreemail,
   initialSieveState,
   unblock,
   MxrouteAdapter,
@@ -34,6 +33,7 @@ import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor } from "electron";
 import { AddAccountError, addAccountFromFile } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
+import { collectOwnMail } from "./own-mail.js";
 import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
@@ -280,24 +280,8 @@ async function start(): Promise<Runtime> {
   );
   const watchers = new Map<string, AccountWatcher>();
   const lanes = accounts.map((a) => a.id);
-  // The blacklist is shared by every mailbox of the account, so the person's own addresses and domains must never
-  // be refused there: a spammer can forge them in From, and real mail would bounce. Every account counts, not only
-  // the ones with a key, but a freemail domain (gmail.com) is not "owned": only the full login address is.
-  const own = { domains: new Set<string>(), addresses: new Set<string>() };
-  for (const a of accounts) {
-    for (const login of [a.imap.user, a.sieve.user]) {
-      if (login.includes("@")) own.addresses.add(login.toLowerCase());
-    }
-    const domain = mailDomain(a);
-    if (domain !== null && !isFreemail(domain)) own.domains.add(domain);
-  }
-  // A Gmail account is not run yet, but its address is still the person's own: a forged From with it must not be refused.
-  for (const a of configured) {
-    if (isImapAccount(a)) continue;
-    own.addresses.add(a.gmail.email);
-    const domain = a.gmail.email.slice(a.gmail.email.lastIndexOf("@") + 1);
-    if (!isFreemail(domain)) own.domains.add(domain);
-  }
+  // Never-refuse set for "Block at server" (ADR 0008 point 3); see own-mail.ts.
+  const own = collectOwnMail(configured);
   // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
   // it would otherwise send the same entries five times. The first account owns the lane and its key.
   const mxrouteGroups = new Map<string, { owner: string; mirror: boolean }>();
