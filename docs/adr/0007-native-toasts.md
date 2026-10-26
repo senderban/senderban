@@ -19,6 +19,14 @@ selection (what happens to future mail) and the buttons "This sender" and "Whole
 - **Windows draws it.** Colours, fonts and layout are Windows'. The app name and icon in the toast header come from the app identity
   (`com.senderban.desktop`): an installer must create a Start-menu shortcut that carries it. In development the header reads
   "Electron" until such a shortcut exists.
+- **Do not register the identity by hand in development.** Measured 2026-10-26: after a registry key
+  `HKCU\Software\Classes\AppUserModelId\com.senderban.desktop` (DisplayName, IconUri) was added, the header read "Senderban" but a
+  click on the toast never reached the app (no `toast-activation` log line, no block); after the key was deleted the same click was
+  delivered and blocked. A hand-made Start-menu shortcut with the identity had already been deleted
+  when the click still failed, so the key is the cause; a shortcut without the key was not tested. Test the identity with the
+  installer, not with hand-made keys.
+- **Log.** `toast-activation` is written for every click Windows delivers, before the click is parsed; `choice` follows when it ran.
+  A toast click with neither line means Windows did not deliver it.
 
 ## Cost of the move
 

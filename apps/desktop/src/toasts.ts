@@ -16,6 +16,8 @@ export interface ToastResult {
 export interface ToastHandlers {
   /** Runs the block and describes the outcome. */
   readonly choose: (id: string, scope: BlockScope, action: BlockAction) => Promise<ToastResult>;
+  /** Windows delivered an activation (any click on a toast of ours): the log line that tells "not delivered" from "ignored". */
+  readonly onActivation: () => void;
   /** A click was not one of our buttons or was malformed; `reason` is a fixed string, never the input. */
   readonly onIgnored: (reason: string) => void;
   /** A handler threw: the log gets the channel and a sanitised message, the person a generic failure. */
@@ -37,6 +39,7 @@ export class Toasts {
   constructor(handlers: ToastHandlers) {
     this.#handlers = handlers;
     Notification.handleActivation((details) => {
+      this.#handlers.onActivation();
       void this.#activated(details);
     });
   }

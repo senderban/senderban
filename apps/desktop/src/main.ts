@@ -511,6 +511,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     }
     const assets = join(import.meta.dirname, "../assets");
     toasts = new Toasts({
+      onActivation: () => {
+        log("toast-activation");
+      },
       onIgnored: (reason) => {
         log("toast-ignored", { reason });
       },
