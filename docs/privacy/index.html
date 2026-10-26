@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy - Senderban</title>
+    <meta
+      name="description"
+      content="What Senderban reads, stores and sends, including how it uses Google user data. Short version: everything stays on your device."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <style>
+      :root {
+        --bg: #fafaf9;
+        --fg: #1c1917;
+        --muted: #57534e;
+        --line: #d6d3d1;
+        --accent: #0f766e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1917;
+          --fg: #fafaf9;
+          --muted: #a8a29e;
+          --line: #44403c;
+          --accent: #5eead4;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          1rem/1.6 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 4rem 1rem;
+      }
+      h1 {
+        font-size: 2.25rem;
+        margin: 0 0 0.5rem;
+      }
+      .lead {
+        font-size: 1.25rem;
+        margin: 0 0 2rem;
+      }
+      .status {
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        padding: 0.75rem 1rem;
+        margin: 0 0 2rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 2rem 0 0.5rem;
+      }
+      p,
+      li {
+        color: var(--muted);
+      }
+      a {
+        color: var(--accent);
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy policy</h1>
+      <p class="lead">Senderban runs on your device. Your mail data does not leave it.</p>
+      <p class="status">
+        <strong>Effective 26 October 2026.</strong> Senderban is a pre-alpha, open-source Windows
+        app (<a href="/">senderban.com</a>). This policy describes the code in
+        <a href="https://github.com/senderban/senderban">the public repository</a>, so you can check
+        every statement against it.
+      </p>
+
+      <h2>No Senderban server</h2>
+      <p>
+        This version of Senderban has no server and no account with us. The app talks directly from
+        your device to your mail provider (for Gmail, to Google). We do not receive, collect, store
+        or see any of the data described below, and there is no analytics, telemetry, advertising or
+        tracking in the app.
+      </p>
+
+      <h2>What the app handles, and where it stays</h2>
+      <ul>
+        <li>
+          <strong>Mail account sign-in.</strong> For a mailbox reached over IMAP, the server
+          address, your login and your password. The password is stored encrypted with the operating
+          system's credential protection (Windows DPAPI, through Electron's safeStorage), on your
+          device only.
+        </li>
+        <li>
+          <strong>Sender and subject of new mail.</strong> Only the From address and the Subject of
+          a newly arrived message, read on your device to show the notification. Senderban never
+          reads or downloads message bodies or attachments.
+        </li>
+        <li>
+          <strong>Your block list.</strong> The senders you chose to block, in a local database on
+          your device.
+        </li>
+        <li>
+          <strong>A diagnostic log.</strong> A local file on your device with events, states, error
+          codes and the domain of a sender (not the full address). It does not contain passwords,
+          tokens or subject lines. Nothing is sent anywhere unless you attach the file to a bug
+          report yourself.
+        </li>
+      </ul>
+
+      <h2>Google user data (Gmail)</h2>
+      <p>
+        Gmail support (in development) uses your own Google Cloud project: you create an OAuth
+        client there and enter its client ID and secret in Senderban. Senderban never sees any
+        credentials but yours, and no one else holds access to your mail. It asks for exactly two
+        permissions:
+      </p>
+      <ul>
+        <li>
+          <strong>View your email message metadata (gmail.metadata).</strong> To learn that new mail
+          arrived and to show its sender and subject in the notification. This permission does not
+          give access to message bodies.
+        </li>
+        <li>
+          <strong>Manage your basic mail settings (gmail.settings.basic).</strong> To create and
+          delete the mail filters that block a sender you chose (future mail from that sender skips
+          your inbox and goes to Trash, which you can undo).
+        </li>
+      </ul>
+      <p>
+        What is stored on your device: your Gmail address, the OAuth client ID and secret you
+        entered, and a refresh token, the token and the secret both encrypted as described above.
+        Access tokens are kept in memory only. Google user data is used only to provide these
+        user-facing features and is not used for anything else.
+      </p>
+      <p>
+        <strong>
+          Senderban's use and transfer to any other app of information received from Google APIs
+          will adhere to the
+          <a href="https://developers.google.com/terms/api-services-user-data-policy"
+            >Google API Services User Data Policy</a
+          >, including the Limited Use requirements.
+        </strong>
+        In particular:
+      </p>
+      <ul>
+        <li>Google user data is not transferred to anyone, because it never leaves your device.</li>
+        <li>It is not used for advertising, and it is not sold.</li>
+        <li>
+          It is not used to train or improve any machine-learning or AI model, and no AI service is
+          used.
+        </li>
+        <li>No person reads it: we never receive it.</li>
+      </ul>
+
+      <h2>Keeping and deleting your data</h2>
+      <ul>
+        <li>
+          Everything above is stored in Senderban's folder on your device (under
+          <code>%APPDATA%</code>, in a folder named Senderban). Deleting that folder removes it all.
+        </li>
+        <li>
+          Removing a Gmail account in Senderban revokes Senderban's access at Google and deletes the
+          stored token. You can also remove the access yourself at
+          <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
+        </li>
+        <li>
+          Gmail filters that Senderban created stay in your Gmail until they are removed. Senderban
+          is designed to remove its own filters when you remove the account; you can also delete
+          them in Gmail settings, under Filters and Blocked Addresses.
+        </li>
+      </ul>
+
+      <h2>Changes and contact</h2>
+      <p>
+        If this policy changes, the new text is published here and every change is visible in the
+        <a href="https://github.com/senderban/senderban/commits/main/docs/privacy">
+          public history</a
+        >. Questions: <a href="https://github.com/senderban/senderban/issues">GitHub Issues</a>.
+        Security reports: use private vulnerability reporting on the repository, as described in its
+        <a href="https://github.com/senderban/senderban/blob/main/SECURITY.md">security policy</a>.
+      </p>
+
+      <footer>
+        <a href="/">Senderban</a> · Apache-2.0 ·
+        <a href="https://github.com/senderban/senderban">Source</a>
+      </footer>
+    </main>
+  </body>
+</html>
