@@ -1,14 +1,25 @@
 import { join } from "node:path";
 import {
   ACCOUNT_ID,
+  GOOGLE_CLIENT_ID_PATTERN,
+  GOOGLE_CLIENT_LIMITS,
+  GOOGLE_CLIENT_SECRET_PATTERN,
+  GoogleClientInputSchema,
+  GoogleSignInRequestSchema,
   MXROUTE_LIMITS,
   MxrouteEnableSchema,
   MxrouteInputSchema,
   isEntryId,
 } from "@senderban/core";
-import type { BlockEntry } from "@senderban/core";
+import type { BlockEntry, GoogleClientInput } from "@senderban/core";
 import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
+import type {
+  GoogleClientReply,
+  GooglePageState,
+  GoogleRemoveReply,
+  GoogleSignInOutcome,
+} from "./google-accounts.js";
 
 const PAGE = "manage/manage.html";
 
@@ -42,6 +53,15 @@ export interface ManageHandlers {
   readonly mxrouteRemove: (accountId: string) => Promise<MxrouteOutcome>;
   /** Switches the account's MXroute blacklist on or off (takes effect when Senderban starts). */
   readonly mxrouteEnable: (accountId: string, enabled: boolean) => Promise<MxrouteOutcome>;
+  /** Gmail: the app-wide client's ID and the Gmail accounts (never a token, never the secret). */
+  readonly googleState: () => Promise<GooglePageState>;
+  /** Stores the client; the input has already passed the core schema. */
+  readonly googleSaveClient: (input: GoogleClientInput) => Promise<GoogleClientReply>;
+  /** Opens the browser and waits for Google's answer (minutes): a new account, or `accountId` signed in again. */
+  readonly googleSignIn: (request: { accountId?: string }) => Promise<GoogleSignInOutcome>;
+  /** Stops a sign-in that is waiting for the browser. */
+  readonly googleCancel: () => void;
+  readonly googleRemove: (accountId: string) => Promise<GoogleRemoveReply>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -71,6 +91,17 @@ export class ManageWindow {
     ipcMain.handle("manage:mxroute-enable", (event, value: unknown) =>
       this.#mxrouteEnable(event, value),
     );
+    ipcMain.handle("manage:google-state", (event) => this.#googleState(event));
+    ipcMain.handle("manage:google-save-client", (event, value: unknown) =>
+      this.#googleSaveClient(event, value),
+    );
+    ipcMain.handle("manage:google-sign-in", (event, value: unknown) =>
+      this.#googleSignIn(event, value),
+    );
+    ipcMain.handle("manage:google-cancel", (event) => {
+      this.#googleCancel(event);
+    });
+    ipcMain.handle("manage:google-remove", (event, id: unknown) => this.#googleRemove(event, id));
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -110,6 +141,8 @@ export class ManageWindow {
     });
     win.on("closed", () => {
       if (this.#win === win) this.#win = null;
+      // A sign-in waits for the browser with its page open; without the page nobody sees the answer, so stop it.
+      this.#handlers.googleCancel();
     });
     this.#win = win;
     void win.loadFile(join(this.#assets, PAGE));
@@ -208,7 +241,77 @@ export class ManageWindow {
       return "failed";
     }
   }
+
+  async #googleState(event: IpcMainInvokeEvent) {
+    if (!this.#trusted(event)) return null;
+    try {
+      // The limits come from here so the page never invents its own numbers.
+      return {
+        ...(await this.#handlers.googleState()),
+        limits: GOOGLE_CLIENT_LIMITS,
+        // The pattern attribute is anchored by the browser itself.
+        idPattern: GOOGLE_CLIENT_ID_PATTERN.source.slice(1, -1),
+        secretPattern: GOOGLE_CLIENT_SECRET_PATTERN.source.slice(1, -1),
+      };
+    } catch (error) {
+      this.#handlers.onError("manage:google-state", error);
+      return null;
+    }
+  }
+
+  async #googleSaveClient(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<GoogleClientReply | GoogleFailure["reply"]> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = GoogleClientInputSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      return await this.#handlers.googleSaveClient(parsed.data);
+    } catch (error) {
+      this.#handlers.onError("manage:google-save-client", error);
+      return "failed";
+    }
+  }
+
+  async #googleSignIn(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<GoogleSignInOutcome | GoogleFailure> {
+    if (!this.#trusted(event)) return { reply: "denied" };
+    const parsed = GoogleSignInRequestSchema.safeParse(value ?? {});
+    if (!parsed.success) return { reply: "invalid" };
+    try {
+      return await this.#handlers.googleSignIn(
+        parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
+      );
+    } catch (error) {
+      this.#handlers.onError("manage:google-sign-in", error);
+      return { reply: "failed" };
+    }
+  }
+
+  #googleCancel(event: IpcMainInvokeEvent): void {
+    if (this.#trusted(event)) this.#handlers.googleCancel();
+  }
+
+  async #googleRemove(
+    event: IpcMainInvokeEvent,
+    id: unknown,
+  ): Promise<GoogleRemoveReply | GoogleFailure["reply"]> {
+    if (!this.#trusted(event)) return "denied";
+    if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
+    try {
+      return await this.#handlers.googleRemove(id);
+    } catch (error) {
+      this.#handlers.onError("manage:google-remove", error);
+      return "failed";
+    }
+  }
 }
+
+/** Gmail replies are a fixed word (and a day count), never the input and never an error text: the secret must not travel back. */
+type GoogleFailure = { readonly reply: "invalid" | "denied" | "failed" };
 
 /** What the main process says about a key change; each one is a fixed word the page turns into a sentence. */
 export type MxrouteOutcome =

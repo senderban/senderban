@@ -32,6 +32,53 @@
         <p id="status" class="status" role="status" hidden></p>
       </section>
 
+      <details id="gmail">
+        <summary>Gmail accounts</summary>
+        <p class="muted">
+          Senderban signs in to Gmail through your own Google Cloud project, so nobody else holds
+          access to your mail. In that project turn on the Gmail API, make an OAuth client of type
+          Desktop app, and paste its ID and secret here. The secret is stored encrypted on this
+          device. Signing in only connects the account: blocking on Gmail is not switched on yet.
+        </p>
+        <h2>Google client</h2>
+        <p id="google-client-state" class="muted"></p>
+        <form id="google-client-form" autocomplete="off">
+          <div class="field">
+            <label for="google-client-id">Client ID</label>
+            <input
+              id="google-client-id"
+              type="text"
+              required
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div class="field">
+            <label for="google-client-secret">Client secret</label>
+            <input
+              id="google-client-secret"
+              type="password"
+              required
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div class="row">
+            <button type="submit" id="google-client-save">Save client</button>
+            <button type="button" id="google-client-confirm" hidden>Replace and sign out</button>
+          </div>
+          <p id="google-client-message" class="status" role="status"></p>
+        </form>
+        <h2>Accounts</h2>
+        <ul id="google-accounts" aria-label="Gmail accounts"></ul>
+        <p id="google-empty" class="muted" hidden>No Gmail account yet.</p>
+        <div class="row">
+          <button type="button" id="google-add">Add Gmail account</button>
+          <button type="button" id="google-cancel" hidden>Cancel</button>
+        </div>
+        <p id="google-message" class="status" role="status"></p>
+      </details>
+
       <details id="advanced">
         <summary>Advanced</summary>
         <h2>MXroute API key</h2>
@@ -48,5 +95,6 @@
     </main>
     <script src="manage.js"></script>
     <script src="advanced.js"></script>
+    <script src="gmail.js"></script>
   </body>
 </html>

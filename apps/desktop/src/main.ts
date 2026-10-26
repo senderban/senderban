@@ -17,6 +17,7 @@ import {
   initialMxrouteState,
   isImapAccount,
   mxrouteLaneId,
+  createOAuthClient,
 } from "@senderban/core";
 import type {
   BlockAction,
@@ -28,11 +29,20 @@ import type {
   UnblockResult,
   WatcherState,
 } from "@senderban/core";
-import { connectManageSieve, imapflowConnector } from "@senderban/core/node";
+import { connectManageSieve, imapflowConnector, signIn } from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
-import { Menu, Tray, app, nativeImage, powerMonitor } from "electron";
+import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
 import { AddAccountError, addAccountFromFile } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
+import {
+  cancelGoogleSignIn,
+  googleState,
+  removeGoogleAccount,
+  saveGoogleClientSettings,
+  signInGoogle,
+} from "./google-accounts.js";
+import type { GoogleDeps } from "./google-accounts.js";
+import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail } from "./own-mail.js";
 import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
@@ -434,6 +444,7 @@ async function start(): Promise<Runtime> {
 }
 
 async function shutdown(): Promise<void> {
+  cancelGoogleSignIn();
   const current = await ready.promise.catch(() => null);
   if (current === null) return;
   log("quit");
@@ -498,6 +509,21 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     const accountsPath = join(app.getPath("userData"), "accounts.json");
     const assets = join(import.meta.dirname, "../assets");
+    const googleDeps: GoogleDeps = {
+      accountsPath,
+      clientPath: join(app.getPath("userData"), "google-client.json"),
+      makeOAuth: (clientId, getClientSecret) =>
+        createOAuthClient({
+          clientId,
+          getClientSecret,
+          // Operation, HTTP status and duration only: no token, no code, no secret.
+          onCall: (call) => {
+            log("google-call", { ...call });
+          },
+        }),
+      signIn,
+      openBrowser: openGoogleAuthUrl((url) => shell.openExternal(url)),
+    };
     toasts = new Toasts({
       onActivation: () => {
         log("toast-activation");
@@ -561,6 +587,30 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const result = await setMxrouteEnabled(accountsPath, accountId, enabled);
         log("mxroute-enabled", { account: accountTag(accountId), enabled, result });
         return result;
+      },
+      googleState: () => googleState(googleDeps),
+      googleSaveClient: async (input) => {
+        const started = Date.now();
+        const reply = await saveGoogleClientSettings(googleDeps, input);
+        log("google-client", { reply, ms: Date.now() - started });
+        return reply;
+      },
+      googleSignIn: async (request) => {
+        const started = Date.now();
+        const outcome = await signInGoogle(googleDeps, request);
+        // The outcome word and the time only: no address, no token.
+        log("google-sign-in", {
+          reply: outcome.reply,
+          again: request.accountId !== undefined,
+          ms: Date.now() - started,
+        });
+        return outcome;
+      },
+      googleCancel: cancelGoogleSignIn,
+      googleRemove: async (accountId) => {
+        const reply = await removeGoogleAccount(googleDeps, accountId);
+        log("google-removed", { account: accountTag(accountId), reply });
+        return reply;
       },
       unblock: async (id) => {
         const { store, engine, lanes, labels } = await ready.promise;

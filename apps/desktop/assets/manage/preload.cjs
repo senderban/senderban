@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld("senderban", {
   mxrouteSave: (input) => ipcRenderer.invoke("manage:mxroute-save", input),
   mxrouteRemove: (accountId) => ipcRenderer.invoke("manage:mxroute-remove", accountId),
   mxrouteEnable: (input) => ipcRenderer.invoke("manage:mxroute-enable", input),
+  googleState: () => ipcRenderer.invoke("manage:google-state"),
+  googleSaveClient: (input) => ipcRenderer.invoke("manage:google-save-client", input),
+  googleSignIn: (request) => ipcRenderer.invoke("manage:google-sign-in", request),
+  googleCancel: () => ipcRenderer.invoke("manage:google-cancel"),
+  googleRemove: (accountId) => ipcRenderer.invoke("manage:google-remove", accountId),
   /** The list changed behind the page's back (a popup blocked something): ask for it again. */
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {

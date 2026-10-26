@@ -92,7 +92,12 @@ answered `400` live (2026-10-26, measured); the real client made on that day has
 It is entered through one IPC channel that follows the MXroute key precedent (`manage.ts`): trusted-frame check, a `strictObject`
 `{ clientId, clientSecret }` with the named limits below (secret: printable ASCII without space, PROVISIONAL 1–256), a reply that is a
 fixed word, the secret never sent back. The sign-in channel carries no URL and no scope, at most an `accountId` for a re-sign-in. Where it
-is stored (a second file next to `accounts.json`, since `AccountsFileSchema` is a strict `{ version, accounts }`) is decided in step 2.
+is stored: **`google-client.json` next to `accounts.json`** (decided in A1b; `AccountsFileSchema` is a strict `{ version, accounts }`), a strict
+`{ version: 1, clientId, secretCipher }`, read with a 16 KiB cap. Saving the **same client ID with a new secret keeps every token** (the tokens are bound to the ID);
+a **different ID** needs the person's confirmation, revokes the stored tokens with the old client (at most 5 at a time), signs the accounts out and only then saves.
+A client file that cannot be read is replaceable from the page (it shows as "no client"): the signed-in accounts are signed out **without** a revoke (there is no
+client to revoke with) and the page says the access Google still lists can be removed under Google Account permissions.
+A signed-out account keeps its id and address and has no `refreshCipher` (the field is optional since A1b).
 The secret is not confidential for a Desktop client (read), so `secretCipher` is hygiene, not protection.
 Bounds (PROVISIONAL until a real value is seen, tighten then, same rule as `MXROUTE_LIMITS`): clientId 1–128 ASCII, matching
 `^[0-9]+-[A-Za-z0-9_]+\.apps\.googleusercontent\.com$` (shape from memory); ciphertext reuses `Ciphertext` (≤ 8192). `email` is checked
@@ -158,7 +163,8 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   accepted. Google's consent page shows both permissions **unticked by default** (granular consent), so the scope check matters.
   The "Google hasn't verified this app" warning comes first and is expected for a Testing app and its test user.
 - **`client_secret` is required** (see Data). A refresh without it: `400`, which `tokenFailure` maps to `REJECTED`; step A1b should show
-  "the client secret is missing or wrong" for it, not "sign in again".
+  "the client secret is missing or wrong" for it, not "sign in again". (Shipped in A1b as the reply `client-refused`: `REJECTED` and
+  `AUTH_REQUIRED` from the token call. Google's own error word for a missing secret was not recorded; see I2 of the A1b review for the other causes that share the reply.)
 - **G2:** `addLabelIds: ["SPAM"]` → `400 invalidArgument`; `["TRASH"]` → 200. So Gmail's lane is Trash only.
 - **G1:** `criteria.query` of 353 up to **14,003** characters (400 quoted addresses) was accepted; **28,003** characters answered
   `500 backendError` (an undocumented limit lies between). The earlier ~1,400–1,500 figure (secondary source) is wrong for the API.
@@ -193,3 +199,18 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
    fake-Gmail test where a filter holding the text "senderban", a UI-edited copy of ours and a marked filter with another action all stay
    untouched through plan, apply, recover and uninstall. The one live probe that closes BLOCK-1 uses a throwaway label, never Trash.
 4. Watcher + toast wiring (fixture table for the `From` header cases above); then G6 live.
+
+### A1b (desktop connection) — done 2026-10-26
+
+One manage-window section, five IPC channels (`manage:google-state`, `-save-client`, `-sign-in`, `-cancel`, `-remove`), each with the trusted-frame check and a
+`strictObject` schema; replies are fixed words. `shell.openExternal` is only reached through `openGoogleAuthUrl` (https, `accounts.google.com`, the fixed path,
+no port or credentials; it opens the parsed form of the URL, never the raw string). One Google step at a time (`exclusive`); one `serialized` queue for every writer
+of `accounts.json` (MXroute key saves and Gmail sign-ins share it). Removal order is as in point 3; the first step (uninstall our filters) is a comment until the filter
+adapter exists and must be added there.
+
+A refused sign-in tells the person the access Google already gave can be removed under Google Account permissions, **except `duplicate`**: the token of a mailbox that is
+already set up belongs to the same grant as the working account, so removing it there would break that account. `full` carries the note.
+
+Open (not done in A1b): an account whose stored token cannot be decrypted (profile restored on another machine, Windows password reset) cannot be removed from the page
+(the revoke never succeeds); it needs a "remove here anyway, I removed the access in my Google account" confirmation. Also unmeasured: whether Google ignores a wrong
+`client_secret` on `revoke` (the request sends it today; Google's page shows the token only), which would take the secret out of the removal path.

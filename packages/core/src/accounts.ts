@@ -94,12 +94,58 @@ const GmailAddress = z
   });
 
 /**
- * A Gmail mailbox (ADR 0009, proposed). Only the refresh token is stored, as ciphertext; the OAuth client ID is
- * app-wide, not per account. Nothing runs these accounts yet: the app skips them and says so in the log.
+ * The person's own Google OAuth client (ADR 0009, Data). Unit: ASCII characters. PROVISIONAL until more than one real
+ * value is seen: the one made on 2026-10-26 has a 72-character ID and a 35-character secret. The ID shape is Google's
+ * documented `<project number>-<random>.apps.googleusercontent.com`; the secret is a password, so printable ASCII
+ * without space only (it goes into a form body).
+ */
+export const GOOGLE_CLIENT_LIMITS = {
+  clientId: { min: 1, max: 128 },
+  clientSecret: { min: 1, max: 256 },
+} as const;
+export const GOOGLE_CLIENT_ID_PATTERN = /^[0-9]+-[A-Za-z0-9_]+\.apps\.googleusercontent\.com$/u;
+const GoogleClientId = z
+  .string()
+  .min(GOOGLE_CLIENT_LIMITS.clientId.min)
+  .max(GOOGLE_CLIENT_LIMITS.clientId.max)
+  .regex(GOOGLE_CLIENT_ID_PATTERN);
+/** Printable ASCII without space: the secret is a password and goes into a form body. Shared with the page. */
+export const GOOGLE_CLIENT_SECRET_PATTERN = /^[!-~]+$/u;
+const GoogleClientSecret = z
+  .string()
+  .min(GOOGLE_CLIENT_LIMITS.clientSecret.min)
+  .max(GOOGLE_CLIENT_LIMITS.clientSecret.max)
+  .regex(GOOGLE_CLIENT_SECRET_PATTERN);
+
+/** What a person types for the app-wide Google client. `confirmSignOut`: they were told every Gmail account signs out. */
+export const GoogleClientInputSchema = z.strictObject({
+  clientId: GoogleClientId,
+  clientSecret: GoogleClientSecret,
+  confirmSignOut: z.boolean(),
+});
+export type GoogleClientInput = z.infer<typeof GoogleClientInputSchema>;
+
+/** `google-client.json`, next to `accounts.json`: the ID and the secret as ciphertext only. */
+export const GoogleClientFileSchema = z.strictObject({
+  version: z.literal(1),
+  clientId: GoogleClientId,
+  secretCipher: Ciphertext,
+});
+export type GoogleClientFile = z.infer<typeof GoogleClientFileSchema>;
+
+/** Sign in: a new account carries nothing, a re-sign-in names the account. No URL, no scope, no address from the page. */
+export const GoogleSignInRequestSchema = z.strictObject({
+  accountId: z.string().regex(ACCOUNT_ID).optional(),
+});
+
+/**
+ * A Gmail mailbox (ADR 0009). Only the refresh token is stored, as ciphertext; the OAuth client ID is app-wide, not
+ * per account. `refreshCipher` is missing while the account is signed out (the app-wide client changed, so the old
+ * token is revoked and useless): the account and its address stay, the person signs in again.
  */
 export const GmailAccountConfigSchema = z.strictObject({
   id: z.string().regex(ACCOUNT_ID),
-  gmail: z.strictObject({ email: GmailAddress, refreshCipher: Ciphertext }),
+  gmail: z.strictObject({ email: GmailAddress, refreshCipher: Ciphertext.optional() }),
 });
 export type GmailAccountConfig = z.infer<typeof GmailAccountConfigSchema>;
 
@@ -109,6 +155,11 @@ export type AccountConfig = z.infer<typeof AccountConfigSchema>;
 /** Narrows to the IMAP/Sieve kind; every reader of `imap` or `sieve` goes through this. */
 export function isImapAccount(account: AccountConfig): account is ImapAccountConfig {
   return "imap" in account;
+}
+
+/** Narrows to the Gmail kind. */
+export function isGmailAccount(account: AccountConfig): account is GmailAccountConfig {
+  return "gmail" in account;
 }
 
 export const AccountsFileSchema = z

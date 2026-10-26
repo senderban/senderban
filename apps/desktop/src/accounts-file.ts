@@ -27,13 +27,17 @@ export async function saveAccounts(
   path: string,
   accounts: readonly AccountConfig[],
 ): Promise<void> {
-  const file = AccountsFileSchema.parse({ version: 1, accounts });
+  await writeJsonAtomic(path, AccountsFileSchema.parse({ version: 1, accounts }));
+}
+
+/** The caller has validated `value`; this only writes it so that a crash never leaves half a file. */
+export async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
     // Flushed before the rename: a power cut right after a save must not leave a renamed, empty file.
     const handle = await open(temp, "wx");
     try {
-      await handle.writeFile(JSON.stringify(file, null, 2), "utf8");
+      await handle.writeFile(JSON.stringify(value, null, 2), "utf8");
       await handle.sync();
     } finally {
       await handle.close();
@@ -43,6 +47,15 @@ export async function saveAccounts(
     await unlink(temp).catch(() => undefined);
     throw error;
   }
+}
+
+// Reading, changing and writing accounts.json is one step; two clicks must not interleave and lose one.
+// One queue for every writer of the file (an MXroute key, a Gmail sign-in), or the two would lose each other's change.
+let queue: Promise<unknown> = Promise.resolve();
+export function serialized<T>(work: () => Promise<T>): Promise<T> {
+  const next = queue.then(work, work);
+  queue = next.catch(() => undefined);
+  return next;
 }
 
 async function requireEncryption(): Promise<void> {

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AccountsFileSchema,
+  GOOGLE_CLIENT_LIMITS,
+  GoogleClientFileSchema,
+  GoogleClientInputSchema,
+  GoogleSignInRequestSchema,
   MXROUTE_LIMITS,
   MxrouteInputSchema,
   NewAccountSchema,
@@ -227,5 +231,77 @@ describe("MXroute key (advanced)", () => {
       { ...typed, extra: true },
     ];
     for (const input of bad) expect(MxrouteInputSchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("Gmail account signed out (client changed)", () => {
+  const signedOut = { id: "g1", gmail: { email: "me@gmail.com" } };
+
+  it("is accepted without a token, and still refuses an unknown key", () => {
+    expect(AccountsFileSchema.safeParse(file([signedOut])).success).toBe(true);
+    const withToken = { ...signedOut, gmail: { ...signedOut.gmail, refreshToken: "1//x" } };
+    expect(AccountsFileSchema.safeParse(file([withToken])).success).toBe(false);
+  });
+});
+
+describe("Google client (ADR 0009, Data)", () => {
+  // Same shape and length as the real client made on 2026-10-26 (72 and 35 characters).
+  // Built at run time: a whole fake ID or secret in the source trips GitHub push protection.
+  const CLIENT_ID = [
+    "123456789012-abcdefghijklmnopqrstuvwxyz012345",
+    "apps",
+    "googleusercontent",
+    "com",
+  ].join(".");
+  const SECRET = ["GOCSPX", "abcdefghijklmnopqrstuvwxyz01"].join("-");
+  const input = { clientId: CLIENT_ID, clientSecret: SECRET, confirmSignOut: false };
+
+  it("accepts a real-shaped ID and secret", () => {
+    expect(CLIENT_ID).toHaveLength(72);
+    expect(SECRET).toHaveLength(35);
+    expect(GoogleClientInputSchema.safeParse(input).success).toBe(true);
+  });
+
+  it.each([
+    ["an extra key", { ...input, scope: "mail" }],
+    ["no confirmation flag", { clientId: CLIENT_ID, clientSecret: SECRET }],
+    ["an ID of another host", { ...input, clientId: "1-a.apps.example.com" }],
+    [
+      "an ID past its limit",
+      { ...input, clientId: `1-${"a".repeat(130)}.apps.googleusercontent.com` },
+    ],
+    ["an empty secret", { ...input, clientSecret: "" }],
+    ["a secret with a space", { ...input, clientSecret: "GOCSPX abc" }],
+    ["a secret with a line break", { ...input, clientSecret: "GOCSPX-a\nb" }],
+    ["a secret past its limit", { ...input, clientSecret: "a".repeat(257) }],
+  ])("refuses %s", (_name, value) => {
+    expect(GoogleClientInputSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("keeps the ID and the secret within the named limits", () => {
+    expect(GOOGLE_CLIENT_LIMITS.clientId.max).toBe(128);
+    expect(GOOGLE_CLIENT_LIMITS.clientSecret.max).toBe(256);
+    const longest = `1-${"a".repeat(GOOGLE_CLIENT_LIMITS.clientId.max - 29)}.apps.googleusercontent.com`;
+    expect(longest).toHaveLength(GOOGLE_CLIENT_LIMITS.clientId.max);
+    expect(GoogleClientInputSchema.safeParse({ ...input, clientId: longest }).success).toBe(true);
+  });
+
+  it("stores the secret as ciphertext only", () => {
+    const file = { version: 1, clientId: CLIENT_ID, secretCipher: "AAECAw==" };
+    expect(GoogleClientFileSchema.safeParse(file).success).toBe(true);
+    expect(GoogleClientFileSchema.safeParse({ ...file, secretCipher: SECRET }).success).toBe(false);
+    expect(GoogleClientFileSchema.safeParse({ ...file, clientSecret: SECRET }).success).toBe(false);
+  });
+
+  it("takes a sign-in request with nothing but an optional account id", () => {
+    expect(GoogleSignInRequestSchema.safeParse({}).success).toBe(true);
+    expect(GoogleSignInRequestSchema.safeParse({ accountId: "gmail-1a2b3c4d" }).success).toBe(true);
+    for (const bad of [
+      { url: "https://evil.example" },
+      { scope: "https://mail.google.com/" },
+      { accountId: "bad id" },
+      { accountId: "a", email: "x@y.com" },
+    ])
+      expect(GoogleSignInRequestSchema.safeParse(bad).success).toBe(false);
   });
 });

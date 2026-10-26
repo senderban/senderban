@@ -1,6 +1,6 @@
 import { AdapterError, createMxrouteClient, isImapAccount, validateDomain } from "@senderban/core";
 import type { AccountConfig, ImapAccountConfig, MxrouteInput } from "@senderban/core";
-import { encryptPassword, loadAccounts, saveAccounts } from "./accounts-file.js";
+import { encryptPassword, loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
 
 /** What the manage page may know about an account's MXroute key. The key itself never leaves this process. */
 export interface MxroutePageAccount {
@@ -37,14 +37,6 @@ const checkWithMxroute: KeyCheck = async (input, domain) => {
   });
   await client.list(domain);
 };
-
-// Reading, changing and writing accounts.json is one step; two clicks must not interleave and lose one.
-let queue: Promise<unknown> = Promise.resolve();
-function serialized<T>(work: () => Promise<T>): Promise<T> {
-  const next = queue.then(work, work);
-  queue = next.catch(() => undefined);
-  return next;
-}
 
 /** Everything the page needs to draw the Advanced section: no ciphertext, no key. */
 export async function listMxroute(path: string): Promise<MxroutePageAccount[]> {
