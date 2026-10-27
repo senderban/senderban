@@ -1,0 +1,50 @@
+# Windows installer for Senderban (ADR 0010, .task/faz5-kurulum.md). electron-builder 26.18.0, NSIS target, one user, no admin rights.
+# `appId` is the AppUserModelID: the NSIS template writes it onto the Start-menu shortcut (templates/nsis/include/installer.nsh,
+# `WinShell::SetLnkAUMI`), which is what Windows needs to show "Senderban" on a toast (ADR 0007). It must equal APP_USER_MODEL_ID in
+# src/main.ts. Unsigned for v0.1 (SignPath comes after the first release, 010-altyapi-barindirma.md).
+appId: com.senderban.desktop
+productName: Senderban
+copyright: Copyright (c) Senderban contributors
+directories:
+  output: release
+# A one-click per-user NSIS install names its folder after the package `name` (targetUtil.getWindowsInstallationDirName: the product
+# name is used only for assisted or per-machine installs); the workspace name `@senderban/desktop` would give `@senderbandesktop`.
+extraMetadata:
+  name: senderban
+# Only what runs: the compiled app and its assets. No sources, tests, maps or tsconfig.
+files:
+  - package.json
+  - dist/**/*
+  - "!dist/**/*.map"
+  - assets/**/*
+  - "!assets/**/*.md"
+  # The workspace package @senderban/core is copied whole; only its built `dist` is needed at run time.
+  - "!node_modules/@senderban/core/{contract,test,src}/**"
+  - "!**/*.map"
+  - "!**/node_modules/**/{test,tests,__tests__,benchmarks,docs,example,examples}/**"
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: assets/icon.ico
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: Senderban
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  artifactName: Senderban-Setup-${version}.${ext}
+# Fuses (Electron security checklist): no Node-as-runtime, no inspector or NODE_OPTIONS from the environment, the app code only from
+# a validated app.asar, encrypted cookies. grantFileProtocolExtraPrivileges stays at its default because the manage window is a
+# file:// page; moving it to a custom protocol is a later step.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true

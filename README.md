@@ -53,6 +53,18 @@ npm test
 Layout: `packages/core` (provider-agnostic logic, TypeScript) and `apps/desktop` (Electron shell).
 Architecture decisions are in [docs/adr](docs/adr).
 
+### Windows installer (not released yet)
+
+```sh
+npm run build
+npm run dist -w apps/desktop   # apps/desktop/release/Senderban-Setup-<version>.exe
+```
+
+A per-user installer (no administrator rights). It is **unsigned** for v0.1, so Windows SmartScreen
+shows a warning on first run. A tagged build in GitHub Actions also writes `SHA256SUMS` and a build
+provenance attestation; check a download with `gh attestation verify <file> --repo senderban/senderban`.
+Details and what was measured: [docs/adr/0010-windows-installer.md](docs/adr/0010-windows-installer.md).
+
 ## License
 
 [Apache-2.0](LICENSE).

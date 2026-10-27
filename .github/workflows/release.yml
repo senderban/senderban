@@ -1,0 +1,49 @@
+name: Release build
+
+# Builds the unsigned Windows installer from a version tag (or by hand), writes SHA256SUMS and a build-provenance attestation, and keeps
+# both as workflow artifacts. It does NOT create a GitHub Release: publishing is a separate, deliberate step (ADR 0010). Unsigned for
+# v0.1 (SignPath comes after the first release, docs 010-altyapi-barindirma.md), so Windows SmartScreen will warn on first run.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write # the attestation is signed with this run's OIDC identity
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Build the installer
+        run: npm run dist -w apps/desktop
+      - name: SHA256SUMS
+        shell: bash
+        working-directory: apps/desktop/release
+        run: sha256sum Senderban-Setup-*.exe | tee SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: apps/desktop/release/Senderban-Setup-*.exe
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: senderban-windows-installer
+          path: |
+            apps/desktop/release/Senderban-Setup-*.exe
+            apps/desktop/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30

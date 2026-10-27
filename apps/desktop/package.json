@@ -9,6 +9,14 @@
     "@senderban/core": "0.0.0"
   },
   "devDependencies": {
-    "electron": "45.0.0"
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "description": "Senderban: block a sender from the new-mail notification, on the mail server",
+  "author": "Senderban contributors",
+  "homepage": "https://senderban.com/",
+  "scripts": {
+    "dist": "electron-builder --config electron-builder.yml --win nsis --publish never",
+    "dist:dir": "electron-builder --config electron-builder.yml --win --dir --publish never"
   }
 }
