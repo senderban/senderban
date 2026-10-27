@@ -31,8 +31,11 @@ Status: accepted (2026-10-27) for the build and install; the toast click through
   - only a pushed version tag is attested; a manual run builds but is not attested; the tag must equal the app version (`vX.Y.Z` against
     `apps/desktop/package.json`), else the build stops; no npm cache in the release build;
   - the README verify command pins `--signer-workflow`, `--source-ref` and `--deny-self-hosted-runners`.
-  - Not done, needs the repository owner: a tag ruleset on `refs/tags/v*` (no update or delete), a branch ruleset on `main`, and the Actions
-    policy "require SHA pinning" (`gh api repos/senderban/senderban/actions/permissions`: `sha_pinning_required: false`, `allowed_actions: all`).
+  - Repository settings, set 2026-10-28 with the owner's approval: a tag ruleset on `refs/tags/v*` (no update, no delete; creating a tag
+    stays allowed), a branch ruleset on the default branch (no deletion, no force-push; no pull-request or status-check rule, so a
+    direct push still works), and the Actions policy `allowed_actions: selected` (GitHub-owned actions only) with
+    `sha_pinning_required: true` (before: `all` and `false`). Read back with `gh api repos/senderban/senderban/rules/branches/main` and
+    `.../actions/permissions`. Not exercised: a rejected force-push or tag delete (not tried on purpose).
 - **Asar integrity** is on, but while the exe is unsigned it only detects a changed `app.asar`, not a changed exe: an attacker who can
   write the install folder (same user) can replace the exe too. It is a hygiene fuse, not a tamper defence, until the exe is signed.
 - **Uninstall keeps the user data** (`%APPDATA%\Senderban`, `deleteAppDataOnUninstall: false`: an `appId` change must never wipe accounts).
