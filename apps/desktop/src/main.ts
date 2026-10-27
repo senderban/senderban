@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import {
   AccountWatcher,
+  MAX_CONCURRENT_GMAIL_POLLS,
   MAX_CONCURRENT_LOGINS,
   PendingBlocks,
   SieveAdapter,
@@ -21,10 +22,12 @@ import {
   GmailBudgets,
   isOwnMailbox,
   initialGmailState,
+  gmailLaneId,
 } from "@senderban/core";
 import type {
   BlockAction,
   BlockResult,
+  GmailWatcherState,
   ImapAccountConfig,
   IncomingMessage,
   SyncOutcome,
@@ -54,6 +57,8 @@ import {
   skippedAfterDone,
 } from "./gmail-lanes.js";
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
+import { createGmailWatchers } from "./gmail-watchers.js";
+import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
 import type { OwnMailSet } from "./own-mail.js";
@@ -92,6 +97,8 @@ interface Runtime {
   /** Every engine lane: each account's own, plus one per MXroute blacklist (server, user, domain) in use. */
   readonly lanes: readonly string[];
   readonly watchers: ReadonlyMap<string, AccountWatcher>;
+  /** The new-mail watchers of the Gmail accounts that have a lane (ADR 0009 point 5). */
+  readonly gmailWatchers: GmailWatchers;
   readonly pending: PendingBlocks;
   /** Account id -> the address the person knows it by. */
   readonly labels: ReadonlyMap<string, string>;
@@ -105,7 +112,7 @@ interface Runtime {
 const ready = Promise.withResolvers<Runtime>();
 let paused = false;
 let quitting = false;
-const states = new Map<string, WatcherState>();
+const states = new Map<string, WatcherState | GmailWatcherState>();
 let tray: Tray | null = null;
 let toasts: Toasts | null = null;
 let manage: ManageWindow | null = null;
@@ -125,6 +132,8 @@ const clicking = new Set<string>();
 const mxrouteLanes = new Set<string>();
 /** Engine lanes that write Gmail filters: their failures are about Google's sign-in, not a mail password. */
 const gmailLanes = new Set<string>();
+/** Every Gmail lane that announced mail this session, removed ones included (at most MAX_ACCOUNTS): their toasts are trash-only. */
+const gmailToastLanes = new Set<string>();
 /** Gmail lanes held still while their account is being removed (a failed fan-out round is not news then). */
 const heldGmailLanes = createHeldLanes();
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
@@ -274,7 +283,11 @@ function updateTray(): void {
 
 async function setPaused(value: boolean): Promise<void> {
   paused = value;
-  const { watchers } = await ready.promise;
+  const { watchers, gmailWatchers } = await ready.promise;
+  // Gmail first and in one synchronous step: no poll announces mail after Pause, and a Pause that is still awaiting an IMAP logout
+  // below cannot undo a later Resume (nothing of Gmail's runs after an await).
+  if (value) gmailWatchers.stop();
+  else gmailWatchers.start();
   for (const watcher of watchers.values()) {
     if (value) await watcher.stop();
     else watcher.start();
@@ -285,8 +298,8 @@ async function setPaused(value: boolean): Promise<void> {
 async function start(): Promise<Runtime> {
   const dir = app.getPath("userData");
   const configured = await loadAccounts(join(dir, "accounts.json"));
-  // IMAP/Sieve accounts get a watcher and a Sieve lane; a Gmail account only gets a background filter lane (below), the
-  // mail watcher for it is a later step (ADR 0009 step 4).
+  // IMAP/Sieve accounts get a watcher and a Sieve lane; a Gmail account gets a background filter lane and a new-mail
+  // watcher (below).
   const accounts = configured.filter(isImapAccount);
   const store = new Store(openDatabase(join(dir, "senderban.db")));
   log("start", {
@@ -503,18 +516,46 @@ async function start(): Promise<Runtime> {
     gmailLaneByAccount.set(lane.accountId, lane);
     labels.set(lane.laneId, `${lane.email} (Gmail)`);
   }
+  // One new-mail watcher per Gmail lane that the engine accepted. The lane id is the account id of the pending block, the toast
+  // click and the cursor, so a click on a Gmail toast syncs the Gmail lane (a trash-only account, see `choose`).
+  const gmailWatchers = createGmailWatchers({
+    lanes: [...gmailLaneByAccount.values()].map((lane) => {
+      gmailToastLanes.add(lane.laneId);
+      return lane;
+    }),
+    cursors: store.gmailCursors,
+    // Its own gate: a Google outage (every poll waiting out its request) must not hold the slots the IMAP logins need.
+    gate: createGate(MAX_CONCURRENT_GMAIL_POLLS),
+    isHeld: (laneId) => heldGmailLanes.has(laneId),
+    pending,
+    showMail: (toast) => {
+      toasts?.show(toast);
+    },
+    notice,
+    labelOf: (laneId) => labels.get(laneId) ?? laneId,
+    onState: (laneId, state) => {
+      states.set(laneId, state);
+      updateTray();
+    },
+    log,
+  });
   const gmail = createGmailLifecycle({
     lanes: gmailLaneByAccount,
     store,
     log,
     // While a lane is held still for a removal, a failed fan-out round is not news: the removal reports its own outcome.
+    // Its mail watcher is held with it: a poll that announces mail for an account being removed would offer a Block button
+    // for a lane that is going away.
     onHold: (laneId, held) => {
       heldGmailLanes.hold(laneId, held);
+      if (held) gmailWatchers.stopOne(laneId);
     },
     skipReasonOf: (accountId) => gmailSkipped.find((s) => s.accountId === accountId)?.reason,
-    // A removal that did not finish: the lane catches up with the blocks and Unblocks made while it was held.
+    // A removal that did not finish: the lane catches up with the blocks and Unblocks made while it was held, and its
+    // watcher looks again (unless the person paused watching meanwhile).
     onResumed: (laneId) => {
       engine.requestSync(laneId);
+      if (!paused) gmailWatchers.startOne(laneId);
     },
     // A removed or signed-out account no longer takes part in a block or an Unblock; a signed-out one is named in the toasts.
     onDone: (accountId, why, lane) => {
@@ -524,7 +565,15 @@ async function start(): Promise<Runtime> {
         gmailLanes.delete(lane.laneId);
         labels.delete(lane.laneId);
         gmailLaneByAccount.delete(accountId);
+        // Its watcher is dropped and its cursor deleted (a new sign-in starts from "now", not from a stale position).
+        gmailWatchers.forget(lane.laneId);
+        // A toast of this account that is still on screen answers "expired" now, not "read back from the provider".
+        pending.dropAccount(lane.laneId);
+        states.delete(lane.laneId);
+        updateTray();
       }
+      // An account that had no lane this session may still have a cursor from an earlier one.
+      store.gmailCursors.delete(gmailLaneId(accountId));
       gmailSkipped = skippedAfterDone(gmailSkipped, accountId, why, lane?.email);
       log("gmail-lane-retired", {
         account: accountTag(accountId),
@@ -544,6 +593,7 @@ async function start(): Promise<Runtime> {
     });
   }
   for (const watcher of watchers.values()) watcher.start();
+  gmailWatchers.start();
   // A rule change that never reached a provider (an unblock that failed, a crash after the list
   // changed) is applied now. The plan is computed locally, so only accounts with a difference connect.
   void engine.syncAll();
@@ -552,8 +602,10 @@ async function start(): Promise<Runtime> {
     log("resume", { paused });
     // A socket that slept is dead but not yet reported (ADR 0003): rebuild instead of trusting it.
     if (!paused) for (const watcher of watchers.values()) watcher.reconnectNow();
+    // A poll that slept may have died unreported: look soon, spread over 30 s like a start (50 accounts do not tick together).
+    if (!paused) gmailWatchers.resumeNow();
   });
-  return { store, engine, accounts, lanes, watchers, pending, labels, own, gmail };
+  return { store, engine, accounts, lanes, watchers, gmailWatchers, pending, labels, own, gmail };
 }
 
 async function shutdown(): Promise<void> {
@@ -564,6 +616,7 @@ async function shutdown(): Promise<void> {
   toasts?.closeAll();
   manage?.closeAll();
   current.engine.dispose();
+  current.gmailWatchers.stop();
   await Promise.allSettled([...current.watchers.values()].map((w) => w.stop()));
   current.store.close();
 }
@@ -675,6 +728,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
               engine,
               own: own.get(),
               accountIds: lanes,
+              // A Gmail filter takes single addresses and Trash only: a click from a Gmail toast is held to that.
+              // Kept for the whole session: a toast of an account removed since is still held to it.
+              trashOnlyAccount: (accountId) => gmailToastLanes.has(accountId),
               onClaimed: (accountId) => {
                 clicked = accountId;
                 clicking.add(accountId);

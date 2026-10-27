@@ -3,6 +3,7 @@ import {
   AdapterError,
   GmailAdapter,
   createGmailClient,
+  createGmailMailClient,
   gmailLaneId,
   gmailStateHoldsFilters,
   gmailUnsupported,
@@ -13,6 +14,8 @@ import type {
   Blocklist,
   GmailBudgets,
   GmailLogEvent,
+  GmailMailClient,
+  GoogleCall,
   OAuthClient,
   OpaqueState,
 } from "@senderban/core";
@@ -24,6 +27,12 @@ import type { Log } from "./log.js";
  * a call that starts a minute before the end still has time to finish inside its own 15 s deadline.
  */
 export const ACCESS_TOKEN_MARGIN_MS = 60_000;
+/**
+ * One renewal of an access token, from asking for the refresh token to having the new one. Unit: milliseconds. The request to Google
+ * has its own 15 s deadline inside the OAuth client; this one also covers the parts before it (reading the stored secret, decrypting
+ * the refresh token), so a renewal that hangs cannot keep every later call of the account waiting on it for ever.
+ */
+export const ACCESS_TOKEN_RENEW_DEADLINE_MS = 15_000;
 
 /**
  * Hands out the access token of one Gmail account: kept in memory until shortly before it ends, renewed by ONE refresh
@@ -34,19 +43,33 @@ export function createAccessTokenSource(options: {
   readonly oauth: OAuthClient;
   readonly refreshToken: () => Promise<string>;
   readonly now?: () => number;
+  readonly renewDeadlineMs?: number;
 }): () => Promise<string> {
   const now = options.now ?? Date.now;
+  const deadlineMs = options.renewDeadlineMs ?? ACCESS_TOKEN_RENEW_DEADLINE_MS;
   let cached: { readonly token: string; readonly until: number } | null = null;
   let renewing: Promise<string> | null = null;
   return () => {
     if (cached !== null && now() < cached.until) return Promise.resolve(cached.token);
     renewing ??= (async () => {
-      try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new AdapterError("TRANSIENT", "the access token could not be renewed in time"));
+        }, deadlineMs);
+      });
+      const renewal = (async () => {
         const grant = await options.oauth.refresh(await options.refreshToken());
         const until = now() + grant.expiresInSeconds * 1000 - ACCESS_TOKEN_MARGIN_MS;
         cached = { token: grant.accessToken, until };
         return grant.accessToken;
+      })();
+      // If the deadline wins, the renewal may still fail later: that is nobody's to handle.
+      renewal.catch(() => undefined);
+      try {
+        return await Promise.race([renewal, late]);
       } finally {
+        clearTimeout(timer);
         renewing = null;
       }
     })();
@@ -69,6 +92,8 @@ export interface GmailLane {
   /** The address the person knows the account by. */
   readonly email: string;
   readonly adapter: GmailAdapter;
+  /** Reads the account's new mail (the watcher's client): budgeted, one token source with the filter client. */
+  readonly mail: GmailMailClient;
 }
 
 export interface GmailLaneDeps {
@@ -141,19 +166,22 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
     }
     taken.add(laneId);
     const oauth = deps.oauth;
-    const client = createGmailClient({
-      getAccessToken: createAccessTokenSource({
-        oauth,
-        refreshToken: () => deps.decrypt(refreshCipher),
-        ...(deps.now === undefined ? {} : { now: deps.now }),
-      }),
+    // ONE token source for the filter client and the mail client of the account: one renewal serves both.
+    const getAccessToken = createAccessTokenSource({
+      oauth,
+      refreshToken: () => deps.decrypt(refreshCipher),
+      ...(deps.now === undefined ? {} : { now: deps.now }),
+    });
+    const clientOptions = {
+      getAccessToken,
       ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
       // Operation, HTTP status and duration only.
-      onCall: (call) => {
+      onCall: (call: GoogleCall) => {
         deps.log("gmail-http", { account: tag, ...call });
       },
-    });
-    const budgeted = deps.budgets.wrap(client, {
+    };
+    const client = createGmailClient(clientOptions);
+    const wrapOptions = {
       key: laneId,
       account: tag,
       // The HTTP status is logged by the client's own hook (one line per request); only a refusal of ours is added here.
@@ -162,11 +190,14 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
         const { event: name, ...fields } = event;
         deps.log(name, fields);
       },
-    });
+    };
+    const budgeted = deps.budgets.wrap(client, wrapOptions);
     lanes.push({
       laneId,
       accountId: account.id,
       email: account.gmail.email,
+      // Reading new mail, paid on the account's own mail lines (the same counters object as the filter lane).
+      mail: deps.budgets.wrapMail(createGmailMailClient(clientOptions), wrapOptions),
       adapter: new GmailAdapter({
         accountId: laneId,
         client: budgeted,

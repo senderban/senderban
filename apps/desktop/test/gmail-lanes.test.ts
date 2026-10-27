@@ -73,6 +73,36 @@ describe("createAccessTokenSource", () => {
     await expect(token()).resolves.toBe("ya29.second");
   });
 
+  it("gives up on a renewal that hangs, as a TRANSIENT, and the next call starts a fresh one", async () => {
+    const refresh = vi
+      .fn<(t: string) => Promise<{ accessToken: string; expiresInSeconds: number }>>()
+      .mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValue({ accessToken: "ya29.after", expiresInSeconds: 3_599 });
+    const token = createAccessTokenSource({
+      oauth: { refresh } as unknown as OAuthClient,
+      refreshToken: () => Promise.resolve("1//t"),
+      renewDeadlineMs: 20,
+    });
+    const hung = await Promise.allSettled([token(), token()]);
+    expect(hung.map((s) => s.status)).toEqual(["rejected", "rejected"]);
+    for (const s of hung) {
+      expect((s as PromiseRejectedResult).reason).toMatchObject({ code: "TRANSIENT" });
+    }
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await expect(token()).resolves.toBe("ya29.after");
+  });
+
+  it("also bounds the part before the request (a refresh token that cannot be read)", async () => {
+    const refresh = vi.fn();
+    const token = createAccessTokenSource({
+      oauth: { refresh } as unknown as OAuthClient,
+      refreshToken: () => new Promise(() => undefined),
+      renewDeadlineMs: 20,
+    });
+    await expect(token()).rejects.toMatchObject({ code: "TRANSIENT" });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it("does not cache a token that Google gives for less than the margin", async () => {
     const c = clock();
     const { oauth, refresh } = fakeOAuth("ya29.short", 30);

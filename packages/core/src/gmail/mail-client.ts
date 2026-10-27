@@ -51,8 +51,8 @@ export interface HistoryPage {
 
 /**
  * Fields the `messages.get` answer is cut to (Google's partial-response `fields`): the id, the labels and the two headers we ask
- * for. Without it the answer also carries `snippet`, a fragment of the body, which this app never fetches. PROVISIONAL: the syntax
- * is read from the partial-response guide, not yet seen live (G6 checks that no `snippet` arrives and that Google accepts it).
+ * for. Seen live (G6, 2026-10-27, ADR 0009 "Measured live"): Google accepts it (200, 375 bytes against 512 without it) and, with the
+ * `gmail.metadata` scope, sends no `snippet` either way; the cut stays so that a wider scope later cannot bring body text in.
  */
 export const MESSAGE_FIELDS = "id,labelIds,payload/headers";
 

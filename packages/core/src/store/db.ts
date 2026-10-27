@@ -6,6 +6,8 @@ export type Db = DatabaseSync;
 /** Bounds shared by the cursor schema (store.ts) and its table constraints, so they cannot drift. */
 export const ACCOUNT_ID_MAX = 128;
 export const UID_MAX = 4_294_967_295;
+/** A Gmail `historyId` is a decimal uint64: 20 digits at most (same bound as `HISTORY_ID` in gmail/mail-client.ts). Unit: digits. */
+export const HISTORY_ID_DIGITS_MAX = 20;
 
 const list = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(",");
 
@@ -67,6 +69,15 @@ const MIGRATIONS: readonly string[] = [
     select id, match, value, action, created_at from entries;
   drop table entries;
   alter table entries_v3 rename to entries;
+  `,
+  // One row per Gmail account being watched (<= MAX_ACCOUNTS). A `historyId` is a decimal uint64 (Gmail API), kept as text because
+  // it outgrows a double: 1 to 20 digits, nothing else. Written only when it changes, so an idle mailbox writes nothing.
+  `
+  create table gmail_cursor (
+    account_id text primary key check (length(account_id) between 1 and ${String(ACCOUNT_ID_MAX)}),
+    history_id text not null check (length(history_id) between 1 and ${String(HISTORY_ID_DIGITS_MAX)} and history_id not glob '*[^0-9]*'),
+    updated_at text not null
+  ) strict;
   `,
 ];
 

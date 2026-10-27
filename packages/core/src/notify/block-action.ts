@@ -70,6 +70,12 @@ export interface BlockActionDeps {
   readonly newId?: () => string;
   /** Called as soon as the click is matched to its account, before any sync runs. */
   readonly onClaimed?: (accountId: string) => void;
+  /**
+   * True for an account whose rules can only be single addresses moved to Trash (Gmail filters). A click that came from such an
+   * account is held to that whatever the OS reported (a click does not have to match the toast): the action becomes Trash, a
+   * whole-domain click is refused. Absent: no account is limited.
+   */
+  readonly trashOnlyAccount?: (accountId: string) => boolean;
 }
 
 /** What a choice led to. `detail` is shown to the person, so it carries no password or full server reply. */
@@ -129,13 +135,18 @@ export async function blockPending(
   deps: BlockActionDeps,
   id: string,
   scope: BlockScope,
-  action: BlockAction = "junk",
+  requested: BlockAction = "junk",
 ): Promise<BlockResult> {
   const claimed = deps.pending.consume(id);
   if (claimed.status !== "ok") return { status: claimed.status };
 
   const { accountId, sender } = claimed.block;
   deps.onClaimed?.(accountId);
+  const trashOnly = deps.trashOnlyAccount?.(accountId) === true;
+  if (trashOnly && scope === "domain") {
+    return { status: "refused", detail: "a Gmail filter takes single addresses only" };
+  }
+  const action: BlockAction = trashOnly ? "trash" : requested;
   const target = scope === "domain" ? blockableDomain(sender) : sender;
   if (target === null) {
     return { status: "refused", detail: "this domain cannot be blocked as a whole" };

@@ -83,6 +83,13 @@ export class PendingBlocks {
     return { status: "ok", block: slot.block };
   }
 
+  /** Forgets every announcement of one account (it was removed): a click on one of its toasts answers `unknown`. */
+  dropAccount(accountId: string): void {
+    for (const [id, slot] of this.#slots) {
+      if (slot.block.accountId === accountId) this.#slots.delete(id);
+    }
+  }
+
   #expire(): void {
     const cutoff = this.#now() - this.#ttlMs;
     for (const [id, slot] of this.#slots) {

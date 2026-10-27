@@ -23,6 +23,13 @@ export const MAX_CONCURRENT_SYNCS = 5;
  */
 export const MAX_CONCURRENT_BACKGROUND = 2;
 
+/**
+ * Gmail new-mail polls in flight at once, on a gate of their own so a Google outage (every poll waiting out its 15 s request) cannot
+ * hold the slots that IMAP logins need. A poll is one to a handful of short requests, so 5 slots carry 50 accounts at one poll a
+ * minute if a poll takes under about 6 s. PROVISIONAL: the poll time with many accounts at once is not measured (G6 saw one account).
+ */
+export const MAX_CONCURRENT_GMAIL_POLLS = 5;
+
 /** Upper bound for a gate: one slot per account at most (kept equal to MAX_ACCOUNTS in sync/engine.ts, a test checks it). */
 export const MAX_GATE_SIZE = 50;
 

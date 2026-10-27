@@ -75,6 +75,18 @@ describe("buildMailToastXml", () => {
     expect(xml).toContain('<selection id="trash" content="Move to Trash"/>');
   });
 
+  it("offers Move to Trash alone, preselected, for a Gmail message (a Gmail filter has no other action)", () => {
+    const xml = buildMailToastXml(toast({ trashOnly: true, domain: null, rejectsAtServer: false }));
+    expect(xml).toContain('<selection id="trash" content="Move to Trash"/>');
+    expect(xml).toContain('defaultInput="trash"');
+    expect(xml).not.toContain('id="junk"');
+    expect(xml).not.toContain('id="reject"');
+    // Even if a caller asks for the server button, a trash-only toast does not show it.
+    expect(buildMailToastXml(toast({ trashOnly: true, rejectsAtServer: true }))).not.toContain(
+      'id="reject"',
+    );
+  });
+
   it("names the buttons by who they apply to, not by what they do", () => {
     const xml = buildMailToastXml(toast());
     expect(xml).toContain('content="This sender"');

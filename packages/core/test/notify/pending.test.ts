@@ -16,6 +16,20 @@ describe("PendingBlocks", () => {
     expect(pending.consume(id)).toEqual({ status: "duplicate" });
   });
 
+  it("drops every announcement of one account and leaves the others", () => {
+    const pending = new PendingBlocks({ newId: ids() });
+    const gone = pending.add({ accountId: "removed", sender: "a@example.com" });
+    const goneSpent = pending.add({ accountId: "removed", sender: "b@example.com" });
+    pending.consume(goneSpent);
+    const kept = pending.add({ accountId: "main", sender: "c@example.com" });
+    pending.dropAccount("removed");
+    expect(pending.size).toBe(1);
+    expect(pending.consume(gone)).toEqual({ status: "unknown" });
+    expect(pending.consume(goneSpent)).toEqual({ status: "unknown" });
+    expect(pending.consume(kept).status).toBe("ok");
+    pending.dropAccount("never-there");
+  });
+
   it("reports an id it never issued as unknown", () => {
     const pending = new PendingBlocks({ newId: ids() });
     expect(pending.consume("00000000-0000-4000-8000-0000000000ff")).toEqual({ status: "unknown" });

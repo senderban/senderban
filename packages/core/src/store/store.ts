@@ -2,8 +2,9 @@ import { z } from "zod";
 import type { ApplyResult, OpaqueState, Plan } from "../adapter.js";
 import { BlockEntrySchema, BlocklistSchema, MAX_ENTRIES, checkEntry } from "../blocklist.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
+import type { GmailCursorStore } from "../gmail/watcher.js";
 import type { Cursor, CursorStore } from "../watcher/watcher.js";
-import { ACCOUNT_ID_MAX, UID_MAX, inTransaction, type Db } from "./db.js";
+import { ACCOUNT_ID_MAX, HISTORY_ID_DIGITS_MAX, UID_MAX, inTransaction, type Db } from "./db.js";
 
 /** Failed changes kept in full in a journal row. Unit: failures. The row also holds the count of all of them. */
 export const JOURNAL_FAILED_MAX = 20;
@@ -37,6 +38,15 @@ const CursorRowSchema = z.strictObject({
   accountId: z.string().min(1).max(ACCOUNT_ID_MAX),
   uidValidity: z.string().regex(/^\d{1,20}$/u),
   lastUid: z.number().int().min(0).max(UID_MAX),
+});
+
+const GmailCursorRowSchema = z.strictObject({
+  accountId: z.string().min(1).max(ACCOUNT_ID_MAX),
+  historyId: z
+    .string()
+    .min(1)
+    .max(HISTORY_ID_DIGITS_MAX)
+    .regex(/^[0-9]+$/u),
 });
 
 const now = (): string => new Date().toISOString();
@@ -149,6 +159,39 @@ export class Store {
       )
       .run(checked.accountId, checked.uidValidity, checked.lastUid, now());
   }
+
+  // --- Gmail watcher cursor -------------------------------------------------------------------
+
+  /**
+   * What the Gmail watcher persists so a restart reads only the mail after it. `set` writes only when the value changes (a quiet
+   * mailbox answers the same `historyId` every minute: no write), and it can move backwards on purpose: a cursor Google no longer
+   * knows is replaced by the mailbox's current one, which is lower than a stored value from the future. `delete` is the account's removal.
+   */
+  readonly gmailCursors: GmailCursorStore & { delete(accountId: string): void } = {
+    get: (accountId) => {
+      const row = this.#db
+        .prepare("SELECT history_id FROM gmail_cursor WHERE account_id = ?")
+        .get(accountId);
+      if (row === undefined) return undefined;
+      // A row that does not read back (the table's CHECK should prevent one) counts as no cursor: the watcher starts from "now"
+      // and the next `set` replaces it, instead of every poll failing on it for ever.
+      const parsed = GmailCursorRowSchema.safeParse({ accountId, historyId: row["history_id"] });
+      return parsed.success ? parsed.data.historyId : undefined;
+    },
+    set: (accountId, historyId) => {
+      const checked = GmailCursorRowSchema.parse({ accountId, historyId });
+      this.#db
+        .prepare(
+          `INSERT INTO gmail_cursor (account_id, history_id, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT (account_id) DO UPDATE SET history_id = excluded.history_id, updated_at = excluded.updated_at
+           WHERE excluded.history_id <> gmail_cursor.history_id`,
+        )
+        .run(checked.accountId, checked.historyId, now());
+    },
+    delete: (accountId) => {
+      this.#db.prepare("DELETE FROM gmail_cursor WHERE account_id = ?").run(accountId);
+    },
+  };
 
   // --- sync journal ---------------------------------------------------------------------------
 

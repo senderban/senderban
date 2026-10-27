@@ -33,6 +33,11 @@ export interface MailToast {
    * mail to a folder, and the toast must not say "block".
    */
   readonly rejectsAtServer: boolean;
+  /**
+   * True for a Gmail message: a Gmail filter can only move to Trash, so that is the one choice listed (no Junk, no "Block at
+   * server"). The click is held to Trash again in `blockPending`, because a click does not have to match what the toast showed.
+   */
+  readonly trashOnly?: boolean;
 }
 
 // XML 1.0 `Char`: everything else (controls, lone surrogates, U+FFFE/U+FFFF) makes the document invalid.
@@ -92,17 +97,21 @@ export function buildMailToastXml(toast: MailToast): string {
       : `<action content="Whole domain" arguments="${args("domain", toast.id)}" activationType="foreground"/>`;
   // Junk is first and the default: "Block at server" is the one choice that keeps no copy of later mail, so it
   // is listed last and never pre-selected (ADR 0008).
-  const choices: readonly (readonly [BlockAction, string])[] = [
-    ["junk", "Move to Junk"],
-    ["trash", "Move to Trash"],
-    ...(toast.rejectsAtServer ? ([["reject", "Block at server"]] as const) : []),
-  ];
+  const choices: readonly (readonly [BlockAction, string])[] =
+    toast.trashOnly === true
+      ? [["trash", "Move to Trash"]]
+      : [
+          ["junk", "Move to Junk"],
+          ["trash", "Move to Trash"],
+          ...(toast.rejectsAtServer ? ([["reject", "Block at server"]] as const) : []),
+        ];
   const selections = choices
     .map(([id, label]) => `<selection id="${id}" content="${label}"/>`)
     .join("");
+  const preselected = choices[0]?.[0] ?? "junk";
   return (
     `<toast duration="long"><visual><binding template="ToastGeneric">${lines}</binding></visual>` +
-    `<actions><input id="target" type="selection" defaultInput="junk">${selections}</input>` +
+    `<actions><input id="target" type="selection" defaultInput="${preselected}">${selections}</input>` +
     `<action content="This sender" arguments="${args("sender", toast.id)}" activationType="foreground"/>` +
     `${domainButton}</actions></toast>`
   );

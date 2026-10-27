@@ -156,6 +156,7 @@ describe("watcher cursors", () => {
     const first = openDatabase(file);
     new Store(first).add(entry("keep@example.com"));
     first.exec("DROP TABLE imap_cursor");
+    first.exec("DROP TABLE gmail_cursor");
     first.exec("PRAGMA user_version = 1");
     first.close();
 
@@ -163,6 +164,99 @@ describe("watcher cursors", () => {
     expect(upgraded.list().map((e) => e.value)).toEqual(["keep@example.com"]);
     upgraded.cursors.set("acct", { uidValidity: "1", lastUid: 1 });
     expect(upgraded.cursors.get("acct")).toEqual({ uidValidity: "1", lastUid: 1 });
+    upgraded.close();
+  });
+});
+
+describe("Gmail watcher cursors", () => {
+  it("survives a restart, per account, and keeps a value above a double's range exact", () => {
+    const file = tempFile();
+    const a = new Store(openDatabase(file));
+    expect(a.gmailCursors.get("acct")).toBeUndefined();
+    a.gmailCursors.set("acct", "18446744073709551615");
+    a.gmailCursors.set("other", "3434158");
+    a.close();
+
+    const b = new Store(openDatabase(file));
+    expect(b.gmailCursors.get("acct")).toBe("18446744073709551615");
+    expect(b.gmailCursors.get("other")).toBe("3434158");
+    b.close();
+  });
+
+  it("writes only when the value changes, and may move backwards (a future cursor is replaced)", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    store.gmailCursors.set("acct", "500");
+    db.exec("UPDATE gmail_cursor SET updated_at = 'sentinel'");
+    store.gmailCursors.set("acct", "500");
+    expect(db.prepare("SELECT updated_at FROM gmail_cursor").get()?.["updated_at"]).toBe(
+      "sentinel",
+    );
+
+    store.gmailCursors.set("acct", "100");
+    expect(store.gmailCursors.get("acct")).toBe("100");
+    expect(db.prepare("SELECT updated_at FROM gmail_cursor").get()?.["updated_at"]).not.toBe(
+      "sentinel",
+    );
+  });
+
+  it("rejects a value outside the historyId unit range, in the schema and in the table", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    for (const bad of ["", "12ab", "-1", " 1", "1.5", "1".repeat(21), "٣"]) {
+      expect(() => {
+        store.gmailCursors.set("acct", bad);
+      }).toThrow();
+    }
+    expect(() => {
+      store.gmailCursors.set("", "1");
+    }).toThrow();
+    expect(() => {
+      store.gmailCursors.set("x".repeat(129), "1");
+    }).toThrow();
+    expect(store.gmailCursors.get("acct")).toBeUndefined();
+    // The table says the same on its own: a row that skipped the schema is refused too.
+    for (const bad of ["", "12ab", "1".repeat(21)]) {
+      expect(() => db.prepare("INSERT INTO gmail_cursor VALUES ('a', ?, 'x')").run(bad)).toThrow(
+        /CHECK/,
+      );
+    }
+  });
+
+  it("reads a row that does not fit the bounds as no cursor, and the next set replaces it", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    // The table's CHECK refuses such a row; it is switched off here only to plant one.
+    db.exec("PRAGMA ignore_check_constraints = ON");
+    db.exec("INSERT INTO gmail_cursor VALUES ('acct', 'not-digits', 'x')");
+    db.exec("PRAGMA ignore_check_constraints = OFF");
+    expect(store.gmailCursors.get("acct")).toBeUndefined();
+    store.gmailCursors.set("acct", "42");
+    expect(store.gmailCursors.get("acct")).toBe("42");
+  });
+
+  it("deletes one account's row and no other", () => {
+    const store = new Store(openDatabase(":memory:"));
+    store.gmailCursors.set("a", "1");
+    store.gmailCursors.set("b", "2");
+    store.gmailCursors.delete("a");
+    store.gmailCursors.delete("never-there");
+    expect(store.gmailCursors.get("a")).toBeUndefined();
+    expect(store.gmailCursors.get("b")).toBe("2");
+  });
+
+  it("migrates a version-3 store without losing the list", () => {
+    const file = tempFile();
+    const first = openDatabase(file);
+    new Store(first).add(entry("keep@example.com"));
+    first.exec("DROP TABLE gmail_cursor");
+    first.exec("PRAGMA user_version = 3");
+    first.close();
+
+    const upgraded = new Store(openDatabase(file));
+    expect(upgraded.list().map((e) => e.value)).toEqual(["keep@example.com"]);
+    upgraded.gmailCursors.set("acct", "7");
+    expect(upgraded.gmailCursors.get("acct")).toBe("7");
     upgraded.close();
   });
 });
@@ -180,6 +274,7 @@ describe("reject action", () => {
       created_at text not null, unique (match, value)) strict`);
     first.exec("INSERT INTO entries SELECT * FROM entries_now");
     first.exec("DROP TABLE entries_now");
+    first.exec("DROP TABLE gmail_cursor");
     first.exec("PRAGMA user_version = 2");
     first.close();
 

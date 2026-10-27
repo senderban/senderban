@@ -89,6 +89,42 @@ describe("blockPending action", () => {
   });
 });
 
+describe("blockPending for an account that takes Trash and single addresses only (Gmail)", () => {
+  const onlyA = (accountId: string): boolean => accountId === "a";
+
+  it("makes any click Trash, whatever the OS reported", async () => {
+    for (const requested of ["junk", "reject", "trash"] as const) {
+      const run = setup();
+      const result = await blockPending(
+        { ...run.deps, trashOnlyAccount: onlyA },
+        ID,
+        "address",
+        requested,
+      );
+      expect(result.status).toBe("blocked");
+      expect(run.add).toHaveBeenCalledWith(expect.objectContaining({ action: "trash" }));
+      if (result.status === "blocked") expect(result.action).toBe("trash");
+    }
+  });
+
+  it("refuses a whole-domain click and writes nothing", async () => {
+    const run = setup();
+    const result = await blockPending({ ...run.deps, trashOnlyAccount: onlyA }, ID, "domain");
+    expect(result).toEqual({
+      status: "refused",
+      detail: "a Gmail filter takes single addresses only",
+    });
+    expect(run.add).not.toHaveBeenCalled();
+    expect(run.sync).not.toHaveBeenCalled();
+  });
+
+  it("leaves every other account's click as it was", async () => {
+    const run = setup();
+    await blockPending({ ...run.deps, trashOnlyAccount: (id) => id === "b" }, ID, "address");
+    expect(run.add).toHaveBeenCalledWith(expect.objectContaining({ action: "junk" }));
+  });
+});
+
 describe("blockPending when a rule already exists", () => {
   const entry = (match: BlockEntry["match"], value: string, action: BlockEntry["action"]) => ({
     id: "22222222-2222-4222-8222-222222222222",

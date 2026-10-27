@@ -9,7 +9,7 @@ import type { GmailMailClient, MessageMetadata } from "./mail-client.js";
 // Scale budget (per Gmail account, one device; ADR 0009 "Scale", .task/gmail-watcher.md A0): no connection, one `history.list`
 // every 60 s +-10 s (2 units, 1,440 a day), and for new mail one `messages.get` each (20 units), at most DEFAULT_MAX_PER_DRAIN
 // per poll. One poll in flight per account (the next timer is set when the last poll ends, never a repeating timer), at most
-// MAX_CONCURRENT_LOGINS polls at once through the shared gate, a start or resume spread over GMAIL_START_SPREAD_MS so 50 accounts
+// MAX_CONCURRENT_GMAIL_POLLS polls at once through the gate the caller gives (a gate of its own, so an outage cannot hold the IMAP logins' slots), a start or resume spread over GMAIL_START_SPREAD_MS so 50 accounts
 // do not tick together, failures back off with equal jitter (30-60 s after the first, 150-300 s at the cap). Linear in accounts only (MAX_ACCOUNTS = 50 =>
 // 50 requests a minute). The watcher keeps no per-mail state beyond ANNOUNCED_MAX ids and the failures of the current batch.
 
