@@ -1,14 +1,7 @@
 import { z } from "zod";
 import { AdapterError } from "../adapter.js";
-import {
-  GOOGLE_BODY_MAX_BYTES,
-  GOOGLE_TIMEOUT_MS,
-  OVERSIZE,
-  apiFailure,
-  googleErrorReason,
-  parseJson,
-  readBounded,
-} from "../google/http.js";
+import { createGoogleCaller } from "../google/call.js";
+import { GOOGLE_BODY_MAX_BYTES, OVERSIZE, apiFailure, googleErrorReason } from "../google/http.js";
 import type { GoogleCall } from "../google/http.js";
 
 /** Gmail API, `users.settings.filters` (measured on a real account 2026-10-26, ADR 0009 "Measured live"). Fixed host. */
@@ -140,64 +133,8 @@ function isAlreadyExists(json: unknown): boolean {
   return typeof message === "string" && /already exists/iu.test(message);
 }
 
-type FilterOp = "filter-list" | "filter-create" | "filter-delete";
-
 export function createGmailClient(options: GmailClientOptions): GmailFilterClient {
-  const doFetch = options.fetch ?? fetch;
-
-  const call = async (
-    op: FilterOp,
-    what: string,
-    request: { method: "GET" | "POST" | "DELETE"; url: string; body?: string },
-    maxBytes: number,
-    signal: AbortSignal | undefined,
-  ): Promise<{ status: number; json: unknown }> => {
-    let accessToken: string;
-    try {
-      accessToken = await options.getAccessToken();
-    } catch (error) {
-      if (error instanceof AdapterError) throw error;
-      throw new AdapterError("TRANSIENT", `the access token could not be had (${what})`);
-    }
-    // The token goes into a header: a value with a space, CR or LF must never get that far.
-    if (!/^[!-~]{1,2048}$/u.test(accessToken)) {
-      throw new AdapterError("REJECTED", "the access token is not a valid value");
-    }
-    const deadline = AbortSignal.timeout(options.timeoutMs ?? GOOGLE_TIMEOUT_MS);
-    const started = Date.now();
-    let reported = false;
-    const report = (status: number | null): void => {
-      // One entry per request: a failure while the body is read must not add a second one (it would count twice).
-      if (reported) return;
-      reported = true;
-      try {
-        options.onCall?.({ op, status, ms: Date.now() - started });
-      } catch {
-        // a listener must not break a request
-      }
-    };
-    try {
-      const response = await doFetch(request.url, {
-        method: request.method,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/json",
-          ...(request.body === undefined ? {} : { "Content-Type": "application/json" }),
-        },
-        ...(request.body === undefined ? {} : { body: request.body }),
-        signal: signal === undefined ? deadline : AbortSignal.any([signal, deadline]),
-        redirect: "error",
-      });
-      report(response.status);
-      const text = await readBounded(response, what, maxBytes);
-      return { status: response.status, json: text === "" ? null : parseJson(text) };
-    } catch (error) {
-      if (error instanceof AdapterError) throw error;
-      report(null);
-      if (signal?.aborted === true && signal.reason instanceof AdapterError) throw signal.reason;
-      throw new AdapterError("TRANSIENT", `Google could not be reached (${what})`);
-    }
-  };
+  const call = createGoogleCaller(options);
 
   const failure = (status: number, json: unknown, what: string): AdapterError =>
     apiFailure(status, googleErrorReason(json), what);

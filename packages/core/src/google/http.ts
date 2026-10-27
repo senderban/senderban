@@ -11,7 +11,15 @@ export const GOOGLE_BODY_MAX_BYTES = 65_536;
 /** What the log may learn about a call: which operation, the HTTP status (null when it never got one), how long. */
 export interface GoogleCall {
   readonly op:
-    "token" | "refresh" | "revoke" | "profile" | "filter-list" | "filter-create" | "filter-delete";
+    | "token"
+    | "refresh"
+    | "revoke"
+    | "profile"
+    | "filter-list"
+    | "filter-create"
+    | "filter-delete"
+    | "history-list"
+    | "message-get";
   readonly status: number | null;
   readonly ms: number;
 }

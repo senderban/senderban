@@ -19,6 +19,14 @@ export interface FakeFilter {
 }
 
 export const UNITS = { list: 1, create: 5, delete: 5 } as const;
+/** Quota units Google charges for reading mail (read 2026-10-26, not measured): `getProfile` 1, `history.list` 2, `messages.get` 20. */
+export const MAIL_UNITS = { profile: 1, history: 2, message: 20 } as const;
+
+export interface FakeMessage {
+  readonly id: string;
+  labelIds: string[];
+  headers: { name: string; value: string }[];
+}
 /** The measured wall: accepted at 14,003 characters, a 500 at 28,003; the fake puts its limit between. */
 const QUERY_WALL = 20_000;
 
@@ -45,9 +53,39 @@ export class FakeGmail {
   listHeaders: Record<string, string> = {};
   /** Runs inside the next POST before it is checked: another actor (the person, another device) writing at that moment. */
   beforeCreate: (() => void) | null = null;
+  /** Mail (read side): messages by id, the history of INBOX additions, and the mailbox's current historyId. Shapes read from the docs, not yet seen live (G6). */
+  readonly mail = new Map<string, FakeMessage>();
+  readonly history: { readonly id: number; readonly added: string[] }[] = [];
+  historyId = 1000;
+  /** A `startHistoryId` below this is too old: 404, as Google answers for history it no longer holds. */
+  oldestHistoryId = 0;
+  /** Quota units charged for mail reads so far. */
+  mailUnits = 0;
   /** The access token the fake accepts. */
   token = "ya29.fake-access-token";
   #next = 1;
+
+  /** A message arrives in the INBOX (or the given labels): one history record, the id returned. */
+  deliver(input: {
+    from: string | string[];
+    subject?: string;
+    labels?: string[];
+    extraHeaders?: { name: string; value: string }[];
+  }): string {
+    const id = `m${String(this.#next).padStart(15, "0")}`;
+    this.#next += 1;
+    const froms = Array.isArray(input.from) ? input.from : [input.from];
+    const headers = [
+      ...froms.map((value) => ({ name: "From", value })),
+      { name: "Subject", value: input.subject ?? "hello" },
+      ...(input.extraHeaders ?? []),
+    ];
+    const labelIds = input.labels ?? ["INBOX", "UNREAD"];
+    this.mail.set(id, { id, labelIds, headers });
+    this.historyId += 1;
+    this.history.push({ id: this.historyId, added: [id] });
+    return id;
+  }
 
   /** A filter the person made in Gmail, not by this lane. */
   addForeign(criteria: Record<string, unknown>, action: Record<string, unknown>): string {
@@ -116,7 +154,72 @@ export class FakeGmail {
       return error(401, "unauthenticated", "Invalid Credentials");
     }
 
-    const path = new URL(url).pathname;
+    const parsedUrl = new URL(url);
+    const path = parsedUrl.pathname;
+    const userBase = "/gmail/v1/users/me";
+    if (method === "GET" && path === `${userBase}/profile`) {
+      this.mailUnits += MAIL_UNITS.profile;
+      return new Response(
+        JSON.stringify({ emailAddress: "me@gmail.com", historyId: String(this.historyId) }),
+        { status: 200 },
+      );
+    }
+    if (method === "GET" && path === `${userBase}/history`) {
+      this.mailUnits += MAIL_UNITS.history;
+      const start = Number(parsedUrl.searchParams.get("startHistoryId") ?? "");
+      if (!Number.isFinite(start) || start < this.oldestHistoryId) {
+        return error(404, "notFound", "Requested entity was not found.");
+      }
+      const size = Number(parsedUrl.searchParams.get("maxResults") ?? "100");
+      const offset = Number(parsedUrl.searchParams.get("pageToken") ?? "0");
+      const inbox = this.history.filter(
+        (h) => h.id > start && h.added.some((id) => this.mail.get(id)?.labelIds.includes("INBOX")),
+      );
+      const page = inbox.slice(offset, offset + size);
+      const next = offset + size < inbox.length ? String(offset + size) : undefined;
+      const body = {
+        ...(page.length === 0
+          ? {}
+          : {
+              history: page.map((h) => ({
+                id: String(h.id),
+                messagesAdded: h.added.map((id) => ({
+                  message: { id, threadId: id, labelIds: this.mail.get(id)?.labelIds ?? [] },
+                })),
+              })),
+            }),
+        ...(next === undefined ? {} : { nextPageToken: next }),
+        historyId: String(this.historyId),
+      };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }
+    if (method === "GET" && path.startsWith(`${userBase}/messages/`)) {
+      this.mailUnits += MAIL_UNITS.message;
+      const id = decodeURIComponent(path.slice(`${userBase}/messages/`.length));
+      const message = this.mail.get(id);
+      if (message === undefined) return error(404, "notFound", "Requested entity was not found.");
+      const wanted = new Set(
+        parsedUrl.searchParams.getAll("metadataHeaders").map((n) => n.toLowerCase()),
+      );
+      const full = {
+        id,
+        threadId: id,
+        labelIds: message.labelIds,
+        historyId: String(this.historyId),
+        // What Google adds when the answer is not cut with `fields` (read from the docs, not yet seen live): a body fragment.
+        snippet: "SECRET BODY FRAGMENT",
+        sizeEstimate: 1234,
+        payload: { headers: message.headers.filter((h) => wanted.has(h.name.toLowerCase())) },
+      };
+      const fields = parsedUrl.searchParams.get("fields");
+      if (fields === null) return new Response(JSON.stringify(full), { status: 200 });
+      // `fields=a,b,c/d`: keep only the top-level names listed (and, for `payload/headers`, the headers).
+      const keep = new Set(fields.split(",").map((f) => f.split("/")[0]));
+      return new Response(
+        JSON.stringify(Object.fromEntries(Object.entries(full).filter(([k]) => keep.has(k)))),
+        { status: 200 },
+      );
+    }
     const base = "/gmail/v1/users/me/settings/filters";
     if (!path.startsWith(base)) return new Response(null, { status: 404 });
     const rest = path.slice(base.length);

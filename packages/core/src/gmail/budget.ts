@@ -2,6 +2,7 @@ import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode } from "../adapter.js";
 import { FilterExistsError } from "./client.js";
 import type { GmailFilterClient } from "./client.js";
+import type { GmailMailClient } from "./mail-client.js";
 import { MAX_ACCOUNTS } from "../sync/engine.js";
 
 /**
@@ -9,6 +10,8 @@ import { MAX_ACCOUNTS } from "../sync/engine.js";
  * holds the two together). Unit: quota units.
  */
 export const GMAIL_UNITS = { list: 1, create: 5, delete: 5 } as const;
+/** The same for reading new mail (`getProfile`, `history.list`, `messages.get`; read 2026-10-26, the counting fake charges the same). Unit: quota units. */
+export const GMAIL_MAIL_UNITS = { profile: 1, history: 2, message: 20 } as const;
 
 /**
  * Units one account may spend on filter calls in a minute. Unit: quota units. A usual round is one `list` and 10 rewrites
@@ -30,7 +33,25 @@ export const GMAIL_UNITS_PER_ACCOUNT_DAY = 5_000;
  */
 export const GMAIL_UNITS_PER_DAY_ALL = 100_000;
 
-export type GmailLimit = "minute" | "account-day" | "all-accounts-day";
+/**
+ * Units one account may spend on reading new mail in 24 hours. Unit: quota units. One `history.list` a minute is 1,440 calls =
+ * 2,880 units, and each new mail is one `messages.get` = 20, so 4,500 leaves room for 81 mails a day on top (the assumed 50 a day is
+ * 1,000). PROVISIONAL: the real mail volume is not measured (G6). The mail poll has lines of its own, apart from the filter lane's,
+ * so a busy inbox cannot starve a block and a block round cannot silence the poll.
+ */
+export const GMAIL_MAIL_UNITS_PER_ACCOUNT_DAY = 4_500;
+/**
+ * Units all Gmail accounts together may spend on reading new mail in 24 hours. Unit: quota units. 50 accounts (MAX_ACCOUNTS) at
+ * 4,500 are 225,000; the ceiling is that plus a margin, so one runaway account stops at its own line and a bug that runs on every
+ * account stops here. At 100,000 (the filter lane's line) the poll alone would be silenced from about the 25th account.
+ */
+export const GMAIL_MAIL_UNITS_PER_DAY_ALL = 250_000;
+
+export type GmailLimit =
+  "minute" | "account-day" | "all-accounts-day" | "mail-account-day" | "mail-all-accounts-day";
+/** Which lane a call is paid on: the minute line is shared, the two 24-hour lines are not. */
+export type GmailLane = "filters" | "mail";
+export type GmailOp = keyof typeof GMAIL_UNITS | keyof typeof GMAIL_MAIL_UNITS;
 
 /** Our own limit was reached, before any request left. A `QUOTA_EXCEEDED`, so the adapter and the engine treat it as a rate limit. */
 export class GmailBudgetError extends AdapterError {
@@ -51,11 +72,15 @@ export interface GmailLimits {
   readonly perMinute: number;
   readonly perAccountDay: number;
   readonly allAccountsDay: number;
+  readonly mailPerAccountDay: number;
+  readonly mailAllAccountsDay: number;
 }
 export const GMAIL_LIMITS: GmailLimits = {
   perMinute: GMAIL_UNITS_PER_MINUTE,
   perAccountDay: GMAIL_UNITS_PER_ACCOUNT_DAY,
   allAccountsDay: GMAIL_UNITS_PER_DAY_ALL,
+  mailPerAccountDay: GMAIL_MAIL_UNITS_PER_ACCOUNT_DAY,
+  mailAllAccountsDay: GMAIL_MAIL_UNITS_PER_DAY_ALL,
 };
 
 /** What the log may learn about a call: fixed words and numbers, never an address, a filter id, a token or a Google message. */
@@ -64,7 +89,7 @@ export type GmailLogEvent =
   | {
       readonly event: "gmail-call";
       readonly account: string;
-      readonly op: keyof typeof GMAIL_UNITS;
+      readonly op: GmailOp;
       readonly outcome: GmailOutcome;
       readonly units: number;
       readonly ms: number;
@@ -72,7 +97,7 @@ export type GmailLogEvent =
   | {
       readonly event: "gmail-budget";
       readonly account: string;
-      readonly op: keyof typeof GMAIL_UNITS;
+      readonly op: GmailOp;
       readonly limit: GmailLimit;
       readonly used: number;
       readonly cap: number;
@@ -128,13 +153,28 @@ class Rolling {
 interface AccountWindows {
   readonly minute: Rolling;
   readonly day: Rolling;
+  readonly mailDay: Rolling;
 }
 
 function checkLimits(limits: GmailLimits): void {
-  for (const value of [limits.perMinute, limits.perAccountDay, limits.allAccountsDay]) {
+  for (const value of [
+    limits.perMinute,
+    limits.perAccountDay,
+    limits.allAccountsDay,
+    limits.mailPerAccountDay,
+    limits.mailAllAccountsDay,
+  ]) {
     if (!Number.isInteger(value) || value < 1)
       throw new RangeError("a Gmail limit must be a whole number of units, 1 or more");
   }
+}
+
+export interface WrapOptions {
+  readonly key: string;
+  readonly account: string;
+  readonly log?: (event: GmailLogEvent) => void;
+  /** Whether every call is logged, or only the refusals (default: every call). The app logs the HTTP status itself. */
+  readonly logCalls?: boolean;
 }
 
 /**
@@ -148,12 +188,14 @@ export class GmailBudgets {
   readonly #now: () => number;
   readonly #accounts = new Map<string, AccountWindows>();
   readonly #all: Rolling;
+  readonly #allMail: Rolling;
 
   constructor(options: { readonly limits?: GmailLimits; readonly now?: () => number } = {}) {
     this.#limits = options.limits ?? GMAIL_LIMITS;
     checkLimits(this.#limits);
     this.#now = options.now ?? Date.now;
     this.#all = new Rolling(HOUR_MS, 24, this.#now);
+    this.#allMail = new Rolling(HOUR_MS, 24, this.#now);
   }
 
   #windows(account: string): AccountWindows {
@@ -165,6 +207,7 @@ export class GmailBudgets {
     const created = {
       minute: new Rolling(1_000, 60, this.#now),
       day: new Rolling(HOUR_MS, 24, this.#now),
+      mailDay: new Rolling(HOUR_MS, 24, this.#now),
     };
     this.#accounts.set(account, created);
     return created;
@@ -178,17 +221,27 @@ export class GmailBudgets {
     this.#accounts.delete(account);
   }
 
-  /** Reserves `units` for one call, or throws the limit that is reached; either all three windows take it or none does. */
-  charge(account: string, units: number): void {
+  /**
+   * Reserves `units` for one call, or throws the limit that is reached; either all three windows take it or none does. The minute
+   * window is the account's own and shared by both lanes; the two 24-hour windows belong to the lane the call is paid on.
+   */
+  charge(account: string, units: number, lane: GmailLane = "filters"): void {
     // NaN passes every `>` check and a negative number refunds: either would switch a window off for good.
     if (!Number.isInteger(units) || units < 1)
       throw new RangeError("units must be a whole number, 1 or more");
     const windows = this.#windows(account);
-    const checks: [GmailLimit, Rolling, number][] = [
-      ["minute", windows.minute, this.#limits.perMinute],
-      ["account-day", windows.day, this.#limits.perAccountDay],
-      ["all-accounts-day", this.#all, this.#limits.allAccountsDay],
-    ];
+    const checks: [GmailLimit, Rolling, number][] =
+      lane === "filters"
+        ? [
+            ["minute", windows.minute, this.#limits.perMinute],
+            ["account-day", windows.day, this.#limits.perAccountDay],
+            ["all-accounts-day", this.#all, this.#limits.allAccountsDay],
+          ]
+        : [
+            ["minute", windows.minute, this.#limits.perMinute],
+            ["mail-account-day", windows.mailDay, this.#limits.mailPerAccountDay],
+            ["mail-all-accounts-day", this.#allMail, this.#limits.mailAllAccountsDay],
+          ];
     for (const [limit, window, cap] of checks) {
       const used = window.used();
       if (used + units > cap) throw new GmailBudgetError(limit, used, cap);
@@ -206,21 +259,20 @@ export class GmailBudgets {
     };
   }
 
+  /** Units left on the mail lane's two 24-hour lines, for the log and for tests. */
+  remainingMail(account: string): { accountDay: number; allAccountsDay: number } {
+    const windows = this.#windows(account);
+    return {
+      accountDay: this.#limits.mailPerAccountDay - windows.mailDay.used(),
+      allAccountsDay: this.#limits.mailAllAccountsDay - this.#allMail.used(),
+    };
+  }
+
   /**
-   * The client with this budget in front of it: every call is paid for before it is sent (a call that fails still costs
-   * Google quota, so it is paid either way) and written to `log` as a fixed event. `account` is the tag the log uses for the
-   * account and must look like one (`accountTag`, never an address); `key` names its counters.
+   * Pays for each call before it is sent (a call that fails still costs Google quota, so it is paid either way) and writes it to
+   * `log` as a fixed event. Shared by both clients, so the filter lane and the mail lane cannot drift apart.
    */
-  wrap(
-    client: GmailFilterClient,
-    options: {
-      readonly key: string;
-      readonly account: string;
-      readonly log?: (event: GmailLogEvent) => void;
-      /** Whether every call is logged, or only the refusals (default: every call). The app logs the HTTP status itself. */
-      readonly logCalls?: boolean;
-    },
-  ): GmailFilterClient {
+  #guard(options: WrapOptions) {
     if (!ACCOUNT_TAG.test(options.account)) {
       throw new RangeError(
         "the log tag of an account is lowercase letters, digits and hyphens only",
@@ -236,13 +288,15 @@ export class GmailBudgets {
     const emitCall = (event: GmailLogEvent): void => {
       if (options.logCalls !== false) emit(event);
     };
-    const run = async <T>(
-      op: keyof typeof GMAIL_UNITS,
+    return async <T>(
+      op: GmailOp,
+      units: number,
+      lane: GmailLane,
       call: () => Promise<T>,
       outcomeOf: (value: T) => GmailOutcome,
     ): Promise<T> => {
       try {
-        this.charge(options.key, GMAIL_UNITS[op]);
+        this.charge(options.key, units, lane);
       } catch (error) {
         if (error instanceof GmailBudgetError) {
           emit({
@@ -264,7 +318,7 @@ export class GmailBudgets {
           account: options.account,
           op,
           outcome: outcomeOf(value),
-          units: GMAIL_UNITS[op],
+          units,
           ms: Math.max(0, this.#now() - started),
         });
         return value;
@@ -280,29 +334,74 @@ export class GmailBudgets {
           account: options.account,
           op,
           outcome,
-          units: GMAIL_UNITS[op],
+          units,
           ms: Math.max(0, this.#now() - started),
         });
         throw error;
       }
     };
+  }
+
+  /**
+   * The filter client with this budget in front of it. `account` is the tag the log uses for the account and must look like
+   * one (`accountTag`, never an address); `key` names its counters.
+   */
+  wrap(client: GmailFilterClient, options: WrapOptions): GmailFilterClient {
+    const run = this.#guard(options);
     return {
       list: (signal) =>
         run(
           "list",
+          GMAIL_UNITS.list,
+          "filters",
           () => client.list(signal),
           () => "ok",
         ),
       create: (query, signal) =>
         run(
           "create",
+          GMAIL_UNITS.create,
+          "filters",
           () => client.create(query, signal),
           () => "ok",
         ),
       remove: (id, signal) =>
         run(
           "delete",
+          GMAIL_UNITS.delete,
+          "filters",
           () => client.remove(id, signal),
+          (value) => (value === "gone" ? "gone" : "ok"),
+        ),
+    };
+  }
+
+  /** The mail client with this budget in front of it: the same account `key` as the filter client, the mail lane's own 24-hour lines. */
+  wrapMail(client: GmailMailClient, options: WrapOptions): GmailMailClient {
+    const run = this.#guard(options);
+    return {
+      profile: (signal) =>
+        run(
+          "profile",
+          GMAIL_MAIL_UNITS.profile,
+          "mail",
+          () => client.profile(signal),
+          () => "ok",
+        ),
+      history: (startHistoryId, pageToken, signal) =>
+        run(
+          "history",
+          GMAIL_MAIL_UNITS.history,
+          "mail",
+          () => client.history(startHistoryId, pageToken, signal),
+          () => "ok",
+        ),
+      message: (id, signal) =>
+        run(
+          "message",
+          GMAIL_MAIL_UNITS.message,
+          "mail",
+          () => client.message(id, signal),
           (value) => (value === "gone" ? "gone" : "ok"),
         ),
     };
