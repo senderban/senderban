@@ -248,6 +248,17 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   (the second mail never came). **Units:** 140 calls in 12 minutes (138 `history.list`, 1 `profile`, 1 `messages.get`), about 297 units
   at 5-second polling; at 60 s it is 2 units per idle minute. **Not measured:** what a 404 costs in quota, a sustained hours-long run at
   the 60 s cadence on the unverified project, sleep/resume, a mail that is not in INBOX, a `Reply-To`/multi-`From` mail, a gap older than a week.
+- **The watcher driven live in the desktop app (W-d at senderban `d3d62bb`, 2026-10-27, a copy of an earlier profile, Ali's mailbox, one
+  mail from another address of Ali's):** a version-3 database opened and was migrated to 4 with its rows intact. The first start with a
+  token Google no longer honoured ended as `refresh 400` -> `AUTH_REQUIRED` -> `halted-auth` in 0.3 s, with the notice, and nothing
+  polled afterwards. After "Sign in again" and a restart: token refresh 259 ms, `profile` 180 ms, first run 459 ms (it took the cursor),
+  then one `history.list` a minute (166-200 ms each). The mail was announced at the next poll: `history.list` 197 ms + `messages.get`
+  110 ms, whole poll 432 ms, the log line holding the sender's domain only. A click on "This sender" with Trash chosen (the only choice
+  offered) reached the app as `toast-activation`, then `filter list` 204 ms, `filter create` 193 ms, `applied`, read back `verified`, action `trash`
+  (0.75 s from the click to the result). Unblock then deleted the filter (`filter delete` 204) and read it back. Removing the account
+  stopped the watcher, revoked the token (200) and left no cursor row (0 rows). Poll time with these numbers is about 0.45 s, so 50
+  accounts at one poll a minute keep about 0.4 of a gate slot busy on average (one account measured; many at once not). Not
+  measured: the Pause and Resume tray items, a removal while a poll is in the air, sleep/resume, more than one account.
 
 ## Not decided / open
 
