@@ -6,6 +6,7 @@ import {
   GMAIL_MAX_REWRITES_PER_ROUND,
   GmailAdapter,
   gmailLaneId,
+  gmailStateHoldsFilters,
   gmailUnsupported,
   initialGmailState,
 } from "../../src/gmail/adapter.js";
@@ -988,5 +989,100 @@ describe("Gmail lane inside the real engine", () => {
     ]);
     engine.dispose();
     store.close();
+  });
+});
+
+describe("suspend: the removal of an account must not race a round", () => {
+  it("while suspended plan and apply answer TRANSIENT, never 'nothing to do', and nothing is sent; resume ends it", async () => {
+    const { fake, adapter } = setup();
+    const list = listOf(addrs(3));
+    const wanted = await adapter.plan(list, initialGmailState());
+    expect(wanted.changes).toHaveLength(3);
+    expect(await adapter.suspend()).toBe(true);
+    // The engine reads an empty plan as a clean round (an Unblock would be shown as confirmed): a pause is a failure.
+    await expect(adapter.plan(list, initialGmailState())).rejects.toMatchObject({
+      code: "TRANSIENT",
+    });
+    await expect(adapter.apply(wanted)).rejects.toMatchObject({ code: "TRANSIENT" });
+    expect(fake.calls).toHaveLength(0);
+    adapter.resume();
+    expect((await adapter.apply(wanted)).applied).toBe(3);
+  });
+
+  it("waits for the round that is running, and no write starts after it", async () => {
+    const { fake, adapter } = setup();
+    const plan = await adapter.plan(listOf(addrs(3)), initialGmailState());
+    let release: () => void = () => undefined;
+    fake.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = adapter.apply(plan);
+    let suspended: boolean | null = null;
+    const waiting = adapter.suspend().then((idle) => {
+      suspended = idle;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(suspended).toBeNull();
+    release();
+    await running;
+    await waiting;
+    expect(suspended).toBe(true);
+    const before = fake.calls.length;
+    await expect(adapter.apply(plan)).rejects.toMatchObject({ code: "TRANSIENT" });
+    expect(fake.calls).toHaveLength(before);
+  });
+
+  it("gives up waiting for a round that does not end, and says so", async () => {
+    const { fake, adapter } = setup();
+    const plan = await adapter.plan(listOf(addrs(3)), initialGmailState());
+    let release: () => void = () => undefined;
+    fake.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = adapter.apply(plan);
+    expect(await adapter.suspend(30)).toBe(false);
+    release();
+    await running;
+  });
+
+  it("uninstall still works while suspended, and leaves nothing for the next round to write over", async () => {
+    const { fake, adapter } = setup();
+    const list = listOf(addrs(3));
+    const placed = await round(adapter, list, initialGmailState());
+    expect(fake.filters.size).toBe(1);
+    await adapter.suspend();
+    const left = await adapter.uninstall(placed.result.state);
+    expect(gmailStateHoldsFilters(left)).toBe(false);
+    expect(fake.filters.size).toBe(0);
+    await expect(adapter.plan(list, left)).rejects.toMatchObject({ code: "TRANSIENT" });
+  });
+
+  it("retire: a clean 'nothing to do' for good, and no write", async () => {
+    const { fake, adapter } = setup();
+    const list = listOf(addrs(3));
+    const wanted = await adapter.plan(list, initialGmailState());
+    adapter.retire();
+    expect((await adapter.plan(list, initialGmailState())).changes).toEqual([]);
+    await expect(adapter.apply(wanted)).rejects.toMatchObject({ code: "TRANSIENT" });
+    expect(fake.calls).toHaveLength(0);
+  });
+});
+
+describe("gmailStateHoldsFilters", () => {
+  it("is true for a filter, one left to delete, an unconfirmed create, another adapter's state and a state it cannot read", () => {
+    expect(gmailStateHoldsFilters(initialGmailState())).toBe(false);
+    expect(
+      gmailStateHoldsFilters(stateWith({ refused: [{ value: "a@spam.example", by: "x" }] })),
+    ).toBe(false);
+    const rec = { id: "abc", entries: [held("a@spam.example")] };
+    expect(gmailStateHoldsFilters(stateWith({ filters: [rec] }))).toBe(true);
+    expect(gmailStateHoldsFilters(stateWith({ stale: [rec] }))).toBe(true);
+    expect(
+      gmailStateHoldsFilters(
+        stateWith({ intent: [{ entries: [held("a@spam.example")], replaces: null }] }),
+      ),
+    ).toBe(true);
+    expect(gmailStateHoldsFilters({ adapterId: "sieve", data: {} })).toBe(true);
+    expect(gmailStateHoldsFilters({ adapterId: "gmail", data: { nonsense: 1 } })).toBe(true);
   });
 });

@@ -13,6 +13,7 @@ import type {
   OAuthClient,
 } from "@senderban/core";
 import type { SignInOptions, SignInResult } from "@senderban/core/node";
+import type { GmailFilterLifecycle } from "./gmail-lanes.js";
 import {
   decryptPassword,
   encryptPassword,
@@ -44,6 +45,8 @@ export interface GoogleDeps {
    * derived from the file, such as the never-refuse addresses, must follow. A throw is swallowed here; the caller logs it.
    */
   readonly onAccountsChanged?: () => Promise<void> | void;
+  /** What happens to Senderban's Gmail filters before a token is revoked. Absent: there are none (tests, no Gmail lanes). */
+  readonly filters?: GmailFilterLifecycle;
   /** The clock in milliseconds; tests move it. */
   readonly now?: () => number;
 }
@@ -93,6 +96,14 @@ export type GoogleClientReply =
   | "saved"
   /** Saved, but the old client file was unreadable: the signed-in accounts were signed out without a revoke. */
   | "saved-left-access"
+  /** Saved and signed out, but some accounts could not be reached to delete Senderban's filters: the person deletes them in Gmail. */
+  | "saved-filters-remain"
+  /** Both: the old client could not be read (its access was not revoked) and some filters could not be reached. */
+  | "saved-left-access-filters-remain"
+  /** A signed-in account whose filters Senderban cannot reach because it has no lane yet: restart first, nothing was changed. */
+  | "restart-first"
+  /** Senderban's filters could not be deleted from every account (Google did not answer). Nothing was revoked or changed. */
+  | "filters-left"
   /** Accounts are signed in with the old client: the person must confirm they will be signed out. */
   | "needs-confirm"
   /** A token could not be revoked (offline, Google error). The client was not changed. */
@@ -103,6 +114,12 @@ export type GoogleRemoveReply =
   | "removed"
   /** Removed, but the account held no token, so no revoke ran: Google may still list the access. */
   | "removed-not-revoked"
+  /** Removed, but Senderban could not reach the account to delete its filters: they stay in Gmail until the person deletes them. */
+  | "removed-filters-remain"
+  /** The account has filters and a usable token but no lane this session (a new sign-in, a clash): restart first, nothing was changed. */
+  | "restart-first"
+  /** Senderban's filters could not be deleted (Google did not answer), so nothing was revoked and the account was kept. */
+  | "filters-left"
   | "unknown-account"
   | "revoke-failed"
   | "busy";
@@ -126,6 +143,11 @@ export function cancelGoogleSignIn(): void {
 }
 
 const SECONDS_PER_DAY = 86_400;
+
+/** A stored token Google has not ended yet: it can still delete filters if a lane is there. */
+const usable = (account: GmailAccountConfig, nowSeconds: number): boolean =>
+  account.gmail.refreshCipher !== undefined &&
+  (account.gmail.accessEndsAt === undefined || account.gmail.accessEndsAt > nowSeconds);
 
 const nowSeconds = (deps: GoogleDeps): number => Math.floor((deps.now ?? Date.now)() / 1000);
 
@@ -331,39 +353,86 @@ export function saveGoogleClientSettings(
     });
     const changed = old === "unreadable" || (old !== null && old.clientId !== input.clientId);
     let leftAccess = false;
+    let filtersRemain = false;
     if (changed) {
       const signedIn = gmailAccounts(await loadAccounts(deps.accountsPath)).filter(
         (a) => a.gmail.refreshCipher !== undefined,
       );
       if (signedIn.length > 0) {
         if (!input.confirmSignOut) return "needs-confirm";
-        // Unreadable: no client to revoke with. The tokens are useless without it, so they are dropped here and
-        // the access Google still lists is the person's to remove.
-        const revoked =
-          old === "unreadable"
-            ? new Map(signedIn.map((a) => [a.id, true] as const))
-            : await revokeAll(deps.makeOAuth(old.clientId, clientSecretGetter(old)), signedIn);
-        leftAccess = old === "unreadable";
-        const gone = new Set([...revoked].filter(([, ok]) => ok).map(([id]) => id));
-        // A token that is gone at Google is gone here too, whatever happens to the rest.
-        await serialized(async () => {
-          await saveAccounts(
-            deps.accountsPath,
-            signOut(await loadAccounts(deps.accountsPath), gone),
+        // Filters first: a revoked token cannot delete them. One account that cannot be cleaned stops the change before anything is
+        // revoked. Accounts are prepared a few at a time, and every one that was prepared ends in `abort` or `done`, whatever throws.
+        // Decided before a single filter is deleted: an account with no lane that a restart would give one (and a token that
+        // works) stops the whole change, so nothing has to be written again.
+        if (
+          old !== "unreadable" &&
+          signedIn.some(
+            (a) => deps.filters?.classify(a.id) === "restart-cures" && usable(a, nowSeconds(deps)),
+          )
+        ) {
+          return "restart-first";
+        }
+        const open = new Set<string>();
+        try {
+          const gate = createGate(MAX_CONCURRENT_REVOKES);
+          const settled = await Promise.allSettled(
+            signedIn.map((account) =>
+              gate(async () => {
+                open.add(account.id);
+                return [account.id, (await deps.filters?.prepare(account.id)) ?? "ready"] as const;
+              }),
+            ),
           );
-        });
-        await notifyChanged(deps);
-        if (gone.size !== signedIn.length) return "revoke-failed";
+          const failed = settled.find((r) => r.status === "rejected");
+          if (failed !== undefined) throw failed.reason;
+          const prepared = new Map(
+            settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])),
+          );
+          const answers = [...prepared.values()];
+          if (answers.includes("filters-left")) {
+            for (const id of open) deps.filters?.abort(id);
+            open.clear();
+            return "filters-left";
+          }
+          filtersRemain = answers.some((x) => x === "unreachable" || x === "restart-cures");
+          // Unreadable: no client to revoke with. The tokens are useless without it, so they are dropped here and
+          // the access Google still lists is the person's to remove.
+          const revoked =
+            old === "unreadable"
+              ? new Map(signedIn.map((a) => [a.id, true] as const))
+              : await revokeAll(deps.makeOAuth(old.clientId, clientSecretGetter(old)), signedIn);
+          leftAccess = old === "unreadable";
+          const gone = new Set([...revoked].filter(([, ok]) => ok).map(([id]) => id));
+          // A token that is gone at Google is gone here too, whatever happens to the rest.
+          await serialized(async () => {
+            await saveAccounts(
+              deps.accountsPath,
+              signOut(await loadAccounts(deps.accountsPath), gone),
+            );
+          });
+          // Only now do the lanes follow the file: a signed-out account's lane is retired, the others write again.
+          for (const account of signedIn) {
+            open.delete(account.id);
+            if (gone.has(account.id)) deps.filters?.done(account.id, "signed-out");
+            else deps.filters?.abort(account.id);
+          }
+          await notifyChanged(deps);
+          if (gone.size !== signedIn.length) return "revoke-failed";
+        } catch (error) {
+          for (const id of open) deps.filters?.abort(id);
+          throw error;
+        }
       }
     }
     await saveGoogleClient(deps.clientPath, input.clientId, input.clientSecret);
-    return leftAccess ? "saved-left-access" : "saved";
+    if (leftAccess) return filtersRemain ? "saved-left-access-filters-remain" : "saved-left-access";
+    return filtersRemain ? "saved-filters-remain" : "saved";
   });
 }
 
 /**
- * Removes a Gmail account (ADR 0009 point 3), in this order: uninstall our filters (none exist before the filter
- * adapter, which must put its step here), revoke the token, delete the ciphertext. A revoke that fails for any reason
+ * Removes a Gmail account (ADR 0009 point 3), in this order: uninstall our filters (`deps.filters.prepare`), revoke the
+ * token, delete the ciphertext. A revoke that fails for any reason
  * but "this token is already invalid" keeps the account so the person can try again.
  */
 export function removeGoogleAccount(
@@ -376,23 +445,51 @@ export function removeGoogleAccount(
     );
     if (account === undefined) return "unknown-account";
     const hadToken = account.gmail.refreshCipher !== undefined;
-    if (hadToken) {
-      const client = await loadGoogleClient(deps.clientPath);
-      if (client === null) return "revoke-failed";
-      const revoked = await revokeAll(deps.makeOAuth(client.clientId, clientSecretGetter(client)), [
-        account,
-      ]);
-      if (revoked.get(account.id) !== true) return "revoke-failed";
+    // Filters first: a revoked token cannot delete them, and the ones left would go on trashing mail for good.
+    let filters: "ready" | "filters-left" | "unreachable" | "restart-cures";
+    try {
+      filters = (await deps.filters?.prepare(accountId)) ?? "ready";
+    } catch (error) {
+      deps.filters?.abort(accountId);
+      throw error;
     }
-    await serialized(async () => {
-      const accounts = await loadAccounts(deps.accountsPath);
-      await saveAccounts(
-        deps.accountsPath,
-        accounts.filter((a) => a.id !== accountId),
-      );
-    });
+    if (filters === "filters-left") {
+      deps.filters?.abort(accountId);
+      return "filters-left";
+    }
+    // No lane because of what a restart rebuilds, and a token that works now (a new sign-in): restart, then remove.
+    if (filters === "restart-cures" && usable(account, nowSeconds(deps))) return "restart-first";
+    try {
+      if (hadToken) {
+        const client = await loadGoogleClient(deps.clientPath);
+        if (client === null) {
+          deps.filters?.abort(accountId);
+          return "revoke-failed";
+        }
+        const revoked = await revokeAll(
+          deps.makeOAuth(client.clientId, clientSecretGetter(client)),
+          [account],
+        );
+        if (revoked.get(account.id) !== true) {
+          deps.filters?.abort(accountId);
+          return "revoke-failed";
+        }
+      }
+      await serialized(async () => {
+        const accounts = await loadAccounts(deps.accountsPath);
+        await saveAccounts(
+          deps.accountsPath,
+          accounts.filter((a) => a.id !== accountId),
+        );
+      });
+    } catch (error) {
+      deps.filters?.abort(accountId);
+      throw error;
+    }
+    deps.filters?.done(accountId, "removed");
     await notifyChanged(deps);
     // No token, no revoke: the page must not say the access was revoked.
+    if (filters === "unreachable" || filters === "restart-cures") return "removed-filters-remain";
     return hadToken ? "removed" : "removed-not-revoked";
   });
 }

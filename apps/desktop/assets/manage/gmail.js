@@ -23,10 +23,7 @@ const G_PERMISSIONS =
   "Access Google already gave can be removed at myaccount.google.com/permissions.";
 // Replies of the main process, as sentences. The input is never echoed.
 const G_SIGN_IN_REPLY = {
-  "signed-in": [
-    "ok",
-    "Signed in. Senderban does not block on Gmail yet; that comes in a later step.",
-  ],
+  "signed-in": ["ok", "Signed in. Restart Senderban to start blocking on this account."],
   "no-client": ["error", "Save your Google client first."],
   "unknown-account": ["error", "That account is no longer set up."],
   cancelled: ["warn", "Cancelled on Google's page. Nothing was saved."],
@@ -63,6 +60,22 @@ const G_CLIENT_REPLY = {
     "error",
     "Google did not confirm signing out every account, so the client was not changed. Check your connection and try again.",
   ],
+  "saved-filters-remain": [
+    "warn",
+    `Saved, and every Gmail account was signed out. For some of them Senderban could not reach Gmail to delete its filters: delete those in Gmail under Settings, Filters and Blocked Addresses (they send mail from listed senders to Trash). ${G_PERMISSIONS}`,
+  ],
+  "saved-left-access-filters-remain": [
+    "warn",
+    `Saved, and every Gmail account was signed out. The old client could not be read, so its access was not revoked, and for some accounts Senderban could not reach Gmail to delete its filters: delete those in Gmail under Settings, Filters and Blocked Addresses (they send mail from listed senders to Trash). ${G_PERMISSIONS}`,
+  ],
+  "restart-first": [
+    "warn",
+    "Restart Senderban first, so it can delete its Gmail filters, then change the client. Nothing was changed.",
+  ],
+  "filters-left": [
+    "error",
+    "Senderban could not delete its Gmail filters from every account (Google did not answer), so nothing was revoked or signed out. Filters it had already deleted are written again in a moment. Check your connection and try again.",
+  ],
   busy: ["warn", "Another Google step is running. Wait for it to finish."],
   invalid: ["error", "Check the values and try again."],
   denied: ["error", "Could not save. See the log."],
@@ -73,6 +86,18 @@ const G_REMOVE_REPLY = {
   "removed-not-revoked": [
     "warn",
     `Removed. This account held no stored access, so nothing was revoked. ${G_PERMISSIONS}`,
+  ],
+  "removed-filters-remain": [
+    "warn",
+    "Removed, but Senderban could not reach Gmail to delete its filters. Delete them in Gmail under Settings, Filters and Blocked Addresses (they send mail from listed senders to Trash).",
+  ],
+  "restart-first": [
+    "warn",
+    "Restart Senderban first, so it can delete this account's Gmail filters, then remove the account. Nothing was changed.",
+  ],
+  "filters-left": [
+    "error",
+    "Senderban could not delete its Gmail filters (Google did not answer), so the account was kept and the filters still work. Check your connection and try again.",
   ],
   "unknown-account": ["error", "That account is no longer set up."],
   "revoke-failed": [

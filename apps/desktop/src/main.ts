@@ -44,8 +44,15 @@ import {
 } from "./google-accounts.js";
 import type { GoogleDeps } from "./google-accounts.js";
 import { clientSecretGetter, loadGoogleClient } from "./google-client.js";
-import { buildGmailLanes, gmailMissNote, gmailSkippedNote } from "./gmail-lanes.js";
-import type { GmailSkipped } from "./gmail-lanes.js";
+import {
+  buildGmailLanes,
+  createGmailLifecycle,
+  createHeldLanes,
+  gmailMissNote,
+  gmailSkippedNote,
+  skippedAfterDone,
+} from "./gmail-lanes.js";
+import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
 import type { OwnMailSet } from "./own-mail.js";
@@ -89,6 +96,8 @@ interface Runtime {
   readonly labels: ReadonlyMap<string, string>;
   /** The person's own addresses and mail domains: never refused at the server. Follows accounts.json (own-mail.ts). */
   readonly own: OwnMailSet;
+  /** What removing or signing out a Gmail account does about its filters (google-accounts.ts). */
+  readonly gmail: GmailFilterLifecycle;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
@@ -115,6 +124,8 @@ const clicking = new Set<string>();
 const mxrouteLanes = new Set<string>();
 /** Engine lanes that write Gmail filters: their failures are about Google's sign-in, not a mail password. */
 const gmailLanes = new Set<string>();
+/** Gmail lanes held still while their account is being removed (a failed fan-out round is not news then). */
+const heldGmailLanes = createHeldLanes();
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
 let gmailSkipped: GmailSkipped[] = [];
 /** Accounts whose blocked single addresses are also refused at the MXroute server (live lane, switch on). */
@@ -135,7 +146,7 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
     unsynced.delete(id);
     return;
   }
-  if (clicking.has(id) || unsynced.has(id)) return;
+  if (clicking.has(id) || heldGmailLanes.has(id) || unsynced.has(id)) return;
   unsynced.add(id);
   const label = runtime?.labels.get(id) ?? id;
   const why = outcome.status === "failed" ? outcome.code : "some changes failed";
@@ -470,6 +481,7 @@ async function start(): Promise<Runtime> {
     log,
   });
   gmailSkipped = [...built.skipped];
+  const gmailLaneByAccount = new Map<string, GmailLane>();
   for (const lane of built.lanes) {
     try {
       engine.addAccount({
@@ -486,8 +498,39 @@ async function start(): Promise<Runtime> {
     }
     lanes.push(lane.laneId);
     gmailLanes.add(lane.laneId);
+    gmailLaneByAccount.set(lane.accountId, lane);
     labels.set(lane.laneId, `${lane.email} (Gmail)`);
   }
+  const gmail = createGmailLifecycle({
+    lanes: gmailLaneByAccount,
+    store,
+    log,
+    // While a lane is held still for a removal, a failed fan-out round is not news: the removal reports its own outcome.
+    onHold: (laneId, held) => {
+      heldGmailLanes.hold(laneId, held);
+    },
+    skipReasonOf: (accountId) => gmailSkipped.find((s) => s.accountId === accountId)?.reason,
+    // A removal that did not finish: the lane catches up with the blocks and Unblocks made while it was held.
+    onResumed: (laneId) => {
+      engine.requestSync(laneId);
+    },
+    // A removed or signed-out account no longer takes part in a block or an Unblock; a signed-out one is named in the toasts.
+    onDone: (accountId, why, lane) => {
+      if (lane !== undefined) {
+        const at = lanes.indexOf(lane.laneId);
+        if (at >= 0) lanes.splice(at, 1);
+        gmailLanes.delete(lane.laneId);
+        labels.delete(lane.laneId);
+        gmailLaneByAccount.delete(accountId);
+      }
+      gmailSkipped = skippedAfterDone(gmailSkipped, accountId, why, lane?.email);
+      log("gmail-lane-retired", {
+        account: accountTag(accountId),
+        why,
+        hadLane: lane !== undefined,
+      });
+    },
+  });
 
   // Interrupted syncs from a previous run are repaired before new mail can add to the list.
   for (const report of await engine.recover()) {
@@ -508,7 +551,7 @@ async function start(): Promise<Runtime> {
     // A socket that slept is dead but not yet reported (ADR 0003): rebuild instead of trusting it.
     if (!paused) for (const watcher of watchers.values()) watcher.reconnectNow();
   });
-  return { store, engine, accounts, lanes, watchers, pending, labels, own };
+  return { store, engine, accounts, lanes, watchers, pending, labels, own, gmail };
 }
 
 async function shutdown(): Promise<void> {
@@ -592,6 +635,17 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       signIn,
       openBrowser: openGoogleAuthUrl((url) => shell.openExternal(url)),
       // A Gmail address connected or removed while the app runs changes who must never be refused at the server.
+      // The lifecycle exists once start() has finished; a removal asked before that waits for it.
+      filters: {
+        classify: (accountId) => runtime?.gmail.classify(accountId) ?? "ready",
+        prepare: async (accountId) => (await ready.promise).gmail.prepare(accountId),
+        abort: (accountId) => {
+          runtime?.gmail.abort(accountId);
+        },
+        done: (accountId, why) => {
+          runtime?.gmail.done(accountId, why);
+        },
+      },
       onAccountsChanged: refreshOwnOnChange(
         async () => (await ready.promise).own,
         (error) => {

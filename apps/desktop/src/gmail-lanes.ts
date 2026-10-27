@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import {
+  AdapterError,
   GmailAdapter,
   createGmailClient,
   gmailLaneId,
+  gmailStateHoldsFilters,
   gmailUnsupported,
   isGmailAccount,
 } from "@senderban/core";
@@ -216,4 +218,139 @@ export function gmailSkippedNote(skipped: readonly GmailSkipped[]): string {
   const more =
     skipped.length > SKIP_NOTE_NAMED ? ` (+${String(skipped.length - SKIP_NOTE_NAMED)} more)` : "";
   return ` Gmail not updated: ${named}${more}.`;
+}
+
+/**
+ * What an account's removal or sign-out does about its Gmail filters (ADR 0009 point 3, in this order: uninstall our
+ * filters, revoke the token, delete the ciphertext). `prepare` is the first step and ends in one of:
+ * - `ready`: nothing of ours is left in Gmail (the lane, if any, is held still so no round writes another);
+ * - `filters-left`: some could not be deleted (Google did not answer): the caller keeps the account;
+ * - `unreachable`: the state says filters exist but no lane can reach Gmail (signed out, expired): the caller goes on and tells the person.
+ * After `prepare` the caller ends with `abort` (the removal did not finish: the lane writes again) or `done` (it finished: the lane is retired).
+ */
+export interface GmailFilterLifecycle {
+  /**
+   * What `prepare` would find, without doing anything (no network, nothing held still): `lane` when a lane can act, otherwise
+   * the answer a lane-less account gets. Lets a caller refuse a whole change before it deletes a single filter.
+   */
+  classify(accountId: string): "lane" | "ready" | "unreachable" | "restart-cures";
+  /**
+   * `restart-cures` is `unreachable` with a cure: there is no lane because of what a restart rebuilds (the account was signed
+   * out or its access had ended when the app started), so if the account has a usable token now, restarting lets Senderban delete.
+   */
+  prepare(accountId: string): Promise<"ready" | "filters-left" | "unreachable" | "restart-cures">;
+  abort(accountId: string): void;
+  done(accountId: string, why: "removed" | "signed-out"): void;
+}
+
+export interface GmailLifecycleDeps {
+  readonly lanes: ReadonlyMap<string, GmailLane>;
+  readonly store: {
+    getState(laneId: string): OpaqueState | undefined;
+    setState(laneId: string, state: OpaqueState): void;
+  };
+  /** A lane is held still (true) or free again (false): the app keeps its own "working on it" notices quiet meanwhile. */
+  readonly onHold?: (laneId: string, held: boolean) => void;
+  /** A held lane is free again after a removal that did not finish: it must catch up with what happened meanwhile (a sync). */
+  readonly onResumed: (laneId: string) => void;
+  /**
+   * The removal or sign-out finished. `lane` is missing for an account that had none this session. The app drops the lane from
+   * its lists and keeps `gmailSkipped` right (see `skippedAfterDone`).
+   */
+  readonly onDone: (
+    accountId: string,
+    why: "removed" | "signed-out",
+    lane: GmailLane | undefined,
+  ) => void;
+  /** Why the account has no lane this session, if it has none (see `buildGmailLanes`). */
+  readonly skipReasonOf: (accountId: string) => GmailSkipReason | undefined;
+  readonly log: Log;
+}
+
+export function createGmailLifecycle(deps: GmailLifecycleDeps): GmailFilterLifecycle {
+  /** What an account with no lane gets: nothing to delete, or filters it cannot reach (and whether a restart would change that). */
+  const laneless = (accountId: string): "ready" | "unreachable" | "restart-cures" => {
+    const known = deps.store.getState(gmailLaneId(accountId));
+    if (known === undefined || !gmailStateHoldsFilters(known)) return "ready";
+    const reason = deps.skipReasonOf(accountId);
+    // No reason is an account that signed in after the app started; signed-out and expired are what a new sign-in cures.
+    return reason === undefined || reason === "signed-out" || reason === "expired"
+      ? "restart-cures"
+      : "unreachable";
+  };
+  return {
+    classify(accountId) {
+      return deps.lanes.has(accountId) ? "lane" : laneless(accountId);
+    },
+    async prepare(accountId) {
+      const laneId = gmailLaneId(accountId);
+      const lane = deps.lanes.get(accountId);
+      if (lane === undefined) return laneless(accountId);
+      deps.onHold?.(laneId, true);
+      // Held still first, and the state read AFTER: a round that was running has saved its last filter by the time this returns.
+      // A round that does not end in time leaves the filters where they are: the caller keeps the account.
+      if (!(await lane.adapter.suspend())) return "filters-left";
+      const state = deps.store.getState(laneId);
+      if (state === undefined || !gmailStateHoldsFilters(state)) return "ready";
+      try {
+        const left = await lane.adapter.uninstall(state);
+        deps.store.setState(laneId, left);
+        return gmailStateHoldsFilters(left) ? "filters-left" : "ready";
+      } catch (error) {
+        const code = error instanceof AdapterError ? error.code : "UNKNOWN";
+        // Fixed words only: a Google answer or an address must not reach the log.
+        deps.log("gmail-uninstall-failed", { account: gmailLogTag(accountId), code });
+        // Google refusing the sign-in (an ended access) is nothing a retry or a restart fixes: the filters are out of reach, not late.
+        return code === "AUTH_REQUIRED" ? "unreachable" : "filters-left";
+      }
+    },
+    abort(accountId) {
+      const lane = deps.lanes.get(accountId);
+      if (lane === undefined) return;
+      lane.adapter.resume();
+      deps.onHold?.(lane.laneId, false);
+      deps.onResumed(lane.laneId);
+    },
+    done(accountId, why) {
+      const lane = deps.lanes.get(accountId);
+      if (lane !== undefined) {
+        lane.adapter.retire();
+        deps.onHold?.(lane.laneId, false);
+      }
+      deps.onDone(accountId, why, lane);
+    },
+  };
+}
+
+/**
+ * The accounts the toasts name as "Gmail not updated", after one finished its removal or sign-out. A removed account is no
+ * longer named; a signed-out one is named as signed out (whatever the reason was before), by the address the lane or the earlier
+ * entry knew.
+ */
+export function skippedAfterDone(
+  skipped: readonly GmailSkipped[],
+  accountId: string,
+  why: "removed" | "signed-out",
+  laneEmail: string | undefined,
+): GmailSkipped[] {
+  const email = laneEmail ?? skipped.find((s) => s.accountId === accountId)?.email;
+  const rest = skipped.filter((s) => s.accountId !== accountId);
+  return why === "signed-out" && email !== undefined
+    ? [...rest, { accountId, email, reason: "signed-out" }]
+    : rest;
+}
+
+/** Lanes held still for a removal. Apart from the toast click's own set: an Unblock releases that one when it ends. */
+export function createHeldLanes(): {
+  has(laneId: string): boolean;
+  hold(laneId: string, held: boolean): void;
+} {
+  const held = new Set<string>();
+  return {
+    has: (laneId) => held.has(laneId),
+    hold: (laneId, value) => {
+      if (value) held.add(laneId);
+      else held.delete(laneId);
+    },
+  };
 }

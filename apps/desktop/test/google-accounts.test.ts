@@ -632,3 +632,257 @@ describe("the never-refuse set follows a Gmail sign-in made after start-up (secu
     expect(canRejectSender("me@gmail.com", own.get())).toBe(false);
   });
 });
+
+describe("Gmail filters before a token is revoked", () => {
+  type Prepared = "ready" | "filters-left" | "unreachable" | "restart-cures";
+  let calls: string[];
+  let answers: Record<string, Prepared>;
+  const lifecycle = () => ({
+    classify: (id: string) => {
+      return answers[id] === "restart-cures" ? ("restart-cures" as const) : ("lane" as const);
+    },
+    prepare: (id: string) => {
+      calls.push(`prepare:${id}`);
+      return Promise.resolve(answers[id] ?? "ready");
+    },
+    abort: (id: string) => {
+      calls.push(`abort:${id}`);
+    },
+    done: (id: string, why: string) => {
+      calls.push(`done:${id}:${why}`);
+    },
+  });
+  beforeEach(() => {
+    calls = [];
+    answers = {};
+    revoke.mockImplementation((token) => {
+      calls.push(`revoke:${token}`);
+      return Promise.resolve("revoked" as const);
+    });
+    deps = { ...deps, filters: lifecycle() };
+  });
+
+  it("removal: the filters are deleted first, then the token is revoked, then the lane is retired", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    expect(await removeGoogleAccount(deps, "g1")).toBe("removed");
+    expect(calls).toEqual(["prepare:g1", `revoke:${TOKEN}`, "done:g1:removed"]);
+  });
+
+  it("removal: filters that could not be deleted keep the account, revoke nothing and let the lane write again", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    answers["g1"] = "filters-left";
+    expect(await removeGoogleAccount(deps, "g1")).toBe("filters-left");
+    expect(calls).toEqual(["prepare:g1", "abort:g1"]);
+    expect((await googleState(deps)).accounts[0]?.signedIn).toBe(true);
+  });
+
+  it("removal: filters it cannot reach are said so, and the account still goes", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", null)]);
+    answers["g1"] = "unreachable";
+    expect(await removeGoogleAccount(deps, "g1")).toBe("removed-filters-remain");
+    expect(calls).toEqual(["prepare:g1", "done:g1:removed"]);
+    expect(await loadAccounts(accountsPath)).toEqual([]);
+  });
+
+  it("removal: a revoke that fails, or a client that is gone, lets the lane write again and keeps the account", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    revoke.mockRejectedValue(new AdapterError("TRANSIENT", "Google could not be reached (revoke)"));
+    expect(await removeGoogleAccount(deps, "g1")).toBe("revoke-failed");
+    await rm(clientPath);
+    expect(await removeGoogleAccount(deps, "g1")).toBe("revoke-failed");
+    expect(calls).toEqual(["prepare:g1", "abort:g1", "prepare:g1", "abort:g1"]);
+    expect((await loadAccounts(accountsPath)).length).toBe(1);
+  });
+
+  it("removal: an account it does not know is not prepared", async () => {
+    expect(await removeGoogleAccount(deps, "nope")).toBe("unknown-account");
+    expect(calls).toEqual([]);
+  });
+
+  it("another client: every signed-in account is prepared before the first revoke", async () => {
+    await saveAccounts(accountsPath, [
+      await gmailAccount("g1", "me@gmail.com", TOKEN),
+      await gmailAccount("g2", "you@gmail.com", "1//second"),
+      await gmailAccount("g3", "out@gmail.com", null),
+    ]);
+    const reply = await saveGoogleClientSettings(deps, {
+      clientId: NEW_ID,
+      clientSecret: SECRET,
+      confirmSignOut: true,
+    });
+    expect(reply).toBe("saved");
+    const firstRevoke = calls.findIndex((c) => c.startsWith("revoke:"));
+    expect(calls.slice(0, firstRevoke)).toEqual(["prepare:g1", "prepare:g2"]);
+    expect(calls.filter((c) => c.startsWith("done:")).sort()).toEqual([
+      "done:g1:signed-out",
+      "done:g2:signed-out",
+    ]);
+  });
+
+  it("another client: one account whose filters cannot be deleted stops the change before anything is revoked", async () => {
+    await saveAccounts(accountsPath, [
+      await gmailAccount("g1", "me@gmail.com", TOKEN),
+      await gmailAccount("g2", "you@gmail.com", "1//second"),
+    ]);
+    const before = await readFile(accountsPath, "utf8");
+    answers["g2"] = "filters-left";
+    const reply = await saveGoogleClientSettings(deps, {
+      clientId: NEW_ID,
+      clientSecret: SECRET,
+      confirmSignOut: true,
+    });
+    expect(reply).toBe("filters-left");
+    expect(calls).toEqual(["prepare:g1", "prepare:g2", "abort:g1", "abort:g2"]);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await readFile(accountsPath, "utf8")).toBe(before);
+    expect((await loadGoogleClient(clientPath))?.clientId).toBe(OLD_ID);
+  });
+
+  it("another client: filters it cannot reach (the access has ended) are said so after the sign-out", async () => {
+    const ended = await gmailAccount("g1", "me@gmail.com", TOKEN);
+    await saveAccounts(accountsPath, [
+      { ...ended, gmail: { ...ended.gmail, accessEndsAt: 1_000_000_001 } },
+    ]);
+    answers["g1"] = "unreachable";
+    expect(
+      await saveGoogleClientSettings(deps, {
+        clientId: NEW_ID,
+        clientSecret: SECRET,
+        confirmSignOut: true,
+      }),
+    ).toBe("saved-filters-remain");
+  });
+
+  it("another client: an account whose revoke fails keeps its lane, the others are retired", async () => {
+    await saveAccounts(accountsPath, [
+      await gmailAccount("g1", "me@gmail.com", TOKEN),
+      await gmailAccount("g2", "you@gmail.com", "1//second"),
+    ]);
+    revoke.mockImplementation((token) =>
+      token === TOKEN
+        ? Promise.reject(new AdapterError("TRANSIENT", "Google could not be reached (revoke)"))
+        : Promise.resolve("revoked" as const),
+    );
+    const reply = await saveGoogleClientSettings(deps, {
+      clientId: NEW_ID,
+      clientSecret: SECRET,
+      confirmSignOut: true,
+    });
+    expect(reply).toBe("revoke-failed");
+    expect(calls).toContain("abort:g1");
+    expect(calls).toContain("done:g2:signed-out");
+    expect(calls).not.toContain("done:g1:signed-out");
+  });
+
+  it("another client: a lane a restart would build for an account whose access has ended does not stop the change; the filters are said to remain", async () => {
+    const ended = await gmailAccount("g1", "me@gmail.com", TOKEN);
+    await saveAccounts(accountsPath, [
+      { ...ended, gmail: { ...ended.gmail, accessEndsAt: 1_000_000_001 } },
+    ]);
+    answers["g1"] = "restart-cures";
+    expect(
+      await saveGoogleClientSettings(deps, {
+        clientId: NEW_ID,
+        clientSecret: SECRET,
+        confirmSignOut: true,
+      }),
+    ).toBe("saved-filters-remain");
+  });
+
+  it("removal: a restart cannot cure it (an expired token, or no token): the account goes and the filters are said to remain", async () => {
+    const ended = await gmailAccount("g1", "me@gmail.com", TOKEN);
+    await saveAccounts(accountsPath, [
+      { ...ended, gmail: { ...ended.gmail, accessEndsAt: 1_000_000_001 } },
+    ]);
+    answers["g1"] = "restart-cures";
+    expect(await removeGoogleAccount(deps, "g1")).toBe("removed-filters-remain");
+  });
+
+  it("removal: filters it cannot reach with a token that still works need a restart first, and nothing changes", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    answers["g1"] = "restart-cures";
+    expect(await removeGoogleAccount(deps, "g1")).toBe("restart-first");
+    expect(revoke).not.toHaveBeenCalled();
+    expect((await loadAccounts(accountsPath)).length).toBe(1);
+    expect(calls).toEqual(["prepare:g1"]);
+  });
+
+  it("removal: a prepare that throws, or a client file that throws, lets the lane write again", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    deps = {
+      ...deps,
+      filters: {
+        ...lifecycle(),
+        prepare: () => Promise.reject(new Error("state unreadable")),
+      },
+    };
+    await expect(removeGoogleAccount(deps, "g1")).rejects.toThrow("state unreadable");
+    expect(calls).toEqual(["abort:g1"]);
+
+    calls.length = 0;
+    deps = { ...deps, filters: lifecycle() };
+    await writeFile(clientPath, "not json");
+    await expect(removeGoogleAccount(deps, "g1")).rejects.toBeInstanceOf(Error);
+    expect(calls).toEqual(["prepare:g1", "abort:g1"]);
+    expect((await loadAccounts(accountsPath)).length).toBe(1);
+  });
+
+  it("another client: filters it cannot reach with a token that still works need a restart first", async () => {
+    await saveAccounts(accountsPath, [
+      await gmailAccount("g1", "me@gmail.com", TOKEN),
+      await gmailAccount("g2", "you@gmail.com", "1//second"),
+    ]);
+    answers["g2"] = "restart-cures";
+    const before = await readFile(accountsPath, "utf8");
+    const reply = await saveGoogleClientSettings(deps, {
+      clientId: NEW_ID,
+      clientSecret: SECRET,
+      confirmSignOut: true,
+    });
+    expect(reply).toBe("restart-first");
+    // Decided before the first filter of any account is deleted: no account was prepared, so nothing needs writing again.
+    expect(calls.some((c) => c.startsWith("prepare:") || c.startsWith("abort:"))).toBe(false);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await readFile(accountsPath, "utf8")).toBe(before);
+    expect((await loadGoogleClient(clientPath))?.clientId).toBe(OLD_ID);
+  });
+
+  it("another client: a prepare that throws on one account lets every prepared lane write again", async () => {
+    await saveAccounts(accountsPath, [
+      await gmailAccount("g1", "me@gmail.com", TOKEN),
+      await gmailAccount("g2", "you@gmail.com", "1//second"),
+    ]);
+    deps = {
+      ...deps,
+      filters: {
+        ...lifecycle(),
+        prepare: (id: string) =>
+          id === "g2"
+            ? Promise.reject(new Error("state unreadable"))
+            : Promise.resolve("ready" as const),
+      },
+    };
+    await expect(
+      saveGoogleClientSettings(deps, {
+        clientId: NEW_ID,
+        clientSecret: SECRET,
+        confirmSignOut: true,
+      }),
+    ).rejects.toThrow("state unreadable");
+    expect(calls.sort()).toEqual(["abort:g1", "abort:g2"]);
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("another client, the old one unreadable: the lanes follow once the file says signed out, and both gaps are said", async () => {
+    await saveAccounts(accountsPath, [await gmailAccount("g1", "me@gmail.com", TOKEN)]);
+    await writeFile(clientPath, "not json");
+    answers["g1"] = "unreachable";
+    const reply = await saveGoogleClientSettings(deps, {
+      clientId: NEW_ID,
+      clientSecret: SECRET,
+      confirmSignOut: true,
+    });
+    expect(reply).toBe("saved-left-access-filters-remain");
+    expect(calls).toEqual(["prepare:g1", "done:g1:signed-out"]);
+  });
+});

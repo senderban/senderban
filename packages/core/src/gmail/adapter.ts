@@ -55,6 +55,11 @@ export const GMAIL_UNINSTALL_DEADLINE_MS = 120_000;
 export const GMAIL_WRITE_RETRIES = 2;
 /** Wait before the n-th retry is `n` times this. Unit: milliseconds. */
 export const GMAIL_RETRY_DELAY_MS = 1_000;
+/**
+ * Longest `suspend` waits for a running round. Unit: milliseconds. A round ends by its own deadline (GMAIL_ROUND_DEADLINE_MS);
+ * 15 s more are for the answer to be handled. Past it the removal answers "filters left" instead of waiting for ever.
+ */
+export const GMAIL_SUSPEND_WAIT_MS = GMAIL_ROUND_DEADLINE_MS + 15_000;
 /** Filters this lane holds, at most. Unit: filters. 5,000 entries (MAX_ENTRIES) at 50 a filter is 100; twice that leaves room for holes after removals. */
 export const GMAIL_MAX_FILTERS = (MAX_ENTRIES / GMAIL_ADDRESSES_PER_FILTER) * 2;
 
@@ -151,6 +156,18 @@ type GmailState = z.infer<typeof StateSchema>;
 export function initialGmailState(): OpaqueState {
   const data: GmailState = { filters: [], stale: [], intent: [], refused: [] };
   return { adapterId: GMAIL_ADAPTER_ID, data };
+}
+
+/**
+ * Whether the state records anything in Gmail that Senderban wrote or may have written: a filter, one left to delete, or a
+ * create whose answer never came back. Used before an account is removed: only an empty state means nothing is left to delete.
+ * A state that cannot be read counts as holding filters (nothing is assumed gone).
+ */
+export function gmailStateHoldsFilters(state: OpaqueState): boolean {
+  const parsed = StateSchema.safeParse(state.data);
+  if (state.adapterId !== GMAIL_ADAPTER_ID || !parsed.success) return true;
+  const { filters, stale, intent } = parsed.data;
+  return filters.length + stale.length + intent.length > 0;
 }
 
 function parseState(state: OpaqueState): GmailState {
@@ -390,6 +407,12 @@ export class GmailAdapter implements BlockAdapter {
   readonly #budgetMs: number;
   readonly #retryDelayMs: number;
   readonly #sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Set while the account's filters are being taken out: no round starts (see `suspend`). */
+  #suspended = false;
+  /** Set once the account is gone for good (see `retire`). */
+  #retired = false;
+  #active = 0;
+  #idle: (() => void)[] = [];
 
   constructor(options: GmailAdapterOptions) {
     this.#client = options.client;
@@ -407,7 +430,46 @@ export class GmailAdapter implements BlockAdapter {
     return CAPABILITIES;
   }
 
+  /**
+   * Stops writing: a round that is running finishes (it ends by its own deadline), a new one does not start. While
+   * suspended `plan` and `apply` answer TRANSIENT, never "nothing to do": the engine must not read the pause as a clean
+   * round (an Unblock would be shown as confirmed while its filter is still in Gmail, a block as done while it was never
+   * written) and keeps its retry timer. Resolves true when no round is running, false when one is still running after
+   * `timeoutMs`. `resume` ends the pause (the removal did not finish).
+   */
+  suspend(timeoutMs: number = GMAIL_SUSPEND_WAIT_MS): Promise<boolean> {
+    this.#suspended = true;
+    if (this.#active === 0) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        resolve(false);
+      }, timeoutMs);
+      this.#idle.push(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
+
+  resume(): void {
+    this.#suspended = false;
+  }
+
+  /**
+   * The account is gone for good (removed, or signed out): the lane stays in the engine, which cannot drop one, but has
+   * nothing to do for the rest of the session. Unlike a pause this is a clean "nothing to do".
+   */
+  retire(): void {
+    this.#retired = true;
+  }
+
   plan(list: Blocklist, state: OpaqueState): Promise<Plan> {
+    if (this.#retired) {
+      return Promise.resolve({ accountId: this.#accountId, changes: [], basedOn: state });
+    }
+    if (this.#suspended) {
+      return Promise.reject(new AdapterError("TRANSIENT", "Gmail filters are being removed"));
+    }
     try {
       const current = parseState(state);
       const wanted = mirrored(list);
@@ -444,6 +506,19 @@ export class GmailAdapter implements BlockAdapter {
   }
 
   async apply(plan: Plan, signal?: AbortSignal): Promise<ApplyResult> {
+    if (this.#suspended || this.#retired) {
+      throw new AdapterError("TRANSIENT", "Gmail filters are being removed");
+    }
+    this.#active += 1;
+    try {
+      return await this.#round(plan, signal);
+    } finally {
+      this.#active -= 1;
+      if (this.#active === 0) for (const resolve of this.#idle.splice(0)) resolve();
+    }
+  }
+
+  async #round(plan: Plan, signal?: AbortSignal): Promise<ApplyResult> {
     const state = parseState(plan.basedOn);
     const removes = plan.changes
       .filter((c) => c.kind === "remove" && c.entry.id !== GMAIL_CLEANUP_ENTRY_ID)
