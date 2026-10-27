@@ -136,8 +136,13 @@ swallowed; a write is not retried blindly (read the remote state first, RFC 9110
 
 ### Budget lines still to be written into the adapter (performance review 2026-10-26, W1–W4)
 
-- **Client-side limits** (global CLAUDE.md item 7): a per-minute request cap, a per-account 24 h unit quota and a global daily ceiling, as
-  named constants with a test, so one account's loop cannot eat the project's quota or trip Google's per-user limit.
+- **Client-side limits — written (A2d, `gmail/budget.ts`).** Counted in quota units, not requests (Google charges units): 1,100 a minute per
+  account (a usual round is 101; the uninstall of the most filters, 200, is 1,001), 5,000 per account per 24 h, 100,000 per 24 h for all
+  accounts. One `GmailBudgets` per app wraps the client (a decorator, so `verify` and `uninstall` pay too); a refusal happens before any
+  request leaves and is a `QUOTA_EXCEEDED`, so the round is TRANSIENT and the engine backs off. Windows are hourly (minute: 1 s) buckets,
+  bounded memory, over-counting by at most one bucket; the clock moves by forward steps only. **Known gap:** the counters live in memory, so
+  a crash loop starts the 24 h lines from zero; Google's own 6,000 units a minute per user is the wall then. Persisting hourly buckets in the
+  Store is the fix if a crash loop is ever seen. Still open here: the mail poll's own line (watcher step).
 - **Polling:** 1,440 `history.list` per account per day is 5× the IMAP idle rate. One poll in flight per account, polls spread with jitter
   (50 accounts must not tick together after a resume), and the HTTP agent keeps connections alive longer than Node's default 4 s so a poll
   is not a new TLS handshake each time (measure, do not assume).

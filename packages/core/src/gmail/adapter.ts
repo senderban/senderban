@@ -18,6 +18,7 @@ import {
   type GmailFilter,
   type GmailFilterClient,
 } from "./client.js";
+import { GmailBudgetError } from "./budget.js";
 import { GMAIL_ADDRESSES_PER_FILTER, compileFromQuery, isGmailMirrorable } from "./query.js";
 
 export const GMAIL_ADAPTER_ID = "gmail";
@@ -473,9 +474,12 @@ export class GmailAdapter implements BlockAdapter {
     let firstList: readonly GmailFilter[];
     let lost = 0;
     let settledLater: number;
-    const changesNow = plan.changes.filter((c) => c.entry.id !== GMAIL_CLEANUP_ENTRY_ID);
-    const rateLimited = (): AdapterError =>
-      new AdapterError("TRANSIENT", "Google asked to slow down, later");
+    // Our own limit (budget.ts) says which one; Google's says only that it asked to slow down.
+    const rateLimited = (cause: AdapterError): AdapterError =>
+      new AdapterError(
+        "TRANSIENT",
+        cause instanceof GmailBudgetError ? cause.message : "Google asked to slow down, later",
+      );
     const stuckStale: FilterRecord[] = [];
     try {
       // One read of the mailbox: what is really there decides what is ours, lost or changed (1 quota unit).
@@ -533,7 +537,9 @@ export class GmailAdapter implements BlockAdapter {
           applied: 0,
           failed: [
             ...failed,
-            ...changesNow.map((c) => ({ entryId: c.entry.id, error: rateLimited() })),
+            // The plan's own changes, the cleanup placeholder included: a cleanup-only round with nothing in `failed` would be
+            // recorded as applied and the engine would not ask again (a stale filter or an unsettled write would wait for chance).
+            ...plan.changes.map((c) => ({ entryId: c.entry.id, error: rateLimited(adapterError) })),
           ],
           state: snapshot(work),
         };
@@ -601,7 +607,7 @@ export class GmailAdapter implements BlockAdapter {
         // Nothing handled yet: the whole round failed for this reason (a rate limit is reported below, not thrown: the
         // engine would not try again by itself).
         if (handled === 0 && !quota) throw adapterError;
-        stopped = quota ? rateLimited() : adapterError;
+        stopped = quota ? rateLimited(adapterError) : adapterError;
         break;
       }
     }
