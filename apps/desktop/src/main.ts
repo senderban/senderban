@@ -19,6 +19,7 @@ import {
   mxrouteLaneId,
   createOAuthClient,
   GmailBudgets,
+  isOwnMailbox,
   initialGmailState,
 } from "@senderban/core";
 import type {
@@ -474,6 +475,7 @@ async function start(): Promise<Runtime> {
     // left out, so one entry of accounts.json cannot stop the whole app from starting.
     reservedLaneIds: new Set(lanes),
     budgets: new GmailBudgets(),
+    isOwn: (address) => isOwnMailbox(address, own.get()),
     saveState: (laneId, state) => {
       store.setState(laneId, state);
     },
@@ -698,8 +700,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         if (result.status !== "blocked") return toast;
         // ADR 0009 point 6: the toast says where the choice was not applied (Gmail takes single addresses and Trash only).
         const gmailNote =
-          (gmailLanes.size > 0 ? gmailMissNote(store.list(), result.target) : "") +
-          gmailSkippedNote(gmailSkipped);
+          (gmailLanes.size > 0
+            ? gmailMissNote(store.list(), result.target, (a) => isOwnMailbox(a, own.get()))
+            : "") + gmailSkippedNote(gmailSkipped);
         return { ...toast, text: toast.text + gmailNote };
       },
     });

@@ -33,6 +33,15 @@ export interface OwnMail {
 }
 
 /**
+ * True when the address is one of the person's own mailboxes. By mailbox, not by text: a forged `m.e@gmail.com` is the
+ * person's own `me@gmail.com` to Gmail. Domains are not looked at: only the exact mailbox is "me".
+ */
+export function isOwnMailbox(address: string, own: OwnMail): boolean {
+  const lower = address.toLowerCase();
+  return own.addresses.has(lower) || own.addresses.has(mailboxKey(lower));
+}
+
+/**
  * True when "Block at server" may be offered and run for this sender: the blacklist can take the address as a
  * single entry, and it is neither one of the person's own addresses nor on a mail domain they own. A spammer can
  * forge the From of the person's own address or a colleague's; refusing that at the server would bounce their real
@@ -41,8 +50,7 @@ export interface OwnMail {
 export function canRejectSender(sender: string, own: OwnMail): boolean {
   if (!canRefuseAtServer(sender)) return false;
   const lower = sender.toLowerCase();
-  // By mailbox too: a forged `m.e@gmail.com` is the person's own `me@gmail.com` to Gmail.
-  if (own.addresses.has(lower) || own.addresses.has(mailboxKey(lower))) return false;
+  if (isOwnMailbox(sender, own)) return false;
   const domain = lower.slice(lower.lastIndexOf("@") + 1);
   for (const owned of own.domains) {
     if (domain === owned || domain.endsWith(`.${owned}`)) return false;

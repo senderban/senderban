@@ -63,8 +63,10 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
      create, and is taken in; the filter it replaced becomes `stale` and is deleted first. An identical filter that was already there
      when a round began and matches no intent is **not ours** (the person's, or another install's): never adopted, edited or deleted;
      its addresses are recorded as `refused` (they are blocked by it) so one of them cannot hold up the rest. A filter of ours that no
-     longer reads as written is forgotten, never touched, and what is still wanted goes into a new filter. Narrow race, accepted: if the
-     person writes an identical filter in the seconds between a round's list and its create, it is taken for ours.
+     longer reads as written is forgotten, never touched, and what is still wanted goes into a new filter. Narrow race, accepted: an identical filter that
+     appears while a create of ours is unconfirmed (an intent) is taken for ours when the next successful list settles that intent: the
+     seconds between a round's list and its create, or longer if rounds keep failing before the list (a dead token). It is a
+     second Senderban install's identical filter that could be adopted, never a filter the person wrote with other criteria or actions.
 5. **Watcher.** `users.history.list` with `startHistoryId`, `historyTypes=messageAdded`, `labelId=INBOX` (the IMAP watcher reads INBOX
    only; without it the person's own sent mail and drafts would be announced with a Block button on their own address), then
    `messages.get` with `format=metadata` for the new ids only, re-checking the message `labelIds`. Paging is capped per drain (excess
@@ -186,7 +188,8 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   Consequences: capacity per filter is a named constant far below the wall (PROVISIONAL **50 addresses**, about 1.8 k characters);
   a `5xx` or a timeout on `filters.create` leaves the outcome unknown, so it is **not** retried blindly: the list is read first (after every
   failed attempt, the last included), at most two retries, then the round fails (a rewrite already saved as an intent is found again by the
-  next round). A refusal (`REJECTED`, `AUTH_REQUIRED`, a rate limit) created nothing, so its intent is dropped. An oversized query would
+  next round). An intent is not dropped on any error: a refusal that came from the read after the create says nothing about the create, so the next successful
+  list settles it either way (adopted if the filter is there, dropped with a follow-up if not). An oversized query would
   otherwise loop forever as "transient".
 - **Scope:** `filters.list`, `create` and `delete` all worked with `gmail.settings.basic` + `gmail.metadata`; `getProfile` works with
   that set. The filters page does not name the scope; this is the measurement.
@@ -209,6 +212,26 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   417 ms. `verify` reported no drift after every settled round. Filter count 1 before, 1 after, same id. Calls: `list` 96–164 ms,
   `create` 172–257 ms, `delete` 124–134 ms; the whole drive was 14 calls = 46 quota units, no refusal from our budget. Not
   measured: a failure in the middle (the intent paths run on the fake only), a mailbox with hundreds of filters, a non-ASCII `from:` term.
+- **Does a quoted `from:("x@d")` match only that address? (2026-10-27, three probe rounds, one real mail per case, marker filters that
+  add a label, never Trash, each deleted right after; senders `smith@`, `john.smith@`, `xsmith@senderban.com` and one personal Gmail
+  address, written `person@gmail.com` here):** the filter for `smith@senderban.com` (marker `STARRED`) marked the mail from `smith@`
+  and not those from `john.smith@` or `xsmith@`. The filter for `john.smith@` (marker `IMPORTANT`) marked only the `john.smith@` mail;
+  its negative half is usable, its positive half is not independent, because Gmail also sets `IMPORTANT` on its own. A filter for the
+  exact Gmail address (`STARRED`) and one for `gmail.com` (`CATEGORY_FORUMS`) matched the Gmail mail. A dotted variant, a plus-tag
+  variant and a shortened local part (the last letters of it, `rson@gmail.com` here) did not match, but those three used markers that were not checked against
+  Gmail's own labelling, so they are weaker. One probe looked like a partial match (a longer local part that ends in the same letters, against the same sender) and
+  is discarded: its marker was `IMPORTANT`. Read: in these cases the quoted form acted as the whole address, so a block did not spread
+  to `john.smith@` or `xsmith@`. Not measured, and still open: the same prefix case on gmail.com with a marker Gmail does not set on
+  its own, display-name matching (a sender named `"x@d" <other@d>`), upper and lower case, a non-ASCII term, and the Trash action
+  itself (assumed to read the query as the marker action does). How Gmail tokenises is not readable (needs a scope we do not hold).
+  Marker labels came only from `STARRED` and the `CATEGORY_*` set, because creating a label needs a scope we do not hold.
+- **Behaviour added after the push-before reviews (2026-10-27):** the Gmail lane never mirrors the person's own mailbox (an own
+  address already in a filter is removed like an Unblock, and the result toast says so); an Unblock of an address held by a foreign
+  filter now answers `REMOTE_CHANGED` once, not "done" (a state written before `Refusal.id` existed keeps the old behaviour, none exists
+  because the lane is unreleased); a filter list over 2 MiB is `REJECTED`, so the engine stops re-downloading it, and an uninstall on
+  it answers `filters-left`; the journal row keeps 20 failures plus a count, and each request writes one log line (`gmail-http`).
+  Not fixed, known: an Unblock that shrinks `{a,b}` to `{a}` while a foreign filter holds `a` reports `foreign` every round and `b`
+  stays trashed.
 
 ## Not decided / open
 

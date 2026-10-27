@@ -85,6 +85,8 @@ export interface GmailLaneDeps {
   readonly noClientReason?: "no-client" | "client-unreadable";
   /** Lane ids already taken by other accounts' lanes: a Gmail lane whose id clashes is left out, it must not stop the app starting. */
   readonly reservedLaneIds?: ReadonlySet<string>;
+  /** The person's own mailboxes: a block of one of them is never written to Gmail (a forged own address would trash their own mail). */
+  readonly isOwn?: (address: string) => boolean;
   readonly now?: () => number;
   readonly fetch?: typeof fetch;
 }
@@ -154,6 +156,8 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
     const budgeted = deps.budgets.wrap(client, {
       key: laneId,
       account: tag,
+      // The HTTP status is logged by the client's own hook (one line per request); only a refusal of ours is added here.
+      logCalls: false,
       log: (event: GmailLogEvent) => {
         const { event: name, ...fields } = event;
         deps.log(name, fields);
@@ -166,6 +170,7 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
       adapter: new GmailAdapter({
         accountId: laneId,
         client: budgeted,
+        ...(deps.isOwn === undefined ? {} : { exclude: deps.isOwn }),
         checkpoint: (state) => {
           deps.saveState(laneId, state);
         },
@@ -181,7 +186,11 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
  * exists, and the toast says where it was not. A Gmail filter takes single addresses and Trash only, and only an address form
  * the query contract lets through; everything else is not blocked there.
  */
-export function gmailMissNote(list: Blocklist, target: string): string {
+export function gmailMissNote(
+  list: Blocklist,
+  target: string,
+  isOwn?: (address: string) => boolean,
+): string {
   const entry = list.find((e) => e.value === target);
   if (entry === undefined) return "";
   if (entry.match !== "exactAddress") {
@@ -189,6 +198,9 @@ export function gmailMissNote(list: Blocklist, target: string): string {
   }
   if (entry.action !== "trash") {
     return " Not blocked on Gmail: Gmail has no Junk filter, choose Trash to block there.";
+  }
+  if (isOwn?.(entry.value) === true) {
+    return " Not blocked on Gmail: this is one of your own addresses (blocking it there could send your own mail to Trash).";
   }
   return gmailUnsupported(list).some((e) => e.id === entry.id)
     ? " Not blocked on Gmail: this address form cannot be written as a Gmail filter."

@@ -6,7 +6,7 @@ import { AdapterError } from "../../src/adapter.js";
 import type { ApplyResult, OpaqueState, Plan } from "../../src/adapter.js";
 import { MAX_ENTRIES } from "../../src/blocklist.js";
 import { SCHEMA_VERSION, openDatabase } from "../../src/store/db.js";
-import { JOURNAL_KEEP, Store } from "../../src/store/store.js";
+import { JOURNAL_FAILED_MAX, JOURNAL_KEEP, Store } from "../../src/store/store.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -228,6 +228,27 @@ describe("sync journal", () => {
     expect(row?.status).toBe("partial");
     const detail = JSON.parse(row?.detail ?? "{}") as { failed: unknown[] };
     expect(detail.failed[0]).toMatchObject({ code: "QUOTA_EXCEEDED" });
+  });
+
+  it("keeps a journal row small when a round fails for hundreds of changes: the first few in full, and the count of all", () => {
+    const store = new Store(openDatabase(":memory:"));
+    const seq = store.beginSync(planFor("acct", store));
+    store.completeSync(seq, "acct", {
+      applied: 0,
+      failed: Array.from({ length: 500 }, (_, i) => ({
+        entryId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+        error: new AdapterError(
+          "TRANSIENT",
+          "Senderban's own Gmail limit is reached (minute), later",
+        ),
+      })),
+      state: state({ v: 2 }),
+    });
+    const detail = store.journal("acct")[0]?.detail ?? "";
+    const parsed = JSON.parse(detail) as { failedCount: number; failed: unknown[] };
+    expect(parsed.failedCount).toBe(500);
+    expect(parsed.failed).toHaveLength(JOURNAL_FAILED_MAX);
+    expect(detail.length).toBeLessThan(5_000);
   });
 
   it("does not move the state when the sync is not open", () => {

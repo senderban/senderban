@@ -5,6 +5,9 @@ import type { BlockEntry, Blocklist } from "../blocklist.js";
 import type { Cursor, CursorStore } from "../watcher/watcher.js";
 import { ACCOUNT_ID_MAX, UID_MAX, inTransaction, type Db } from "./db.js";
 
+/** Failed changes kept in full in a journal row. Unit: failures. The row also holds the count of all of them. */
+export const JOURNAL_FAILED_MAX = 20;
+
 /** Finished journal rows kept per account; open ones are never pruned. */
 export const JOURNAL_KEEP = 200;
 
@@ -163,9 +166,11 @@ export class Store {
   /** Closes the journal row and stores the new provider state in one transaction. */
   completeSync(seq: number, accountId: string, result: ApplyResult): void {
     const status: SyncStatus = result.failed.length === 0 ? "applied" : "partial";
+    // The first few failures in full and the count of all: a 500-entry failure is one row of a few hundred bytes, not 70 KB.
     const detail = JSON.stringify({
       applied: result.applied,
-      failed: result.failed.map((f) => ({
+      failedCount: result.failed.length,
+      failed: result.failed.slice(0, JOURNAL_FAILED_MAX).map((f) => ({
         entryId: f.entryId,
         code: f.error.code,
         message: f.error.message,

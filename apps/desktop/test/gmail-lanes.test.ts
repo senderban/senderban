@@ -200,8 +200,24 @@ describe("buildGmailLanes", () => {
     ]) {
       expect(text).not.toContain(leak);
     }
-    expect(a.logs.some((l) => l.event === "gmail-http")).toBe(true);
-    expect(a.logs.some((l) => l.event === "gmail-call")).toBe(true);
+    // One line for each request (the HTTP status), not two: a refusal of our own limit is the only extra event.
+    expect(a.logs.filter((l) => l.event === "gmail-http")).toHaveLength(fake.calls.length);
+    expect(a.logs.some((l) => l.event === "gmail-call")).toBe(false);
+  });
+
+  it("a block of the person's own address is not written to Gmail", async () => {
+    const fake = new FakeGmail();
+    const a = deps([gmailAccount("g1", "me@gmail.com")], {
+      fetch: fake.fetch,
+      isOwn: (address) => address === "me@gmail.com",
+    });
+    const [lane] = buildGmailLanes(a.built).lanes;
+    if (lane === undefined) throw new Error("no lane");
+    const plan = await lane.adapter.plan(
+      [entry("me@gmail.com"), entry("spam@spam.example")],
+      initialGmailState(),
+    );
+    expect(plan.changes.map((c) => c.entry.value)).toEqual(["spam@spam.example"]);
   });
 
   it("tags an account for the log without the address, whatever its id looks like", () => {
@@ -227,6 +243,15 @@ describe("gmailMissNote", () => {
       "",
     );
     expect(gmailMissNote([], "a@spam.example")).toBe("");
+  });
+  it("says so for the person's own address, ahead of the other reasons", () => {
+    const own = (a: string) => a === "me@gmail.com";
+    expect(
+      gmailMissNote([e("me@gmail.com", "exactAddress", "trash")], "me@gmail.com", own),
+    ).toContain("your own addresses");
+    expect(
+      gmailMissNote([e("a@spam.example", "exactAddress", "trash")], "a@spam.example", own),
+    ).toBe("");
   });
   it("says so for an address form the query contract refuses", () => {
     expect(

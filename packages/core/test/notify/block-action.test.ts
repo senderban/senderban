@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { blockPending, blockableDomain, canRejectSender } from "../../src/notify/block-action.js";
+import {
+  blockPending,
+  blockableDomain,
+  canRejectSender,
+  isOwnMailbox,
+} from "../../src/notify/block-action.js";
 import type { BlockActionDeps } from "../../src/notify/block-action.js";
 import type { BlockEntry } from "../../src/blocklist.js";
 import { PendingBlocks } from "../../src/notify/pending.js";
@@ -313,5 +318,15 @@ describe("blockPending", () => {
     const result = await blockPending(deps, ID, "address");
     expect(result).toEqual({ status: "refused", detail: "block list is full" });
     expect(sync).not.toHaveBeenCalled();
+  });
+});
+
+describe("isOwnMailbox", () => {
+  const own = { addresses: new Set(["me@gmail.com"]), domains: new Set(["mycompany.com"]) };
+  it("is the person's own mailbox by its key (dots, plus tag, googlemail), and not a domain or a stranger", () => {
+    expect(isOwnMailbox("me@gmail.com", own)).toBe(true);
+    expect(isOwnMailbox("M.E+news@googlemail.com", own)).toBe(true);
+    expect(isOwnMailbox("boss@mycompany.com", own)).toBe(false);
+    expect(isOwnMailbox("you@gmail.com", own)).toBe(false);
   });
 });

@@ -1086,3 +1086,128 @@ describe("gmailStateHoldsFilters", () => {
     expect(gmailStateHoldsFilters({ adapterId: "gmail", data: { nonsense: 1 } })).toBe(true);
   });
 });
+
+describe("the person's own addresses", () => {
+  function withExclude(own: Set<string>) {
+    const fake = new FakeGmail();
+    const client = createGmailClient({
+      getAccessToken: () => Promise.resolve(fake.token),
+      fetch: fake.fetch,
+      timeoutMs: 500,
+    });
+    const adapter = new GmailAdapter({
+      accountId: LANE,
+      client,
+      checkpoint: () => undefined,
+      sleep: () => Promise.resolve(),
+      exclude: (address) => own.has(address),
+    });
+    return { fake, adapter };
+  }
+
+  it("never become a filter: a forged own address that was blocked would send the person's own mail to Trash", async () => {
+    const { fake, adapter } = withExclude(new Set(["me@gmail.com"]));
+    const list = listOf(["me@gmail.com", "spam@spam.example"]);
+    const plan = await adapter.plan(list, initialGmailState());
+    expect(plan.changes.map((c) => c.entry.value)).toEqual(["spam@spam.example"]);
+    const result = await adapter.apply(plan);
+    expect(result.applied).toBe(1);
+    const query = [...fake.filters.values()][0]?.criteria["query"] as string;
+    expect(query).toContain("spam@spam.example");
+    expect(query).not.toContain("me@gmail.com");
+  });
+
+  it("are taken out of a filter they are already in, as an Unblock would", async () => {
+    const own = new Set<string>();
+    const { fake, adapter } = withExclude(own);
+    const list = listOf(["me@gmail.com", "spam@spam.example"]);
+    const first = await round(adapter, list, initialGmailState());
+    expect(valuesOf(recordsOf(first.result.state)[0]).sort()).toEqual([
+      "me@gmail.com",
+      "spam@spam.example",
+    ]);
+    // A Gmail account for me@gmail.com is signed in later: the address is now the person's own.
+    own.add("me@gmail.com");
+    const second = await round(adapter, list, first.result.state);
+    expect(valuesOf(recordsOf(second.result.state)[0])).toEqual(["spam@spam.example"]);
+    expect([...fake.filters.values()]).toHaveLength(1);
+  });
+});
+
+describe("a plan that had nothing to do", () => {
+  it("is answered again without a new look only for the same list over the same state; any change is seen", async () => {
+    const own = new Set<string>();
+    const fake = new FakeGmail();
+    const client = createGmailClient({
+      getAccessToken: () => Promise.resolve(fake.token),
+      fetch: fake.fetch,
+      timeoutMs: 500,
+    });
+    const adapter = new GmailAdapter({
+      accountId: LANE,
+      client,
+      checkpoint: () => undefined,
+      sleep: () => Promise.resolve(),
+      exclude: (address) => own.has(address),
+    });
+    const list = listOf(addrs(3));
+    const placed = await round(adapter, list, initialGmailState());
+    const state = placed.result.state;
+    expect((await adapter.plan(list, state)).changes).toEqual([]);
+    expect((await adapter.plan(list, state)).changes).toEqual([]);
+    // A new address: seen.
+    const more = [...list, entry("new@spam.example")];
+    expect((await adapter.plan(more, state)).changes.map((c) => c.entry.value)).toEqual([
+      "new@spam.example",
+    ]);
+    // An address that left the list: seen.
+    expect((await adapter.plan(list.slice(1), state)).changes.map((c) => c.kind)).toEqual([
+      "remove",
+    ]);
+    // A Junk entry next to the same Trash ones: still nothing to do.
+    expect((await adapter.plan([...list, entry("j@spam.example", "junk")], state)).changes).toEqual(
+      [],
+    );
+    // The same list over another state: seen.
+    expect((await adapter.plan(list, initialGmailState())).changes).toHaveLength(3);
+    // An address that became the person's own: seen, though neither the list nor the state moved.
+    expect((await adapter.plan(list, state)).changes).toEqual([]);
+    own.add(addrs(3)[0] ?? "");
+    expect((await adapter.plan(list, state)).changes.map((c) => c.kind)).toEqual(["remove"]);
+  });
+});
+
+describe("an Unblock of an address that an identical filter of someone else's holds", () => {
+  it("is not shown as done: it fails once, with a fixed word, and the refusal ends with the report", async () => {
+    const { fake, adapter } = setup();
+    const foreign = fake.addForeign(
+      { query: compileFromQuery(addrs(2)) },
+      { addLabelIds: ["TRASH"] },
+    );
+    const list = listOf(addrs(2));
+    const first = await round(adapter, list, initialGmailState());
+    expect(refusedOf(first.result.state)).toEqual(addrs(2));
+    // The person unblocks the first address.
+    const rest = list.slice(1);
+    const { plan, result } = await round(adapter, rest, first.result.state);
+    const gone = plan.changes.filter((c) => c.kind === "remove");
+    expect(gone.map((c) => c.entry.id)).toEqual([list[0]?.id]);
+    expect(result.failed.map((f) => [f.entryId, f.error.code])).toEqual([
+      [list[0]?.id, "REMOTE_CHANGED"],
+    ]);
+    expect(result.failed[0]?.error.message).toBe(
+      "a Gmail filter that Senderban did not write still trashes this sender",
+    );
+    // Said once: the refusal of that address is gone, the other stays, and the foreign filter is untouched.
+    expect(refusedOf(result.state)).toEqual([addrs(2)[1]]);
+    expect(fake.filters.has(foreign)).toBe(true);
+    expect(fake.callsTo("DELETE")).toHaveLength(0);
+  });
+
+  it("a state written before the refusal carried an id is still read (the field is optional)", async () => {
+    const { adapter } = setup();
+    const state = stateWith({ refused: [{ value: "a@spam.example", by: "foreign-1" }] });
+    const plan = await adapter.plan([], state);
+    expect(plan.changes.map((c) => c.entry.id)).toEqual([GMAIL_CLEANUP_ENTRY_ID]);
+  });
+});

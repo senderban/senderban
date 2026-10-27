@@ -3,6 +3,7 @@ import { AdapterError } from "../adapter.js";
 import {
   GOOGLE_BODY_MAX_BYTES,
   GOOGLE_TIMEOUT_MS,
+  OVERSIZE,
   apiFailure,
   googleErrorReason,
   parseJson,
@@ -205,13 +206,30 @@ export function createGmailClient(options: GmailClientOptions): GmailFilterClien
 
   return {
     async list(signal) {
-      const { status, json } = await call(
-        "filter-list",
-        "filters list",
-        { method: "GET", url: GMAIL_FILTERS_URL },
-        GMAIL_LIST_MAX_BYTES,
-        signal,
-      );
+      let answer: { status: number; json: unknown };
+      try {
+        answer = await call(
+          "filter-list",
+          "filters list",
+          { method: "GET", url: GMAIL_FILTERS_URL },
+          GMAIL_LIST_MAX_BYTES,
+          signal,
+        );
+      } catch (error) {
+        // Too big to read is not a passing state: asking again reads the same list. Refused, so the engine does not retry it.
+        if (
+          error instanceof AdapterError &&
+          error.code === "TRANSIENT" &&
+          error.message.includes(OVERSIZE)
+        ) {
+          throw new AdapterError(
+            "REJECTED",
+            "the Gmail filter list is larger than Senderban reads",
+          );
+        }
+        throw error;
+      }
+      const { status, json } = answer;
       if (status !== 200) throw failure(status, json, "filters list");
       const parsed = ListAnswer.safeParse(json);
       if (!parsed.success) throw malformed("filters list");

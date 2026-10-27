@@ -217,6 +217,8 @@ export class GmailBudgets {
       readonly key: string;
       readonly account: string;
       readonly log?: (event: GmailLogEvent) => void;
+      /** Whether every call is logged, or only the refusals (default: every call). The app logs the HTTP status itself. */
+      readonly logCalls?: boolean;
     },
   ): GmailFilterClient {
     if (!ACCOUNT_TAG.test(options.account)) {
@@ -230,6 +232,9 @@ export class GmailBudgets {
       } catch {
         // a log must not break a call
       }
+    };
+    const emitCall = (event: GmailLogEvent): void => {
+      if (options.logCalls !== false) emit(event);
     };
     const run = async <T>(
       op: keyof typeof GMAIL_UNITS,
@@ -254,7 +259,7 @@ export class GmailBudgets {
       const started = this.#now();
       try {
         const value = await call();
-        emit({
+        emitCall({
           event: "gmail-call",
           account: options.account,
           op,
@@ -270,7 +275,7 @@ export class GmailBudgets {
             : error instanceof AdapterError
               ? error.code
               : "TRANSIENT";
-        emit({
+        emitCall({
           event: "gmail-call",
           account: options.account,
           op,

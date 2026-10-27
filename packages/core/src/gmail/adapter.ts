@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   AdapterError,
@@ -104,6 +105,8 @@ type FilterRecord = z.infer<typeof FilterRecord>;
 const Refusal = z.strictObject({
   value: z.string().min(3).max(254),
   by: z.string().regex(GMAIL_FILTER_ID),
+  /** The block-list entry it was for, so an Unblock of it can be answered; absent in a state written before this existed. */
+  id: z.uuid().optional(),
 });
 type Refusal = z.infer<typeof Refusal>;
 
@@ -205,14 +208,20 @@ const matches = (remote: GmailFilter, record: FilterRecord): boolean =>
  * The entries this lane mirrors: single addresses the person blocked with Trash that the query contract lets through.
  * Anything else is left to the other lanes.
  */
-function mirrored(list: Blocklist): Map<string, BlockEntry> {
+function mirrored(
+  list: Blocklist,
+  exclude?: (address: string) => boolean,
+): Map<string, BlockEntry> {
   const out = new Map<string, BlockEntry>();
   for (const raw of list) {
+    // The cheap test first: a Junk or a domain entry is nobody's business here, and a list holds thousands.
+    if (raw.match !== "exactAddress" || raw.action !== "trash") continue;
     const checked = checkEntry(raw);
     if (!checked.ok) continue;
     const { entry } = checked;
     if (entry.match !== "exactAddress" || entry.action !== "trash") continue;
     if (!isGmailMirrorable(entry.value)) continue;
+    if (exclude?.(entry.value) === true) continue;
     out.set(entry.value, entry);
   }
   return out;
@@ -352,6 +361,11 @@ export interface GmailAdapterOptions {
   readonly roundBudgetMs?: number;
   readonly retryDelayMs?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /**
+   * Addresses the lane never mirrors (the person's own mailboxes): a forged own address that was blocked would send the
+   * person's own mail to Trash. An address already in a filter that becomes excluded is taken out like an Unblock.
+   */
+  readonly exclude?: (address: string) => boolean;
 }
 
 const defaultSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -407,6 +421,9 @@ export class GmailAdapter implements BlockAdapter {
   readonly #budgetMs: number;
   readonly #retryDelayMs: number;
   readonly #sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  readonly #exclude: ((address: string) => boolean) | undefined;
+  /** The inputs of the last plan that had nothing to do: the same inputs have nothing to do again (see `plan`). */
+  #idleKey: string | null = null;
   /** Set while the account's filters are being taken out: no round starts (see `suspend`). */
   #suspended = false;
   /** Set once the account is gone for good (see `retire`). */
@@ -423,6 +440,7 @@ export class GmailAdapter implements BlockAdapter {
     this.#now = options.now ?? Date.now;
     this.#budgetMs = options.roundBudgetMs ?? GMAIL_ROUND_BUDGET_MS;
     this.#retryDelayMs = options.retryDelayMs ?? GMAIL_RETRY_DELAY_MS;
+    this.#exclude = options.exclude;
     this.#sleep = options.sleep ?? defaultSleep;
   }
 
@@ -463,6 +481,17 @@ export class GmailAdapter implements BlockAdapter {
     this.#retired = true;
   }
 
+  /** What a plan depends on, as one short value: the mirrorable part of the list (which addresses) and the whole state. */
+  #planKey(list: Blocklist, state: OpaqueState): string {
+    const hash = createHash("sha256");
+    for (const raw of list) {
+      if (raw.match !== "exactAddress" || raw.action !== "trash") continue;
+      if (this.#exclude?.(raw.value) === true) continue;
+      hash.update(raw.value).update("\n");
+    }
+    return hash.update("\0").update(JSON.stringify(state.data)).digest("base64");
+  }
+
   plan(list: Blocklist, state: OpaqueState): Promise<Plan> {
     if (this.#retired) {
       return Promise.resolve({ accountId: this.#accountId, changes: [], basedOn: state });
@@ -471,8 +500,14 @@ export class GmailAdapter implements BlockAdapter {
       return Promise.reject(new AdapterError("TRANSIENT", "Gmail filters are being removed"));
     }
     try {
+      // A block click plans every lane, and a list holds thousands: the same list over the same state that had nothing to
+      // do last time has nothing to do now (a plan is a pure function of the two), and is answered without parsing either.
+      const key = this.#planKey(list, state);
+      if (key === this.#idleKey) {
+        return Promise.resolve({ accountId: this.#accountId, changes: [], basedOn: state });
+      }
       const current = parseState(state);
-      const wanted = mirrored(list);
+      const wanted = mirrored(list, this.#exclude);
       const refused = new Set(current.refused.map((r) => r.value));
       // An address in an unconfirmed create is not added a second time until a round has settled that create.
       const pending = new Set(current.intent.flatMap((i) => i.entries.map((e) => e.value)));
@@ -487,13 +522,21 @@ export class GmailAdapter implements BlockAdapter {
         adds,
         GMAIL_MAX_REWRITES_PER_ROUND,
       );
-      const changes = rewrites.flatMap((r) => r.takes);
+      // An Unblock of an address that an identical filter Senderban did not write holds (a refusal): there is nothing of ours
+      // to delete, and the round says so instead of looking done.
+      const heldByOthers = current.refused.flatMap((r) =>
+        r.id !== undefined && !wanted.has(r.value)
+          ? [change("remove", toEntry({ id: r.id, value: r.value }))]
+          : [],
+      );
+      const changes = [...rewrites.flatMap((r) => r.takes), ...heldByOthers];
       // Stale filters (a delete that failed after its replacement was created) and unresolved intents (a create whose
       // answer never came back) must be dealt with by a round, and the engine only runs a round that has changes: one
       // marked change, with a placeholder address, carries that, and `apply` reads it as "clean up".
       // A refusal ends when the filter behind it is gone, and only a round (one list) can see that.
       const pendingWork =
         current.stale.length > 0 || current.intent.length > 0 || current.refused.length > 0;
+      this.#idleKey = changes.length === 0 && !pendingWork && left === 0 ? key : null;
       return Promise.resolve({
         accountId: this.#accountId,
         changes: changes.length === 0 && pendingWork ? [change("remove", CLEANUP_ENTRY)] : changes,
@@ -629,6 +672,24 @@ export class GmailAdapter implements BlockAdapter {
       });
     }
 
+    // An Unblock of an address that an identical filter of someone else's holds: nothing of ours to delete, and the sender
+    // is still trashed. Said once (the refusal ends with the report), never as done.
+    const heldByOthers = removes.filter((e) => work.refused.some((r) => r.value === e.value));
+    if (heldByOthers.length > 0) {
+      for (const entry of heldByOthers) {
+        failed.push({
+          entryId: entry.id,
+          error: new AdapterError(
+            "REMOTE_CHANGED",
+            "a Gmail filter that Senderban did not write still trashes this sender",
+          ),
+        });
+      }
+      const values = new Set(heldByOthers.map((e) => e.value));
+      work.refused = work.refused.filter((r) => !values.has(r.value));
+      save();
+    }
+
     // What an earlier round's intent took in may already hold some of these addresses: never a second copy of one.
     const inFilters = new Set(work.filters.flatMap((f) => f.entries.map((e) => e.value)));
     const { rewrites, left } = schedule(
@@ -652,7 +713,7 @@ export class GmailAdapter implements BlockAdapter {
             ...work.refused,
             ...rewrite.takes
               .filter((c) => c.kind === "create")
-              .map((c) => ({ value: c.entry.value, by: outcome.by })),
+              .map((c) => ({ value: c.entry.value, by: outcome.by, id: c.entry.id })),
           ].slice(-MAX_ENTRIES);
           save();
           for (const c of rewrite.takes) {

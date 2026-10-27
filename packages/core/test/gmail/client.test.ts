@@ -294,15 +294,15 @@ describe("Gmail filter client", () => {
     }
   });
 
-  it("a list over the byte cap is TRANSIENT with the size message, though every filter in it is valid", async () => {
+  it("a list over the byte cap is REJECTED (reading it again reads the same list), though every filter in it is valid", async () => {
     const { fake, client } = setup();
     // 1,900 filters (under the 2,000 entry cap) of about 1.2 KB: only the byte cap can reject this.
     const filter = (i: number) => ({ id: `f${String(i)}`, criteria: { query: "q".repeat(1_100) } });
     fake.listBody = JSON.stringify({ filter: Array.from({ length: 1_900 }, (_, i) => filter(i)) });
     expect(fake.listBody.length).toBeGreaterThan(GMAIL_LIST_MAX_BYTES);
     const { code, message } = await failed(client.list());
-    expect(code).toBe("TRANSIENT");
-    expect(message).toContain("larger than any valid one");
+    expect(code).toBe("REJECTED");
+    expect(message).toContain("larger than Senderban reads");
   });
 
   it("a list that declares a length over the cap is refused before its body is read", async () => {
@@ -310,8 +310,8 @@ describe("Gmail filter client", () => {
     fake.listBody = "{}";
     fake.listHeaders = { "content-length": String(GMAIL_LIST_MAX_BYTES + 1) };
     const { code, message } = await failed(client.list());
-    expect(code).toBe("TRANSIENT");
-    expect(message).toContain("larger than any valid one");
+    expect(code).toBe("REJECTED");
+    expect(message).toContain("larger than Senderban reads");
   });
 
   it("a list far over the old 64 KiB default but under the cap is read in full", async () => {

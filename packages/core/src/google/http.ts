@@ -16,6 +16,9 @@ export interface GoogleCall {
   readonly ms: number;
 }
 
+/** The words of the error for an answer over the cap; a caller that must tell it from a passing failure looks for them. */
+export const OVERSIZE = "larger than any valid one";
+
 /** Reads the body in chunks and stops at the cap; the message is a fixed text, never part of the answer. */
 export async function readBounded(
   response: Response,
@@ -23,7 +26,7 @@ export async function readBounded(
   maxBytes: number = GOOGLE_BODY_MAX_BYTES,
 ): Promise<string> {
   const tooLarge = (): AdapterError =>
-    new AdapterError("TRANSIENT", `Google answer is larger than any valid one (${what})`);
+    new AdapterError("TRANSIENT", `Google answer is ${OVERSIZE} (${what})`);
   const declared = Number(response.headers.get("content-length") ?? "0");
   if (declared > maxBytes) {
     await response.body?.cancel();
