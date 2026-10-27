@@ -10,17 +10,22 @@ export const GOOGLE_BODY_MAX_BYTES = 65_536;
 
 /** What the log may learn about a call: which operation, the HTTP status (null when it never got one), how long. */
 export interface GoogleCall {
-  readonly op: "token" | "refresh" | "revoke" | "profile";
+  readonly op:
+    "token" | "refresh" | "revoke" | "profile" | "filter-list" | "filter-create" | "filter-delete";
   readonly status: number | null;
   readonly ms: number;
 }
 
 /** Reads the body in chunks and stops at the cap; the message is a fixed text, never part of the answer. */
-export async function readBounded(response: Response, what: string): Promise<string> {
+export async function readBounded(
+  response: Response,
+  what: string,
+  maxBytes: number = GOOGLE_BODY_MAX_BYTES,
+): Promise<string> {
   const tooLarge = (): AdapterError =>
     new AdapterError("TRANSIENT", `Google answer is larger than any valid one (${what})`);
   const declared = Number(response.headers.get("content-length") ?? "0");
-  if (declared > GOOGLE_BODY_MAX_BYTES) {
+  if (declared > maxBytes) {
     await response.body?.cancel();
     throw tooLarge();
   }
@@ -32,7 +37,7 @@ export async function readBounded(response: Response, what: string): Promise<str
     const chunk = (await reader.read()) as { done: boolean; value?: Uint8Array };
     if (chunk.done || chunk.value === undefined) break;
     size += chunk.value.byteLength;
-    if (size > GOOGLE_BODY_MAX_BYTES) {
+    if (size > maxBytes) {
       await reader.cancel();
       throw tooLarge();
     }
