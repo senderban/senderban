@@ -24,6 +24,21 @@ function setup(
 }
 
 describe("unblock", () => {
+  it("does not confirm while the adapter says work is still waiting (a backlog, a filter it has to compare again)", async () => {
+    const { deps } = setup({
+      sync: (id) =>
+        Promise.resolve({ accountId: id, status: "applied", applied: 1, failed: 0, deferred: 3 }),
+    });
+    const result = await unblock(deps, ID);
+    expect(result).toEqual({
+      status: "unblocked",
+      accounts: [
+        { accountId: "a", confirmed: false, detail: "rule not removed: 3 change(s) still waiting" },
+        { accountId: "b", confirmed: false, detail: "rule not removed: 3 change(s) still waiting" },
+      ],
+    });
+  });
+
   it("removes the entry, then syncs and reads back every account", async () => {
     const { deps, remove, sync, verify } = setup();
     const result = await unblock(deps, ID);

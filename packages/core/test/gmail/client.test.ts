@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AdapterError } from "../../src/adapter.js";
 import type { AdapterErrorCode } from "../../src/adapter.js";
 import {
+  FilterExistsError,
   GMAIL_FILTERS_URL,
   GMAIL_LIST_MAX_BYTES,
   GMAIL_QUERY_MAX_CHARS,
@@ -118,6 +119,27 @@ describe("Gmail filter client", () => {
       expect(await codeOf(client.create(bad))).toBe("REJECTED");
     }
     expect(fake.calls).toHaveLength(1);
+  });
+
+  it("create: the same filter twice is a FilterExistsError (REJECTED), nothing else is", async () => {
+    const { fake, client } = setup();
+    await client.create(QUERY);
+    const second = client.create(QUERY);
+    expect(await codeOf(second)).toBe("REJECTED");
+    await expect(client.create(QUERY)).rejects.toBeInstanceOf(FilterExistsError);
+    expect(fake.filters.size).toBe(1);
+    // A 400 that is not "already exists" is a plain REJECTED, and so is "already exists" under another reason.
+    for (const body of [
+      { error: { message: "Invalid label", errors: [{ reason: "invalidArgument" }] } },
+      { error: { message: "Too many", errors: [{ reason: "failedPrecondition" }] } },
+      { error: { message: "Filter already exists", errors: [{ reason: "invalidArgument" }] } },
+      { error: { errors: [{ reason: "failedPrecondition" }] } },
+    ]) {
+      fake.forced.push({ status: 400, body });
+      const error = await client.create(QUERY).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(AdapterError);
+      expect(error).not.toBeInstanceOf(FilterExistsError);
+    }
   });
 
   it("remove: 204 is removed and 404 is gone", async () => {

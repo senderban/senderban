@@ -32,8 +32,13 @@ export function isEntryId(value: unknown): value is string {
 function syncProblem(outcome: SyncOutcome): string | null {
   switch (outcome.status) {
     case "unchanged":
-    case "applied":
       return null;
+    case "applied":
+      // Work an adapter left for a later round (a backlog past its cap, a filter it has to compare again) may be this
+      // very rule: not done is not confirmed.
+      return (outcome.deferred ?? 0) > 0
+        ? `${String(outcome.deferred)} change(s) still waiting`
+        : null;
     case "partial":
       return `${String(outcome.failed)} change(s) failed`;
     case "failed":

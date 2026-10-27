@@ -29,14 +29,22 @@ export class FakeGmail {
   units = 0;
   /** Forced answers for the next requests, consumed one per request: a status, or a status with a JSON body. */
   readonly forced: (number | { status: number; body: unknown })[] = [];
+  /** Forced answers for the next requests of one method only (`POST`, `DELETE`, `GET`), consumed one per request; `"pass"` lets that one request through. */
+  readonly forcedFor = new Map<string, (number | "pass" | { status: number; body: unknown })[]>();
+  /** The next POSTs create the filter and then answer this status: an answer that was lost on its way back. */
+  createThenFail: number[] = [];
   /** Makes the next requests throw like a network failure. */
   failNetwork = 0;
   /** Resolves before the answer is built, so a test can hold a request open. */
   hold: Promise<void> | null = null;
+  /** Holds every request after this many calls have been made (a round whose later calls hang). */
+  holdFromCall: number | null = null;
   /** Replaces the body of the next list answer. */
   listBody: string | null = null;
   /** Headers of the next list answer (for example a `content-length` the body does not match). */
   listHeaders: Record<string, string> = {};
+  /** Runs inside the next POST before it is checked: another actor (the person, another device) writing at that moment. */
+  beforeCreate: (() => void) | null = null;
   /** The access token the fake accepts. */
   token = "ya29.fake-access-token";
   #next = 1;
@@ -68,7 +76,12 @@ export class FakeGmail {
       signal: init?.signal,
       redirect: init?.redirect,
     });
-    if (this.hold !== null) {
+    const hold =
+      this.hold ??
+      (this.holdFromCall !== null && this.calls.length > this.holdFromCall
+        ? new Promise<void>(() => undefined)
+        : null);
+    if (hold !== null) {
       // Like a real fetch, a held request ends when its signal aborts.
       const signal = init?.signal;
       const aborted = new Promise<never>((_, reject) => {
@@ -85,14 +98,15 @@ export class FakeGmail {
           { once: true },
         );
       });
-      await Promise.race([this.hold, aborted]);
+      await Promise.race([hold, aborted]);
     }
     init?.signal?.throwIfAborted();
     if (this.failNetwork > 0) {
       this.failNetwork -= 1;
       throw new TypeError("fetch failed");
     }
-    const forced = this.forced.shift();
+    const forcedHere = this.forcedFor.get(method)?.shift();
+    const forced = forcedHere === "pass" ? undefined : (forcedHere ?? this.forced.shift());
     if (forced !== undefined) {
       return typeof forced === "number"
         ? new Response(null, { status: forced })
@@ -126,6 +140,14 @@ export class FakeGmail {
       if (typeof query === "string" && query.length > QUERY_WALL) {
         return error(500, "backendError", "Backend Error");
       }
+      this.beforeCreate?.();
+      // Measured live 2026-10-27: Gmail holds no two identical filters.
+      const same = (x: unknown, y: unknown): boolean => JSON.stringify(x) === JSON.stringify(y);
+      for (const f of this.filters.values()) {
+        if (same(f.criteria, parsed.criteria ?? {}) && same(f.action, parsed.action ?? {})) {
+          return error(400, "failedPrecondition", "Filter already exists");
+        }
+      }
       const id = `filter-${String(this.#next)}`;
       this.#next += 1;
       const filter: FakeFilter = {
@@ -134,6 +156,8 @@ export class FakeGmail {
         action: parsed.action ?? {},
       };
       this.filters.set(id, filter);
+      const lost = this.createThenFail.shift();
+      if (lost !== undefined) return new Response(null, { status: lost });
       return new Response(JSON.stringify(filter), { status: 200 });
     }
     if (method === "DELETE" && rest.startsWith("/")) {

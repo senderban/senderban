@@ -39,7 +39,7 @@ const LIST_MAX = 2_000;
  * only of dots; it is always `encodeURIComponent`-ed into the path anyway. One shape for what Google may send and what
  * we send back, so an id we accepted can always be deleted. Unit: characters, 1 to 256. PROVISIONAL (upper bound).
  */
-const FILTER_ID = /^(?!\.+$)(?!.*[/\\?#%])[!-~]{1,256}$/u;
+export const GMAIL_FILTER_ID = /^(?!\.+$)(?!.*[/\\?#%])[!-~]{1,256}$/u;
 
 /**
  * Text fields of a filter's criteria, characters. Above the 28,003 wall measured for `query` (Google cannot hold a
@@ -76,7 +76,7 @@ const Action = z.looseObject({
   forward: z.string().max(FORWARD_MAX_CHARS).optional(),
 });
 const FilterAnswer = z.looseObject({
-  id: z.string().regex(FILTER_ID),
+  id: z.string().regex(GMAIL_FILTER_ID),
   criteria: Criteria.optional(),
   action: Action.optional(),
 });
@@ -90,6 +90,18 @@ export type GmailFilter = z.infer<typeof FilterAnswer>;
 export interface GmailFilterList {
   readonly filters: readonly GmailFilter[];
   readonly unreadable: number;
+}
+
+/**
+ * Gmail holds no two identical filters: a second create with the same criteria and action answers `400`, reason
+ * `failedPrecondition`, "Filter already exists" (measured 2026-10-27). Still a REJECTED error, but the adapter can tell
+ * it from every other refusal: it means a filter with exactly this content is already there, ours from a lost answer or the person's.
+ */
+export class FilterExistsError extends AdapterError {
+  constructor() {
+    super("REJECTED", "Gmail already has an identical filter");
+    this.name = "FilterExistsError";
+  }
 }
 
 /** The one action this lane writes: the mail stays, in Trash (a filter does not accept `SPAM`, measured). */
@@ -118,6 +130,13 @@ export interface GmailClientOptions {
   readonly timeoutMs?: number;
   /** Called once per request, when the answer's headers are in (or when no answer came). */
   readonly onCall?: (call: GoogleCall) => void;
+}
+
+/** `failedPrecondition` alone is not enough (other preconditions exist): the message must say it too. Read, never repeated. */
+function isAlreadyExists(json: unknown): boolean {
+  if (googleErrorReason(json) !== "failedPrecondition") return false;
+  const message = ((json as { error?: { message?: unknown } }).error ?? {}).message;
+  return typeof message === "string" && /already exists/iu.test(message);
 }
 
 type FilterOp = "filter-list" | "filter-create" | "filter-delete";
@@ -222,6 +241,7 @@ export function createGmailClient(options: GmailClientOptions): GmailFilterClien
         GOOGLE_BODY_MAX_BYTES,
         signal,
       );
+      if (status === 400 && isAlreadyExists(json)) throw new FilterExistsError();
       if (status !== 200) throw failure(status, json, "filter create");
       const parsed = FilterAnswer.safeParse(json);
       if (!parsed.success) throw malformed("filter create");
@@ -229,7 +249,7 @@ export function createGmailClient(options: GmailClientOptions): GmailFilterClien
     },
 
     async remove(id, signal) {
-      if (!FILTER_ID.test(id)) {
+      if (!GMAIL_FILTER_ID.test(id)) {
         throw new AdapterError("REJECTED", "the filter id is not a valid value");
       }
       const { status, json } = await call(

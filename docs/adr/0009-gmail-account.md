@@ -52,13 +52,19 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
      3. `criteria.from` also matches the sender's **display name** (read), so it is wider than Sieve `address :is`; the domain terms and the
         `exactDomain`/`subdomains` capabilities are declared only after G1 has measured the match;
      4. `verify()` reads each filter back and compares criteria and action byte for byte with what was compiled.
-   - **Ownership** is the filter **id recorded in the local journal** (written before the create, completed after) **plus** exact equality
-     of criteria and action on read-back. The earlier idea of a marker in the criteria is dropped as the ownership test: `query` and
-     `negatedQuery` are free text, so a marker changes what the filter matches, and a marker that is a constant in this public repo would let
-     any sender put it in a mail and walk past every filter. A marker may exist only for crash recovery, as a **per-install random value of
-     ≥ 128 bits**, and only if G1 shows its placement does not change matching. A filter with our marker but an unknown id or changed content
-     is reported `REMOTE_CHANGED` and never deleted automatically (the Sieve lane behaves the same way). Gmail has no update, so a filter
-     the person edited in Gmail is a new filter that must stay untouched.
+   - **Ownership** is the filter **id in this lane's state** **plus** exact equality of criteria and action on read-back (criteria
+     exactly `{ query }`, action exactly `{ addLabelIds: ["TRASH"] }`). No marker in the criteria: `query` and `negatedQuery` are free
+     text, so a marker changes what the filter matches, and a constant in this public repo would let any sender walk past every filter.
+     **The engine drops a round at 60 s together with what `apply` returned**, so the state must be saved _during_ the round
+     (the adapter takes a `checkpoint` callback, bound to `store.setState` for the lane): an **intent** (the entries about to be
+     written, and the filter they replace) is saved before each `create`, the new filter right after it, the delete after that.
+     Gmail refuses a second identical filter (`400 failedPrecondition`, measured 2026-10-27), so a create whose answer was lost cannot
+     make a duplicate: the next round reads the list, and a filter with exactly an intent's content that is not in the state is that
+     create, and is taken in; the filter it replaced becomes `stale` and is deleted first. An identical filter that was already there
+     when a round began and matches no intent is **not ours** (the person's, or another install's): never adopted, edited or deleted;
+     its addresses are recorded as `refused` (they are blocked by it) so one of them cannot hold up the rest. A filter of ours that no
+     longer reads as written is forgotten, never touched, and what is still wanted goes into a new filter. Narrow race, accepted: if the
+     person writes an identical filter in the seconds between a round's list and its create, it is taken for ours.
 5. **Watcher.** `users.history.list` with `startHistoryId`, `historyTypes=messageAdded`, `labelId=INBOX` (the IMAP watcher reads INBOX
    only; without it the person's own sent mail and drafts would be announced with a Block button on their own address), then
    `messages.get` with `format=metadata` for the new ids only, re-checking the message `labelIds`. Paging is capped per drain (excess
@@ -171,8 +177,10 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
 - **G1:** `criteria.query` of 353 up to **14,003** characters (400 quoted addresses) was accepted; **28,003** characters answered
   `500 backendError` (an undocumented limit lies between). The earlier ~1,400–1,500 figure (secondary source) is wrong for the API.
   Consequences: capacity per filter is a named constant far below the wall (PROVISIONAL **50 addresses**, about 1.8 k characters);
-  a `5xx` on `filters.create` is **not** retried blindly: the adapter retries at most twice, then reports the entry as failed and
-  visible, because an oversized query would otherwise loop forever as "transient".
+  a `5xx` or a timeout on `filters.create` leaves the outcome unknown, so it is **not** retried blindly: the list is read first (after every
+  failed attempt, the last included), at most two retries, then the round fails (a rewrite already saved as an intent is found again by the
+  next round). A refusal (`REJECTED`, `AUTH_REQUIRED`, a rate limit) created nothing, so its intent is dropped. An oversized query would
+  otherwise loop forever as "transient".
 - **Scope:** `filters.list`, `create` and `delete` all worked with `gmail.settings.basic` + `gmail.metadata`; `getProfile` works with
   that set. The filters page does not name the scope; this is the measurement.
 - **Token life:** in "Testing" Google returned `refresh_token_expires_in: 604799` (7 days): `signIn` passes it on as
