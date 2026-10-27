@@ -177,13 +177,15 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   that set. The filters page does not name the scope; this is the measurement.
 - **Token life:** in "Testing" Google returned `refresh_token_expires_in: 604799` (7 days): `signIn` passes it on as
   `refreshTokenExpiresInSeconds`. Access token `expires_in` 3599; refresh token 103 characters (limit 512).
+  In "In production" the same call returned no such field (G4 below).
 
 ## Not decided / open
 
-- G4: "In production" is **blocked by Google until the Branding page has a homepage URL and a privacy policy URL** (the Publish button
-  is disabled with that text). Needs Ali: two URLs (a privacy policy that carries the Limited Use statement of 008). Until then the
-  refresh token lives 7 days and a Gmail account must be signed in again every week. The check that closes G4: after publishing, sign
-  in again and see whether `refresh_token_expires_in` is gone.
+- G4: **closed (2026-10-27).** Publish needed a homepage and a privacy policy URL on the Branding page (`https://senderban.com/` and
+  `https://senderban.com/privacy/`, authorized domain `senderban.com`); the project is now "In production", not submitted for
+  verification. A fresh sign-in through the real `signIn` returned `signed-in` with **no `refresh_token_expires_in`** (Testing: 604799),
+  so the 7-day limit is gone. Consent still shows "Google hasn't verified this app" (expected; 100-user lifetime cap applies, and the
+  consent page shows no privacy link until the branding is verified). Verification itself is not started.
 - G3, G5, G6 (new-mail-only filter, the label read for the old "magic folder" idea, notification latency and unit use). The BLOCK-1
   probe (how `-term` inside `from:( … )` is read) needs a read scope we do not request; the contract (quoted terms + local-part
   allowlist) is kept regardless.
