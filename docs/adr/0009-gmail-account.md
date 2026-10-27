@@ -198,6 +198,15 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   sees `400 exists`, and the adapter must tell "ours from the lost attempt" (absent from the round's first list) from "the person's"
   (present in it): only the first is adopted, the second is never touched. Probe: one `.invalid` address, created twice, deleted (204),
   filter count 1 before and 1 after.
+- **The adapter driven live (2026-10-27, A2c + A2d at senderban `c30fa65`, fresh sign-in, fake `*@a2-probe.invalid` addresses, Ali's
+  own filter present throughout):** every filter Google returned, ours or not, has exactly the keys `id`, `criteria`, `action`; ours have
+  `criteria` = `{query}` only and `action` = `{addLabelIds: ["TRASH"]}` only, so the ownership read-back (exact key set + exact
+  query) holds on real Gmail. The read-back query was byte for byte the compiled one for a 10-address filter (263 characters), a
+  50-address filter (1,303) and a 49-address rewrite (1,277). Rounds: 10 addresses 1 round / 310 ms; growing to 60 (one rewrite + one new
+  filter) 1 round / 676 ms; one removal = `list` 96 ms + `create` 184 ms + `delete` 124 ms (1 round, 411 ms); unblock of all 59 = 1 round,
+  417 ms. `verify` reported no drift after every settled round. Filter count 1 before, 1 after, same id. Calls: `list` 96–164 ms,
+  `create` 172–257 ms, `delete` 124–134 ms; the whole drive was 14 calls = 46 quota units, no refusal from our budget. Not
+  measured: a failure in the middle (the intent paths run on the fake only), a mailbox with hundreds of filters, a non-ASCII `from:` term.
 
 ## Not decided / open
 
