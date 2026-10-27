@@ -62,7 +62,17 @@ npm run dist -w apps/desktop   # apps/desktop/release/Senderban-Setup-<version>.
 
 A per-user installer (no administrator rights). It is **unsigned** for v0.1, so Windows SmartScreen
 shows a warning on first run. A tagged build in GitHub Actions also writes `SHA256SUMS` and a build
-provenance attestation; check a download with `gh attestation verify <file> --repo senderban/senderban`.
+provenance attestation. Check a download against the release workflow and the tag it came from:
+
+```sh
+gh attestation verify Senderban-Setup-X.Y.Z.exe --repo senderban/senderban \
+  --signer-workflow senderban/senderban/.github/workflows/release.yml \
+  --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners
+```
+
+**Uninstall:** Windows removes the program but keeps `%APPDATA%\Senderban` (encrypted account secrets, the block list, logs). Before
+uninstalling, remove each Gmail account under _Gmail accounts_ in the _Blocked senders_ window (that also revokes Senderban's access at
+Google) and remove an MXroute key under _Advanced_; then delete the folder yourself. IMAP passwords are kept encrypted in the same folder.
 Details and what was measured: [docs/adr/0010-windows-installer.md](docs/adr/0010-windows-installer.md).
 
 ## License

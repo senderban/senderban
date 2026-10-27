@@ -23,9 +23,20 @@ Status: accepted (2026-10-27) for the build and install; the toast click through
 - **Contents:** `package.json`, `dist`, `assets`, no source maps, no tests; the workspace package `@senderban/core` is copied but only its
   built `dist` is kept. Packaged app: 1,413 files in `app.asar` (11 MB before trimming); the installer is about 122 MB (Electron).
 - **Unsigned for v0.1** (docs 010: SignPath after the first release; Azure Artifact Signing is closed to an individual in Turkey).
-  `.github/workflows/release.yml` builds from a `vX.Y.Z` tag, writes `SHA256SUMS` and a build-provenance attestation (actions pinned to
-  commit SHAs: attest-build-provenance v4.2.2, upload-artifact v7.0.2) and keeps both as workflow artifacts. It creates **no** GitHub
-  Release: publishing stays a deliberate step.
+  `.github/workflows/release.yml` builds from a `vX.Y.Z` tag and keeps `SHA256SUMS` and the installer as workflow artifacts. It creates
+  **no** GitHub Release: publishing stays a deliberate step. Actions are pinned to commit SHAs (checkout v7.0.1, setup-node v7.1.0,
+  upload-artifact v7.0.2, download-artifact v8.0.2, attest-build-provenance v4.2.2). After the security review of 2026-10-27:
+  - two jobs: `build` (install scripts, tests, build; no signing authority) and `attest` (only download, `sha256sum --check`, attest;
+    holds `id-token: write`), so a dependency's code cannot get a provenance for a file of its own;
+  - only a pushed version tag is attested; a manual run builds but is not attested; the tag must equal the app version (`vX.Y.Z` against
+    `apps/desktop/package.json`), else the build stops; no npm cache in the release build;
+  - the README verify command pins `--signer-workflow`, `--source-ref` and `--deny-self-hosted-runners`.
+  - Not done, needs the repository owner: a tag ruleset on `refs/tags/v*` (no update or delete), a branch ruleset on `main`, and the Actions
+    policy "require SHA pinning" (`gh api repos/senderban/senderban/actions/permissions`: `sha_pinning_required: false`, `allowed_actions: all`).
+- **Asar integrity** is on, but while the exe is unsigned it only detects a changed `app.asar`, not a changed exe: an attacker who can
+  write the install folder (same user) can replace the exe too. It is a hygiene fuse, not a tamper defence, until the exe is signed.
+- **Uninstall keeps the user data** (`%APPDATA%\Senderban`, `deleteAppDataOnUninstall: false`: an `appId` change must never wipe accounts).
+  The README says what stays and how to remove accounts first (a removed Gmail account is revoked at Google).
 
 ## Measured (2026-10-27, Windows 11 26200, Node 24.14.1)
 
