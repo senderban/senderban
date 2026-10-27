@@ -527,6 +527,7 @@ async function start(): Promise<Runtime> {
     // Its own gate: a Google outage (every poll waiting out its request) must not hold the slots the IMAP logins need.
     gate: createGate(MAX_CONCURRENT_GMAIL_POLLS),
     isHeld: (laneId) => heldGmailLanes.has(laneId),
+    isOwn: (address) => isOwnMailbox(address, own.get()),
     pending,
     showMail: (toast) => {
       toasts?.show(toast);

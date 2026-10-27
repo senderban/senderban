@@ -146,6 +146,11 @@ export async function blockPending(
   if (trashOnly && scope === "domain") {
     return { status: "refused", detail: "a Gmail filter takes single addresses only" };
   }
+  // The Gmail filter lane would refuse an own address anyway; the click says so up front instead of adding it to the list for
+  // the other accounts' rules to carry out.
+  if (trashOnly && isOwnMailbox(sender, deps.own)) {
+    return { status: "refused", detail: "this is one of your own addresses" };
+  }
   const action: BlockAction = trashOnly ? "trash" : requested;
   const target = scope === "domain" ? blockableDomain(sender) : sender;
   if (target === null) {

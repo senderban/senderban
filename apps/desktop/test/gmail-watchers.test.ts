@@ -26,6 +26,7 @@ function setup(
   ids: readonly string[] = ["g1"],
   random = () => 0,
   isHeld?: (laneId: string) => boolean,
+  isOwn?: (address: string) => boolean,
 ) {
   const fake = new FakeGmail();
   const refresh = vi.fn(() =>
@@ -57,6 +58,7 @@ function setup(
     showMail: (toast) => void shown.push(toast),
     notice: (title, body) => void notices.push({ title, body }),
     ...(isHeld === undefined ? {} : { isHeld }),
+    ...(isOwn === undefined ? {} : { isOwn }),
     labelOf: (laneId) => `${laneId} (Gmail)`,
     onState: (laneId, state) => void trayStates.push([laneId, state]),
     log,
@@ -122,6 +124,23 @@ describe("createGmailWatchers: new mail", () => {
     expect(t.pending.size).toBe(0);
     expect(t.notices).toHaveLength(1);
     expect(t.notices[0]?.body).toContain("no Block button");
+  });
+
+  it("announces a message that claims to come from the person's own address without a Block button", async () => {
+    const t = setup(
+      ["g1"],
+      () => 0,
+      undefined,
+      (a) => a === "me@gmail.com",
+    );
+    await started(t);
+    t.fake.deliver({ from: "me@gmail.com", subject: "forged?" });
+    await tick(2 * MINUTE);
+    expect(t.shown).toHaveLength(0);
+    expect(t.pending.size).toBe(0);
+    expect(t.notices).toHaveLength(1);
+    expect(t.notices[0]?.body).toContain("your own address");
+    expect(JSON.stringify(t.logs)).not.toContain("me@gmail.com");
   });
 
   it("logs the domain and fixed words, never the address or the subject", async () => {

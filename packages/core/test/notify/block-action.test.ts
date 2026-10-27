@@ -118,6 +118,15 @@ describe("blockPending for an account that takes Trash and single addresses only
     expect(run.sync).not.toHaveBeenCalled();
   });
 
+  it("refuses the person's own address (also in its Gmail spellings) and writes nothing", async () => {
+    for (const sender of ["me@gmail.com", "m.e+x@gmail.com"]) {
+      const run = setup({ sender, ownAddresses: ["me@gmail.com"] });
+      const result = await blockPending({ ...run.deps, trashOnlyAccount: onlyA }, ID, "address");
+      expect(result).toEqual({ status: "refused", detail: "this is one of your own addresses" });
+      expect(run.add).not.toHaveBeenCalled();
+    }
+  });
+
   it("leaves every other account's click as it was", async () => {
     const run = setup();
     await blockPending({ ...run.deps, trashOnlyAccount: (id) => id === "b" }, ID, "address");
