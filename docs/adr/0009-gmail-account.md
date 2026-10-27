@@ -232,6 +232,22 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   it answers `filters-left`; the journal row keeps 20 failures plus a count, and each request writes one log line (`gmail-http`).
   Not fixed, known: an Unblock that shrinks `{a,b}` to `{a}` while a foreign filter holds `a` reports `foreign` every round and `b`
   stays trashed.
+- **New-mail reading driven live (G6, 2026-10-27, W-b `mail-client` against Ali's own mailbox, project `senderban-byo` "In production",
+  fresh sign-in, token revoked afterwards; real mail from one other address of Ali's, two mails received):** `profile` answers a decimal
+  `historyId` string. `history.list` with no new mail answers `200 {"historyId":"…"}` with **no `history` key** (the schema treats it as
+  optional). `startHistoryId` is **exclusive**: asked from a message's own `historyId`, that message is not listed; asked from the
+  `historyId` the previous answer returned, nothing repeats. A **future** id and id `1` both answer `404 NOT_FOUND` with the same body
+  (`reason notFound`), so a future cursor reads as a gap, not as an empty page. `messages.get` with
+  `format=metadata&metadataHeaders=From&metadataHeaders=Subject&fields=id,labelIds,payload/headers` is **accepted** (200, 375 bytes) and
+  carries exactly `id`, `labelIds`, `payload.headers`; without `fields` it is 512 bytes (adds `threadId`, `sizeEstimate`, `historyId`,
+  `internalDate`) and, with these scopes, **no `snippet` either way**. A missing message id answers `404` (the client's `"gone"`). Labels
+  seen on a new mail: `UNREAD`, `IMPORTANT`, `CATEGORY_PERSONAL`, `INBOX`. The mailbox `historyId` also moves without any new INBOX
+  mail (three moves in 12 minutes while the mailbox was in use: reads and label changes), so the cursor advances on idle polls too.
+  **Latency, one sample:** mail received 18:20:47 (`internalDate`, one-second resolution), listed by a 5-second poll 17.9 s later, so
+  Google's own lag is about 13–18 s; at the 60 s cadence the watcher adds up to a further minute. A second sample was not obtained
+  (the second mail never came). **Units:** 140 calls in 12 minutes (138 `history.list`, 1 `profile`, 1 `messages.get`), about 297 units
+  at 5-second polling; at 60 s it is 2 units per idle minute. **Not measured:** what a 404 costs in quota, a sustained hours-long run at
+  the 60 s cadence on the unverified project, sleep/resume, a mail that is not in INBOX, a `Reply-To`/multi-`From` mail, a gap older than a week.
 
 ## Not decided / open
 
