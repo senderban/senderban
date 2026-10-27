@@ -288,6 +288,24 @@ describe("GmailWatcher: pages and gaps", () => {
     expect(t.watcher.current).toBe("watching");
   });
 
+  it("a history page too big to read starts again from the present, says so once, and does not ask for that page again", async () => {
+    const t = setup();
+    await started(t);
+    t.fake.deliver({ from: "a@x.example" });
+    t.fake.forced.push({ status: 200, body: { historyId: "1001", pad: "x".repeat(70_000) } });
+    await tick(GMAIL_POLL.baseMs);
+    expect(t.gaps).toEqual(["too-large"]);
+    expect(t.messages).toEqual([]);
+    expect(t.store.get("acct")).toBe(String(t.fake.historyId));
+    expect(t.polls.at(-1)).toMatchObject({ outcome: "gap" });
+    expect(t.watcher.current).toBe("watching");
+    // The next poll reads from the new cursor and is quiet: no endless retry of the oversized page.
+    const before = t.historyCalls();
+    await tick(GMAIL_POLL.baseMs + GMAIL_POLL.jitterMs);
+    expect(t.historyCalls() - before).toBe(1);
+    expect(t.gaps).toEqual(["too-large"]);
+  });
+
   it("records that did not fit the shape are reported, and the rest is announced", async () => {
     const t = setup();
     await started(t);
@@ -414,8 +432,10 @@ describe("GmailWatcher: failures", () => {
         perMinute: 1_100,
         perAccountDay: 5_000,
         allAccountsDay: 100_000,
-        mailPerAccountDay: 1 + GMAIL_MAIL_UNITS.history,
-        mailAllAccountsDay: 250_000,
+        pollPerAccountDay: 1 + GMAIL_MAIL_UNITS.history,
+        pollAllAccountsDay: 200_000,
+        readPerAccountDay: 6_000,
+        readAllAccountsDay: 150_000,
       },
     });
     const t = setup({ budgets });
@@ -480,7 +500,7 @@ describe("GmailWatcher: timing, one flight, stop and resume", () => {
       expect(t.historyCalls()).toBeGreaterThan(1_380);
       expect(t.historyCalls()).toBeLessThan(1_500);
       const spent = t.historyCalls() * GMAIL_MAIL_UNITS.history + GMAIL_MAIL_UNITS.profile;
-      expect(t.budgets.remainingMail("a").accountDay).toBe(4_500 - spent);
+      expect(t.budgets.remainingPoll("a").accountDay).toBe(3_600 - spent);
     },
   );
 
@@ -695,8 +715,10 @@ describe("GmailWatcher: bounded memory", () => {
         perMinute: 10_000_000,
         perAccountDay: 10_000_000,
         allAccountsDay: 10_000_000,
-        mailPerAccountDay: 10_000_000,
-        mailAllAccountsDay: 10_000_000,
+        pollPerAccountDay: 10_000_000,
+        pollAllAccountsDay: 10_000_000,
+        readPerAccountDay: 10_000_000,
+        readAllAccountsDay: 10_000_000,
       },
     });
     const t = setup({ maxPerDrain: 25, budgets });

@@ -34,23 +34,43 @@ export const GMAIL_UNITS_PER_ACCOUNT_DAY = 5_000;
 export const GMAIL_UNITS_PER_DAY_ALL = 100_000;
 
 /**
- * Units one account may spend on reading new mail in 24 hours. Unit: quota units. One `history.list` a minute is 1,440 calls =
- * 2,880 units, and each new mail is one `messages.get` = 20, so 4,500 leaves room for 81 mails a day on top (the assumed 50 a day is
- * 1,000). PROVISIONAL: the real mail volume is not measured (G6). The mail poll has lines of its own, apart from the filter lane's,
- * so a busy inbox cannot starve a block and a block round cannot silence the poll.
+ * Units one account may spend on POLLING for new mail in 24 hours (`profile`, `history.list`). Unit: quota units. One
+ * `history.list` a minute is 1,440 calls = 2,880 units, and a window of 24 hourly buckets plus the running one can hold up to 25
+ * hours of it (3,000); 3,600 leaves 20% for extra pages and first-run profiles. The poll has a line of its own so that a flood of
+ * mail cannot silence it (review W3, 2026-10-27: on one shared 4,500 line only 75 to 81 mails a day fit, and past that the poll itself
+ * stopped). PROVISIONAL.
  */
-export const GMAIL_MAIL_UNITS_PER_ACCOUNT_DAY = 4_500;
+export const GMAIL_POLL_UNITS_PER_ACCOUNT_DAY = 3_600;
 /**
- * Units all Gmail accounts together may spend on reading new mail in 24 hours. Unit: quota units. 50 accounts (MAX_ACCOUNTS) at
- * 4,500 are 225,000; the ceiling is that plus a margin, so one runaway account stops at its own line and a bug that runs on every
- * account stops here. At 100,000 (the filter lane's line) the poll alone would be silenced from about the 25th account.
+ * Units all Gmail accounts together may spend on polling in 24 hours. Unit: quota units. 50 accounts (MAX_ACCOUNTS) at 3,600 are
+ * 180,000; the ceiling is 200,000, so one runaway account stops at its own line and a bug that runs on every account stops here.
  */
-export const GMAIL_MAIL_UNITS_PER_DAY_ALL = 250_000;
+export const GMAIL_POLL_UNITS_PER_DAY_ALL = 200_000;
+/**
+ * Units one account may spend on READING new mail (`messages.get`, 20 each) in 24 hours. Unit: quota units. 6,000 is 300 mails a
+ * day: six times the assumed 50, an ordinary busy inbox, and 0.07% of what Google allows a user in a day (6,000 a minute). When it
+ * fills, mail is read later (the cursor holds and the watcher backs off) while the poll goes on. PROVISIONAL: real volume not measured.
+ */
+export const GMAIL_READ_UNITS_PER_ACCOUNT_DAY = 6_000;
+/**
+ * Units all Gmail accounts together may spend on reading mail in 24 hours. Unit: quota units. 150,000 is 7,500 mails: 150 a day on
+ * each of 50 accounts. It is the brake for a bug that runs on every account; the per-account lines are the usual one. PROVISIONAL.
+ */
+export const GMAIL_READ_UNITS_PER_DAY_ALL = 150_000;
 
 export type GmailLimit =
-  "minute" | "account-day" | "all-accounts-day" | "mail-account-day" | "mail-all-accounts-day";
-/** Which lane a call is paid on: the minute line is shared, the two 24-hour lines are not. */
-export type GmailLane = "filters" | "mail";
+  | "minute"
+  | "account-day"
+  | "all-accounts-day"
+  | "poll-account-day"
+  | "poll-all-accounts-day"
+  | "read-account-day"
+  | "read-all-accounts-day";
+/**
+ * Which lane a call is paid on: the minute line is shared, the 24-hour lines are not. `poll` is `profile` and `history.list`,
+ * `read` is `messages.get`.
+ */
+export type GmailLane = "filters" | "poll" | "read";
 export type GmailOp = keyof typeof GMAIL_UNITS | keyof typeof GMAIL_MAIL_UNITS;
 
 /** Our own limit was reached, before any request left. A `QUOTA_EXCEEDED`, so the adapter and the engine treat it as a rate limit. */
@@ -72,15 +92,19 @@ export interface GmailLimits {
   readonly perMinute: number;
   readonly perAccountDay: number;
   readonly allAccountsDay: number;
-  readonly mailPerAccountDay: number;
-  readonly mailAllAccountsDay: number;
+  readonly pollPerAccountDay: number;
+  readonly pollAllAccountsDay: number;
+  readonly readPerAccountDay: number;
+  readonly readAllAccountsDay: number;
 }
 export const GMAIL_LIMITS: GmailLimits = {
   perMinute: GMAIL_UNITS_PER_MINUTE,
   perAccountDay: GMAIL_UNITS_PER_ACCOUNT_DAY,
   allAccountsDay: GMAIL_UNITS_PER_DAY_ALL,
-  mailPerAccountDay: GMAIL_MAIL_UNITS_PER_ACCOUNT_DAY,
-  mailAllAccountsDay: GMAIL_MAIL_UNITS_PER_DAY_ALL,
+  pollPerAccountDay: GMAIL_POLL_UNITS_PER_ACCOUNT_DAY,
+  pollAllAccountsDay: GMAIL_POLL_UNITS_PER_DAY_ALL,
+  readPerAccountDay: GMAIL_READ_UNITS_PER_ACCOUNT_DAY,
+  readAllAccountsDay: GMAIL_READ_UNITS_PER_DAY_ALL,
 };
 
 /** What the log may learn about a call: fixed words and numbers, never an address, a filter id, a token or a Google message. */
@@ -153,7 +177,8 @@ class Rolling {
 interface AccountWindows {
   readonly minute: Rolling;
   readonly day: Rolling;
-  readonly mailDay: Rolling;
+  readonly pollDay: Rolling;
+  readonly readDay: Rolling;
 }
 
 function checkLimits(limits: GmailLimits): void {
@@ -161,8 +186,10 @@ function checkLimits(limits: GmailLimits): void {
     limits.perMinute,
     limits.perAccountDay,
     limits.allAccountsDay,
-    limits.mailPerAccountDay,
-    limits.mailAllAccountsDay,
+    limits.pollPerAccountDay,
+    limits.pollAllAccountsDay,
+    limits.readPerAccountDay,
+    limits.readAllAccountsDay,
   ]) {
     if (!Number.isInteger(value) || value < 1)
       throw new RangeError("a Gmail limit must be a whole number of units, 1 or more");
@@ -188,14 +215,16 @@ export class GmailBudgets {
   readonly #now: () => number;
   readonly #accounts = new Map<string, AccountWindows>();
   readonly #all: Rolling;
-  readonly #allMail: Rolling;
+  readonly #allPoll: Rolling;
+  readonly #allRead: Rolling;
 
   constructor(options: { readonly limits?: GmailLimits; readonly now?: () => number } = {}) {
     this.#limits = options.limits ?? GMAIL_LIMITS;
     checkLimits(this.#limits);
     this.#now = options.now ?? Date.now;
     this.#all = new Rolling(HOUR_MS, 24, this.#now);
-    this.#allMail = new Rolling(HOUR_MS, 24, this.#now);
+    this.#allPoll = new Rolling(HOUR_MS, 24, this.#now);
+    this.#allRead = new Rolling(HOUR_MS, 24, this.#now);
   }
 
   #windows(account: string): AccountWindows {
@@ -207,7 +236,8 @@ export class GmailBudgets {
     const created = {
       minute: new Rolling(1_000, 60, this.#now),
       day: new Rolling(HOUR_MS, 24, this.#now),
-      mailDay: new Rolling(HOUR_MS, 24, this.#now),
+      pollDay: new Rolling(HOUR_MS, 24, this.#now),
+      readDay: new Rolling(HOUR_MS, 24, this.#now),
     };
     this.#accounts.set(account, created);
     return created;
@@ -237,11 +267,17 @@ export class GmailBudgets {
             ["account-day", windows.day, this.#limits.perAccountDay],
             ["all-accounts-day", this.#all, this.#limits.allAccountsDay],
           ]
-        : [
-            ["minute", windows.minute, this.#limits.perMinute],
-            ["mail-account-day", windows.mailDay, this.#limits.mailPerAccountDay],
-            ["mail-all-accounts-day", this.#allMail, this.#limits.mailAllAccountsDay],
-          ];
+        : lane === "poll"
+          ? [
+              ["minute", windows.minute, this.#limits.perMinute],
+              ["poll-account-day", windows.pollDay, this.#limits.pollPerAccountDay],
+              ["poll-all-accounts-day", this.#allPoll, this.#limits.pollAllAccountsDay],
+            ]
+          : [
+              ["minute", windows.minute, this.#limits.perMinute],
+              ["read-account-day", windows.readDay, this.#limits.readPerAccountDay],
+              ["read-all-accounts-day", this.#allRead, this.#limits.readAllAccountsDay],
+            ];
     for (const [limit, window, cap] of checks) {
       const used = window.used();
       if (used + units > cap) throw new GmailBudgetError(limit, used, cap);
@@ -259,18 +295,27 @@ export class GmailBudgets {
     };
   }
 
-  /** Units left on the mail lane's two 24-hour lines, for the log and for tests. */
-  remainingMail(account: string): { accountDay: number; allAccountsDay: number } {
+  /** Units left on the poll lane's two 24-hour lines, for the log and for tests. */
+  remainingPoll(account: string): { accountDay: number; allAccountsDay: number } {
     const windows = this.#windows(account);
     return {
-      accountDay: this.#limits.mailPerAccountDay - windows.mailDay.used(),
-      allAccountsDay: this.#limits.mailAllAccountsDay - this.#allMail.used(),
+      accountDay: this.#limits.pollPerAccountDay - windows.pollDay.used(),
+      allAccountsDay: this.#limits.pollAllAccountsDay - this.#allPoll.used(),
+    };
+  }
+
+  /** Units left on the read lane's two 24-hour lines, for the log and for tests. */
+  remainingRead(account: string): { accountDay: number; allAccountsDay: number } {
+    const windows = this.#windows(account);
+    return {
+      accountDay: this.#limits.readPerAccountDay - windows.readDay.used(),
+      allAccountsDay: this.#limits.readAllAccountsDay - this.#allRead.used(),
     };
   }
 
   /**
    * Pays for each call before it is sent (a call that fails still costs Google quota, so it is paid either way) and writes it to
-   * `log` as a fixed event. Shared by both clients, so the filter lane and the mail lane cannot drift apart.
+   * `log` as a fixed event. Shared by both clients, so the filter lane and the poll and read lanes cannot drift apart.
    */
   #guard(options: WrapOptions) {
     if (!ACCOUNT_TAG.test(options.account)) {
@@ -376,7 +421,7 @@ export class GmailBudgets {
     };
   }
 
-  /** The mail client with this budget in front of it: the same account `key` as the filter client, the mail lane's own 24-hour lines. */
+  /** The mail client with this budget in front of it: the same account `key` as the filter client, the poll and read lanes' own 24-hour lines. */
   wrapMail(client: GmailMailClient, options: WrapOptions): GmailMailClient {
     const run = this.#guard(options);
     return {
@@ -384,7 +429,7 @@ export class GmailBudgets {
         run(
           "profile",
           GMAIL_MAIL_UNITS.profile,
-          "mail",
+          "poll",
           () => client.profile(signal),
           () => "ok",
         ),
@@ -392,7 +437,7 @@ export class GmailBudgets {
         run(
           "history",
           GMAIL_MAIL_UNITS.history,
-          "mail",
+          "poll",
           () => client.history(startHistoryId, pageToken, signal),
           () => "ok",
         ),
@@ -400,7 +445,7 @@ export class GmailBudgets {
         run(
           "message",
           GMAIL_MAIL_UNITS.message,
-          "mail",
+          "read",
           () => client.message(id, signal),
           (value) => (value === "gone" ? "gone" : "ok"),
         ),

@@ -4,7 +4,13 @@ import type { AccountConfig, MailToast, OAuthClient } from "@senderban/core";
 import { Store, openDatabase } from "@senderban/core/store";
 import { FakeGmail } from "../../../packages/core/test/gmail/fake-gmail.js";
 import { buildGmailLanes } from "../src/gmail-lanes.js";
-import { GMAIL_NOTICE_EVERY_MS, createGmailWatchers } from "../src/gmail-watchers.js";
+import {
+  GMAIL_HEARTBEAT_MS,
+  GMAIL_NOTICE_EVERY_MS,
+  NOTICE_SUBJECT_MAX,
+  createGmailWatchers,
+  subjectLine,
+} from "../src/gmail-watchers.js";
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -124,6 +130,26 @@ describe("createGmailWatchers: new mail", () => {
     expect(t.pending.size).toBe(0);
     expect(t.notices).toHaveLength(1);
     expect(t.notices[0]?.body).toContain("no Block button");
+  });
+
+  it("puts the mail's subject on a line of its own, labelled and quoted, so it cannot pass as a sentence of Senderban's", async () => {
+    const t = setup();
+    await started(t);
+    const hostile = "Senderban: your Google sign-in expired, sign in again at http://evil.example";
+    t.fake.deliver({ from: ["a@x.example", "b@y.example"], subject: hostile });
+    await tick(2 * MINUTE);
+    const body = t.notices[0]?.body ?? "";
+    const lines = body.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("no Block button");
+    expect(lines[0]).not.toContain("evil.example");
+    expect(lines[1]).toBe(`Subject of the mail: “${hostile}”`);
+  });
+
+  it("cuts a long subject in the notice", () => {
+    expect(subjectLine("")).toBe("");
+    const line = subjectLine("x".repeat(500));
+    expect(line).toBe(`\nSubject of the mail: “${"x".repeat(NOTICE_SUBJECT_MAX)}…”`);
   });
 
   it("announces a message that claims to come from the person's own address without a Block button", async () => {
@@ -279,6 +305,54 @@ describe("createGmailWatchers: lifecycle", () => {
     t.fake.deliver({ from: "a@x.example" });
     await tick(2 * MINUTE);
     expect(t.logs.filter((l) => l.event === "gmail-poll")).toHaveLength(2);
+  });
+
+  it("writes no line for a quiet poll but one heartbeat an hour with the counts and how long ago the last good poll was", async () => {
+    const t = setup();
+    await started(t);
+    await tick(GMAIL_HEARTBEAT_MS + 2 * MINUTE);
+    const quietLines = t.logs.filter(
+      (l) => l.event === "gmail-http" && l.fields["op"] === "history-list",
+    );
+    expect(quietLines).toHaveLength(0);
+    const beats = t.logs.filter((l) => l.event === "gmail-heartbeat");
+    expect(beats).toHaveLength(1);
+    const fields = beats[0]?.fields ?? {};
+    expect(fields["polls"]).toBeGreaterThan(55);
+    expect(fields["polls"]).toBeLessThan(75);
+    expect(fields["failed"]).toBe(0);
+    expect(fields["found"]).toBe(0);
+    expect(fields["state"]).toBe("watching");
+    expect(fields["lastOkAgoS"]).toBeLessThan(90);
+    expect(typeof fields["maxMs"]).toBe("number");
+    expect(JSON.stringify(beats)).not.toContain("@");
+  });
+
+  it("counts the failed polls and the mails found in the hour's heartbeat", async () => {
+    const t = setup();
+    await started(t);
+    t.fake.forcedFor.set("GET", [503]);
+    await tick(3 * MINUTE);
+    t.fake.deliver({ from: "a@x.example" });
+    await tick(GMAIL_HEARTBEAT_MS);
+    const beat = t.logs.find((l) => l.event === "gmail-heartbeat")?.fields ?? {};
+    expect(beat["failed"]).toBe(1);
+    expect(beat["found"]).toBe(1);
+  });
+
+  it("a failed poll keeps its line, and a stopped watcher writes no heartbeat (the silence is the signal)", async () => {
+    const t = setup();
+    await started(t);
+    t.fake.forcedFor.set("GET", [503]);
+    await tick(2 * MINUTE);
+    const failed = t.logs.filter(
+      (l) => l.event === "gmail-http" && l.fields["op"] === "history-list",
+    );
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.fields["status"]).toBe(503);
+    t.watchers.stop();
+    await tick(GMAIL_HEARTBEAT_MS + 2 * MINUTE);
+    expect(t.logs.filter((l) => l.event === "gmail-heartbeat")).toHaveLength(0);
   });
 
   it("a new mail for an account that was forgotten is never announced", async () => {

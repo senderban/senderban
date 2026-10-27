@@ -3,8 +3,10 @@ import { AdapterError } from "../../src/adapter.js";
 import type { AdapterErrorCode } from "../../src/adapter.js";
 import {
   GMAIL_USER_URL,
+  HISTORY_FIELDS,
   HISTORY_PAGE_SIZE,
   HistoryExpiredError,
+  HistoryTooLargeError,
   MalformedAnswerError,
   MESSAGE_FIELDS,
   MESSAGE_HEADERS_MAX,
@@ -53,8 +55,19 @@ describe("Gmail mail client", () => {
       historyTypes: "messageAdded",
       labelId: "INBOX",
       maxResults: String(HISTORY_PAGE_SIZE),
+      fields: HISTORY_FIELDS,
+      prettyPrint: "false",
     });
     expect(fake.mailUnits).toBe(MAIL_UNITS.history);
+  });
+
+  it("history: a page over the read cap is HistoryTooLargeError (a reported gap), not a transient to retry for ever", async () => {
+    const { fake, client } = setup();
+    fake.forced.push({ status: 200, body: { historyId: "1001", pad: "x".repeat(70_000) } });
+    await expect(client.history("1000")).rejects.toBeInstanceOf(HistoryTooLargeError);
+    // Another transient (a timeout, a 503) is still a plain transient: only the size is the page's own doing.
+    fake.forced.push(503);
+    expect(await codeOf(client.history("1000"))).toBe("TRANSIENT");
   });
 
   it("history: no records is an empty page that still carries the new cursor", async () => {

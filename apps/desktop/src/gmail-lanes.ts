@@ -6,7 +6,7 @@ import {
   createGmailMailClient,
   gmailLaneId,
   gmailStateHoldsFilters,
-  gmailUnsupported,
+  isGmailMirrorable,
   isGmailAccount,
 } from "@senderban/core";
 import type {
@@ -175,8 +175,11 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
     const clientOptions = {
       getAccessToken,
       ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
-      // Operation, HTTP status and duration only.
+      // Operation, HTTP status and duration only. A history poll that answered 200 is not written: it is one line a minute for each
+      // account, which at 50 accounts rolls the 1 MiB log in under three hours; the hourly `gmail-heartbeat` counts those polls
+      // (gmail-watchers.ts). Every other request, and every failed poll, still has its line.
       onCall: (call: GoogleCall) => {
+        if (call.op === "history-list" && call.status === 200) return;
         deps.log("gmail-http", { account: tag, ...call });
       },
     };
@@ -196,7 +199,7 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
       laneId,
       accountId: account.id,
       email: account.gmail.email,
-      // Reading new mail, paid on the account's own mail lines (the same counters object as the filter lane).
+      // Reading new mail, paid on the account's own poll and read lines (the same counters object as the filter lane).
       mail: deps.budgets.wrapMail(createGmailMailClient(clientOptions), wrapOptions),
       adapter: new GmailAdapter({
         accountId: laneId,
@@ -233,9 +236,11 @@ export function gmailMissNote(
   if (isOwn?.(entry.value) === true) {
     return " Not blocked on Gmail: this is one of your own addresses (blocking it there could send your own mail to Trash).";
   }
-  return gmailUnsupported(list).some((e) => e.id === entry.id)
-    ? " Not blocked on Gmail: this address form cannot be written as a Gmail filter."
-    : "";
+  // The one entry is asked, not the whole list (the earlier checks leave exactly the single-address Trash case; 130 ms of
+  // validation of 5,000 entries per click was measured for the list form).
+  return isGmailMirrorable(entry.value)
+    ? ""
+    : " Not blocked on Gmail: this address form cannot be written as a Gmail filter.";
 }
 
 const SKIP_TEXT: Record<GmailSkipReason, string> = {

@@ -87,6 +87,26 @@ export function senderOf(message: MessageMetadata): FromResult {
 }
 
 /**
+ * One `history.list` page was larger than the read cap (a page of 100 records with many labels each): asking again reads the same
+ * bytes, so the watcher treats it as a reported gap and starts from now, instead of asking for the same page for a week.
+ */
+export class HistoryTooLargeError extends AdapterError {
+  constructor() {
+    super("REJECTED", "a Gmail history page is larger than any valid one");
+    this.name = "HistoryTooLargeError";
+  }
+}
+
+/**
+ * Fields the `history.list` answer is cut to: the added messages' ids and labels, the page token and the mailbox's `historyId`.
+ * Without it each record also repeats the ids in `messages` and carries thread ids, about three times the bytes, and a page of 100
+ * records can reach the 64 KiB read cap. PROVISIONAL: the syntax is read from the partial-response guide and must be seen live
+ * (a wrong one would answer 400); `prettyPrint=false` removes the indentation Google adds by default.
+ */
+export const HISTORY_FIELDS =
+  "history(messagesAdded(message(id,labelIds))),nextPageToken,historyId";
+
+/**
  * An answer that did not have the expected shape (or named another message). The one TRANSIENT failure that belongs to the answer
  * and not to the network: asking again reads the same thing, so the watcher counts these against one message and gives it up,
  * while a timeout or a 5xx (also TRANSIENT) is a passing state it never gives a message up for.
@@ -172,15 +192,31 @@ export function createGmailMailClient(options: GoogleCallerOptions): GmailMailCl
         historyTypes: "messageAdded",
         labelId: "INBOX",
         maxResults: String(HISTORY_PAGE_SIZE),
+        fields: HISTORY_FIELDS,
+        prettyPrint: "false",
       });
       if (pageToken !== undefined) query.set("pageToken", pageToken);
-      const { status, json } = await call(
-        "history-list",
-        "history list",
-        { method: "GET", url: `${GMAIL_USER_URL}/history?${query.toString()}` },
-        GOOGLE_BODY_MAX_BYTES,
-        signal,
-      );
+      let answer: { status: number; json: unknown };
+      try {
+        answer = await call(
+          "history-list",
+          "history list",
+          { method: "GET", url: `${GMAIL_USER_URL}/history?${query.toString()}` },
+          GOOGLE_BODY_MAX_BYTES,
+          signal,
+        );
+      } catch (error) {
+        // An answer over the cap is this page's own doing (asking again reads the same bytes), not a passing network state.
+        if (
+          error instanceof AdapterError &&
+          error.code === "TRANSIENT" &&
+          error.message.includes(OVERSIZE)
+        ) {
+          throw new HistoryTooLargeError();
+        }
+        throw error;
+      }
+      const { status, json } = answer;
       if (status === 404) throw new HistoryExpiredError();
       if (status !== 200) throw apiFailure(status, googleErrorReason(json), "history list");
       const parsed = HistoryAnswer.safeParse(json);

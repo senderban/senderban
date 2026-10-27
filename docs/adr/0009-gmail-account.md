@@ -144,7 +144,11 @@ swallowed; a write is not retried blindly (read the remote state first, RFC 9110
   request leaves and is a `QUOTA_EXCEEDED`, so the round is TRANSIENT and the engine backs off. Windows are hourly (minute: 1 s) buckets,
   bounded memory, over-counting by at most one bucket; the clock moves by forward steps only. **Known gap:** the counters live in memory, so
   a crash loop starts the 24 h lines from zero; Google's own 6,000 units a minute per user is the wall then. Persisting hourly buckets in the
-  Store is the fix if a crash loop is ever seen. Still open here: the mail poll's own line (watcher step).
+  Store is the fix if a crash loop is ever seen. The new-mail watcher has lines of its own, apart from the filter lane's (2026-10-27,
+  after the pre-push review): **poll** (`profile`, `history.list`) 3,600 a day per account and 200,000 for all accounts, **read**
+  (`messages.get`) 6,000 a day per account (300 mails) and 150,000 for all accounts; the minute line stays shared. They were one
+  4,500 line first, which held only 75 to 81 mails a day (the window can hold 25 hours of polling) and, once full, stopped the poll
+  itself. All four are PROVISIONAL until a week of real volume is counted (the hourly heartbeat carries the `found` count).
   Token renewals are not in these counters (they run after the budget check): one per ~59 minutes when healthy, at most 2–4 an hour per
   account while a round fails TRANSIENT, one per 30 minutes after `AUTH_REQUIRED` (engine back-off), so under 200 an hour at 50 accounts.
 - **Polling:** 1,440 `history.list` per account per day is 5× the IMAP idle rate. One poll in flight per account, polls spread with jitter
@@ -229,7 +233,11 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   address already in a filter is removed like an Unblock, and the result toast says so); an Unblock of an address held by a foreign
   filter now answers `REMOTE_CHANGED` once, not "done" (a state written before `Refusal.id` existed keeps the old behaviour, none exists
   because the lane is unreleased); a filter list over 2 MiB is `REJECTED`, so the engine stops re-downloading it, and an uninstall on
-  it answers `filters-left`; the journal row keeps 20 failures plus a count, and each request writes one log line (`gmail-http`).
+  it answers `filters-left`; the journal row keeps 20 failures plus a count, and each request writes one log line (`gmail-http`), except a new-mail history poll
+  that answered 200: an hourly `gmail-heartbeat` per account (state, polls, failed, found, slowest poll, seconds since the last good
+  poll) stands for those, because one line a minute per account would roll the 1 MiB log in under three hours at 50 accounts. A
+  failed poll and a watcher that stopped are visible (a line, and no heartbeat). `history.list` also asks for `fields` and
+  `prettyPrint=false`, and a page that still passes the read cap is a reported gap (`too-large`), not an endless retry.
   Not fixed, known: an Unblock that shrinks `{a,b}` to `{a}` while a foreign filter holds `a` reports `foreign` every round and `b`
   stays trashed.
 - **New-mail reading driven live (G6, 2026-10-27, W-b `mail-client` against Ali's own mailbox, project `senderban-byo` "In production",

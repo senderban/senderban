@@ -3,7 +3,13 @@ import type { AdapterErrorCode } from "../adapter.js";
 import { unlimited } from "../gate.js";
 import type { Gate } from "../gate.js";
 import { DEFAULT_MAX_PER_DRAIN, sanitizeSubject } from "../watcher/watcher.js";
-import { HISTORY_ID, HistoryExpiredError, MalformedAnswerError, senderOf } from "./mail-client.js";
+import {
+  HISTORY_ID,
+  HistoryExpiredError,
+  HistoryTooLargeError,
+  MalformedAnswerError,
+  senderOf,
+} from "./mail-client.js";
 import type { GmailMailClient, MessageMetadata } from "./mail-client.js";
 
 // Scale budget (per Gmail account, one device; ADR 0009 "Scale", .task/gmail-watcher.md A0): no connection, one `history.list`
@@ -78,7 +84,9 @@ export type GmailGap =
   /** A message kept failing to read and was given up. */
   | "skipped"
   /** More history than one poll reads. */
-  | "overflow";
+  | "overflow"
+  /** A history page was too big to read: everything since the cursor, the newest mail included, was not announced. */
+  | "too-large";
 
 export interface GmailPollEvent {
   readonly outcome: "ok" | "first" | "gap" | "error";
@@ -383,13 +391,14 @@ export class GmailWatcher {
     epoch: number,
     signal: AbortSignal,
     outcome: "first" | "gap",
+    why: GmailGap = "expired",
   ): Promise<PollSummary> {
     const empty: PollSummary = { outcome, pages: 0, found: 0, announced: 0, consumerErrors: 0 };
     const { historyId } = await this.#options.client.profile(signal);
     if (!this.#alive(epoch, signal)) return empty;
     this.#options.cursors.set(this.#options.accountId, historyId);
     this.#attempts.clear();
-    if (outcome === "gap") this.#gap("expired");
+    if (outcome === "gap") this.#gap(why);
     return empty;
   }
 
@@ -442,6 +451,10 @@ export class GmailWatcher {
       } while (pageToken !== undefined && pages < GMAIL_MAX_PAGES);
     } catch (error) {
       if (error instanceof HistoryExpiredError) return this.#startFromNow(epoch, signal, "gap");
+      // A page too big to read never gets smaller: start from now and say that mail was not announced (not "retry for a week").
+      if (error instanceof HistoryTooLargeError) {
+        return this.#startFromNow(epoch, signal, "gap", "too-large");
+      }
       throw error;
     }
 

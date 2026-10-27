@@ -25,6 +25,25 @@ import type { Log } from "./log.js";
  */
 export const GMAIL_NOTICE_EVERY_MS = 3_600_000;
 
+/**
+ * The subject shown inside one of Senderban's own notices: on a line of its own, labelled as the mail's, quoted and cut, so a sender
+ * cannot make it read as a sentence of Senderban's ("Senderban: sign in to Google again"). Unit: UTF-16 units, 80 at most.
+ */
+export const NOTICE_SUBJECT_MAX = 80;
+export function subjectLine(subject: string): string {
+  if (subject === "") return "";
+  const cut =
+    subject.length > NOTICE_SUBJECT_MAX ? `${subject.slice(0, NOTICE_SUBJECT_MAX)}…` : subject;
+  return `\nSubject of the mail: “${cut}”`;
+}
+
+/**
+ * How often an account's `gmail-heartbeat` line is written. Unit: milliseconds. One line an hour for each account is 50 lines an hour
+ * at 50 accounts (about 8 KB) against 3,000 lines of per-poll lines; it is what tells "no new mail" from "not looking": a watcher whose
+ * timer died writes no heartbeat. It rides on the polls (no timer of its own), so a missing heartbeat is itself the signal.
+ */
+export const GMAIL_HEARTBEAT_MS = 3_600_000;
+
 type NoticeKind = GmailGap | "quota" | "halted-auth" | "halted-rejected";
 
 const GAP_TEXT: Record<GmailGap, string> = {
@@ -33,13 +52,15 @@ const GAP_TEXT: Record<GmailGap, string> = {
   unreadable: "Some new mail could not be read and was not announced.",
   skipped: "A new message could not be read after several tries and was not announced.",
   overflow: "More new mail arrived than one check reads, so the oldest was not announced.",
+  "too-large":
+    "A burst of new mail was too large to read at once, so the mail that arrived since the last check was not announced.",
 };
 
 export interface GmailWatchersDeps {
   readonly lanes: readonly GmailLane[];
   /** The store's Gmail cursors; `delete` is for an account that is gone. */
   readonly cursors: GmailCursorStore & { delete(accountId: string): void };
-  /** The one gate of the app (the IMAP logins use it too): it bounds how many polls and logins run at once. */
+  /** The Gmail polls' own gate (not the IMAP logins'): it bounds how many polls run at once. */
   readonly gate: Gate;
   readonly pending: { add(block: PendingBlock): string };
   readonly showMail: (toast: MailToast) => void;
@@ -97,6 +118,8 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
     const laneId = lane.laneId;
     const tag = gmailLogTag(lane.accountId);
     const label = (): string => deps.labelOf(laneId);
+    // Counts since the last heartbeat line (polls, failed polls, mails found): three numbers, replaced in place.
+    const beat = { since: now(), polls: 0, failed: 0, found: 0, maxMs: 0 };
     watchers.set(
       laneId,
       new GmailWatcher({
@@ -113,7 +136,7 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
             deps.log("gmail-announce", { account: tag, sender: "unreadable" });
             deps.notice(
               "Senderban",
-              `New mail in ${label()}: the sender could not be read safely, so there is no Block button.${message.subject === "" ? "" : ` ${message.subject}`}`,
+              `New mail in ${label()}: the sender could not be read safely, so there is no Block button.${subjectLine(message.subject)}`,
             );
             return;
           }
@@ -121,7 +144,7 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
             deps.log("gmail-announce", { account: tag, sender: "own-address" });
             deps.notice(
               "Senderban",
-              `New mail in ${label()} claims to come from your own address, so there is no Block button.${message.subject === "" ? "" : ` ${message.subject}`}`,
+              `New mail in ${label()} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
             );
             return;
           }
@@ -185,6 +208,28 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
           }
         },
         onPoll: (_id: string, event: GmailPollEvent) => {
+          beat.polls += 1;
+          if (event.outcome === "error") beat.failed += 1;
+          beat.found += event.found;
+          beat.maxMs = Math.max(beat.maxMs, event.ms);
+          if (now() - beat.since >= GMAIL_HEARTBEAT_MS) {
+            const lastOk = watchers.get(laneId)?.lastOkAt ?? null;
+            deps.log("gmail-heartbeat", {
+              account: tag,
+              state: states.get(laneId),
+              polls: beat.polls,
+              failed: beat.failed,
+              found: beat.found,
+              // The slowest poll of the hour: the latency the per-poll lines used to show.
+              maxMs: beat.maxMs,
+              lastOkAgoS: lastOk === null ? null : Math.round((now() - lastOk) / 1000),
+            });
+            beat.since = now();
+            beat.polls = 0;
+            beat.failed = 0;
+            beat.found = 0;
+            beat.maxMs = 0;
+          }
           // A quiet poll is one `gmail-http` line already (its status and time); a second line a minute per account would roll
           // the 1 MiB log in under an hour at 50 accounts. Everything that is not "worked and found nothing" is written.
           if (event.outcome === "ok" && event.found === 0) return;
