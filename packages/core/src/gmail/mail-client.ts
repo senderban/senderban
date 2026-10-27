@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AdapterError } from "../adapter.js";
 import { createGoogleCaller } from "../google/call.js";
 import type { GoogleCallerOptions } from "../google/call.js";
-import { GOOGLE_BODY_MAX_BYTES, apiFailure, googleErrorReason } from "../google/http.js";
+import { GOOGLE_BODY_MAX_BYTES, OVERSIZE, apiFailure, googleErrorReason } from "../google/http.js";
 import { FROM_UNPARSABLE, parseFromHeaders } from "./from-header.js";
 import type { FromResult, RawHeader } from "./from-header.js";
 
@@ -86,6 +86,18 @@ export function senderOf(message: MessageMetadata): FromResult {
   return parseFromHeaders(message.headers);
 }
 
+/**
+ * An answer that did not have the expected shape (or named another message). The one TRANSIENT failure that belongs to the answer
+ * and not to the network: asking again reads the same thing, so the watcher counts these against one message and gives it up,
+ * while a timeout or a 5xx (also TRANSIENT) is a passing state it never gives a message up for.
+ */
+export class MalformedAnswerError extends AdapterError {
+  constructor(what: string) {
+    super("TRANSIENT", `Google answer is malformed (${what})`);
+    this.name = "MalformedAnswerError";
+  }
+}
+
 export interface GmailMailClient {
   /** The mailbox's current `historyId`: the starting cursor of a first run and of a gap. 1 unit. */
   profile(signal?: AbortSignal): Promise<{ readonly historyId: string }>;
@@ -131,8 +143,7 @@ const HeaderEntry = z.looseObject({
 
 export function createGmailMailClient(options: GoogleCallerOptions): GmailMailClient {
   const call = createGoogleCaller(options);
-  const malformed = (what: string): AdapterError =>
-    new AdapterError("TRANSIENT", `Google answer is malformed (${what})`);
+  const malformed = (what: string): AdapterError => new MalformedAnswerError(what);
 
   return {
     async profile(signal) {
@@ -216,16 +227,30 @@ export function createGmailMailClient(options: GoogleCallerOptions): GmailMailCl
         ["metadataHeaders", "Subject"],
         ["fields", MESSAGE_FIELDS],
       ]);
-      const { status, json } = await call(
-        "message-get",
-        "message get",
-        {
-          method: "GET",
-          url: `${GMAIL_USER_URL}/messages/${encodeURIComponent(id)}?${query.toString()}`,
-        },
-        GOOGLE_BODY_MAX_BYTES,
-        signal,
-      );
+      let answer: { status: number; json: unknown };
+      try {
+        answer = await call(
+          "message-get",
+          "message get",
+          {
+            method: "GET",
+            url: `${GMAIL_USER_URL}/messages/${encodeURIComponent(id)}?${query.toString()}`,
+          },
+          GOOGLE_BODY_MAX_BYTES,
+          signal,
+        );
+      } catch (error) {
+        // An answer over the cap is this message's own doing (asking again reads the same bytes), not a passing network state.
+        if (
+          error instanceof AdapterError &&
+          error.code === "TRANSIENT" &&
+          error.message.includes(OVERSIZE)
+        ) {
+          throw malformed("message get");
+        }
+        throw error;
+      }
+      const { status, json } = answer;
       if (status === 404) return "gone";
       if (status !== 200) throw apiFailure(status, googleErrorReason(json), "message get");
       const parsed = MessageAnswer.safeParse(json);

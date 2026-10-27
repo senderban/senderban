@@ -14,6 +14,7 @@ export * from "./gmail/client.js";
 export * from "./gmail/from-header.js";
 export * from "./gmail/mail-client.js";
 export * from "./gmail/query.js";
+export * from "./gmail/watcher.js";
 export * from "./sync/engine.js";
 export * from "./watcher/watcher.js";
 export * from "./notify/pending.js";

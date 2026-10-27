@@ -5,6 +5,7 @@ import {
   GMAIL_USER_URL,
   HISTORY_PAGE_SIZE,
   HistoryExpiredError,
+  MalformedAnswerError,
   MESSAGE_FIELDS,
   MESSAGE_HEADERS_MAX,
   createGmailMailClient,
@@ -307,6 +308,12 @@ describe("Gmail mail client", () => {
     });
     const message = await client.message("abc123");
     expect(message !== "gone" && message.headersComplete).toBe(false);
+  });
+
+  it("message: an answer over the size cap is the message's own failure (malformed), not a passing one", async () => {
+    const { fake, client } = setup();
+    fake.forced.push({ status: 200, body: { id: "abc123", pad: "a".repeat(70_000) } });
+    await expect(client.message("abc123")).rejects.toBeInstanceOf(MalformedAnswerError);
   });
 
   it("message: an answer for another id is malformed", async () => {

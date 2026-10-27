@@ -55,7 +55,9 @@ export class FakeGmail {
   beforeCreate: (() => void) | null = null;
   /** Mail (read side): messages by id, the history of INBOX additions, and the mailbox's current historyId. Shapes read from the docs, not yet seen live (G6). */
   readonly mail = new Map<string, FakeMessage>();
-  readonly history: { readonly id: number; readonly added: string[] }[] = [];
+  /** `inbox`: whether the message was in the INBOX when it arrived (what the history records; a label changed later is not in it). */
+  readonly history: { readonly id: number; readonly added: string[]; readonly inbox?: boolean }[] =
+    [];
   historyId = 1000;
   /** A `startHistoryId` below this is too old: 404, as Google answers for history it no longer holds. */
   oldestHistoryId = 0;
@@ -83,7 +85,7 @@ export class FakeGmail {
     const labelIds = input.labels ?? ["INBOX", "UNREAD"];
     this.mail.set(id, { id, labelIds, headers });
     this.historyId += 1;
-    this.history.push({ id: this.historyId, added: [id] });
+    this.history.push({ id: this.historyId, added: [id], inbox: labelIds.includes("INBOX") });
     return id;
   }
 
@@ -172,9 +174,7 @@ export class FakeGmail {
       }
       const size = Number(parsedUrl.searchParams.get("maxResults") ?? "100");
       const offset = Number(parsedUrl.searchParams.get("pageToken") ?? "0");
-      const inbox = this.history.filter(
-        (h) => h.id > start && h.added.some((id) => this.mail.get(id)?.labelIds.includes("INBOX")),
-      );
+      const inbox = this.history.filter((h) => h.id > start && (h.inbox ?? true));
       const page = inbox.slice(offset, offset + size);
       const next = offset + size < inbox.length ? String(offset + size) : undefined;
       const body = {
