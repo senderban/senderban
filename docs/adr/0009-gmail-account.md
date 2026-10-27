@@ -267,6 +267,12 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   stopped the watcher, revoked the token (200) and left no cursor row (0 rows). Poll time with these numbers is about 0.45 s, so 50
   accounts at one poll a minute keep about 0.4 of a gate slot busy on average (one account measured; many at once not). Not
   measured: the Pause and Resume tray items, a removal while a poll is in the air, sleep/resume, more than one account.
+- **`history.list` with `fields` (2026-10-27, fresh sign-in, token revoked afterwards):** `fields=history(messagesAdded(message(id,labelIds))),nextPageToken,historyId`
+  with `prettyPrint=false` is **accepted** (200). The same three records (the three test mails) took **1,488 bytes** by default
+  (each record has `id`, `messages` and `messagesAdded`; indented), **737** with `prettyPrint=false` alone and **395** with both, so a record
+  is about 131 bytes against about 496: a page of 100 records is about 13 KB against about 50 KB, which is why the default form
+  nearly reached the 64 KiB read cap. The answer carries only `history[].messagesAdded[].message.{id,labelIds}`, `historyId`, and (when
+  there is one) `nextPageToken`; the typed client read it (3 messages, labels intact, nothing unreadable).
 
 ## Not decided / open
 

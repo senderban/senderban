@@ -100,8 +100,8 @@ export class HistoryTooLargeError extends AdapterError {
 /**
  * Fields the `history.list` answer is cut to: the added messages' ids and labels, the page token and the mailbox's `historyId`.
  * Without it each record also repeats the ids in `messages` and carries thread ids, about three times the bytes, and a page of 100
- * records can reach the 64 KiB read cap. PROVISIONAL: the syntax is read from the partial-response guide and must be seen live
- * (a wrong one would answer 400); `prettyPrint=false` removes the indentation Google adds by default.
+ * records can reach the 64 KiB read cap. Seen live 2026-10-27 (ADR 0009): accepted, 395 bytes against 1,488 for three records
+ * (a wrong syntax answers 400); `prettyPrint=false` removes the indentation Google adds by default.
  */
 export const HISTORY_FIELDS =
   "history(messagesAdded(message(id,labelIds))),nextPageToken,historyId";
