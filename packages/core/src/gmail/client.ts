@@ -33,10 +33,11 @@ export const GMAIL_LIST_MAX_BYTES = 2_097_152;
 const LIST_MAX = 2_000;
 
 /**
- * A filter id. No real Gmail id has been recorded yet, so this accepts any printable ASCII (no space) except the
- * characters that change the meaning of a URL path (`/ \ ? # %`) and an id made only of dots; it is always
- * `encodeURIComponent`-ed into the path anyway. One shape for what Google may send and what we send back, so an id we
- * accepted can always be deleted. Unit: characters, 1 to 256. PROVISIONAL: the live check of A2c records the real shape.
+ * A filter id. Measured live 2026-10-27: a filter made by this lane has an id of 38 characters and one the person made
+ * in Gmail has 74, both letters and digits only. Two samples do not prove the alphabet, so this stays wider: any
+ * printable ASCII (no space) except the characters that change the meaning of a URL path (`/ \ ? # %`) and an id made
+ * only of dots; it is always `encodeURIComponent`-ed into the path anyway. One shape for what Google may send and what
+ * we send back, so an id we accepted can always be deleted. Unit: characters, 1 to 256. PROVISIONAL (upper bound).
  */
 const FILTER_ID = /^(?!\.+$)(?!.*[/\\?#%])[!-~]{1,256}$/u;
 

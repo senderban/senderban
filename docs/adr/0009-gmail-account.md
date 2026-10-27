@@ -178,6 +178,13 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
 - **Token life:** in "Testing" Google returned `refresh_token_expires_in: 604799` (7 days): `signIn` passes it on as
   `refreshTokenExpiresInSeconds`. Access token `expires_in` 3599; refresh token 103 characters (limit 512).
   In "In production" the same call returned no such field (G4 below).
+- **Filter ids and duplicates (2026-10-27, production project):** a filter this lane created got an id of 38 characters and the person's
+  own filter has one of 74, both letters and digits only (two samples; the client accepts a wider shape). `create` answers `200` with
+  exactly `id`, `criteria`, `action`. A **second identical create** (same criteria and action) answers `400` reason `failedPrecondition`,
+  message "Filter already exists": Gmail never holds two identical filters. So a lost create answer cannot produce a duplicate; the retry
+  sees `400 exists`, and the adapter must tell "ours from the lost attempt" (absent from the round's first list) from "the person's"
+  (present in it): only the first is adopted, the second is never touched. Probe: one `.invalid` address, created twice, deleted (204),
+  filter count 1 before and 1 after.
 
 ## Not decided / open
 
