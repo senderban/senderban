@@ -143,6 +143,8 @@ swallowed; a write is not retried blindly (read the remote state first, RFC 9110
   bounded memory, over-counting by at most one bucket; the clock moves by forward steps only. **Known gap:** the counters live in memory, so
   a crash loop starts the 24 h lines from zero; Google's own 6,000 units a minute per user is the wall then. Persisting hourly buckets in the
   Store is the fix if a crash loop is ever seen. Still open here: the mail poll's own line (watcher step).
+  Token renewals are not in these counters (they run after the budget check): one per ~59 minutes when healthy, at most 2–4 an hour per
+  account while a round fails TRANSIENT, one per 30 minutes after `AUTH_REQUIRED` (engine back-off), so under 200 an hour at 50 accounts.
 - **Polling:** 1,440 `history.list` per account per day is 5× the IMAP idle rate. One poll in flight per account, polls spread with jitter
   (50 accounts must not tick together after a resume), and the HTTP agent keeps connections alive longer than Node's default 4 s so a poll
   is not a new TLS handshake each time (measure, do not assume).

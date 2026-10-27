@@ -18,6 +18,8 @@ import {
   isImapAccount,
   mxrouteLaneId,
   createOAuthClient,
+  GmailBudgets,
+  initialGmailState,
 } from "@senderban/core";
 import type {
   BlockAction,
@@ -41,6 +43,9 @@ import {
   signInGoogle,
 } from "./google-accounts.js";
 import type { GoogleDeps } from "./google-accounts.js";
+import { clientSecretGetter, loadGoogleClient } from "./google-client.js";
+import { buildGmailLanes, gmailMissNote, gmailSkippedNote } from "./gmail-lanes.js";
+import type { GmailSkipped } from "./gmail-lanes.js";
 import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
 import type { OwnMailSet } from "./own-mail.js";
@@ -108,6 +113,10 @@ const unsynced = new Set<string>();
 const clicking = new Set<string>();
 /** Engine lanes that write to an MXroute blacklist: their failures are about the API key, not the mail password. */
 const mxrouteLanes = new Set<string>();
+/** Engine lanes that write Gmail filters: their failures are about Google's sign-in, not a mail password. */
+const gmailLanes = new Set<string>();
+/** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
+let gmailSkipped: GmailSkipped[] = [];
 /** Accounts whose blocked single addresses are also refused at the MXroute server (live lane, switch on). */
 const rejectingAccounts = new Set<string>();
 
@@ -138,7 +147,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
         : outcome.code === "AUTH_REQUIRED"
           ? mxrouteLanes.has(id)
             ? "MXroute refused the API key: fix it under Advanced in Blocked senders, then restart Senderban."
-            : "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
+            : gmailLanes.has(id)
+              ? "Google refused the sign-in: sign in again under Gmail accounts in Blocked senders, then restart Senderban."
+              : "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
           : outcome.code === "REMOTE_CHANGED"
             ? "Someone else changed Senderban's script on the server, so it stopped instead of overwriting it. It will not try again by itself."
             : "Check the account in Senderban.";
@@ -262,7 +273,8 @@ async function setPaused(value: boolean): Promise<void> {
 async function start(): Promise<Runtime> {
   const dir = app.getPath("userData");
   const configured = await loadAccounts(join(dir, "accounts.json"));
-  // Only IMAP/Sieve accounts run so far (ADR 0009: Gmail accounts are in the file schema, not yet in the app).
+  // IMAP/Sieve accounts get a watcher and a Sieve lane; a Gmail account only gets a background filter lane (below), the
+  // mail watcher for it is a later step (ADR 0009 step 4).
   const accounts = configured.filter(isImapAccount);
   const store = new Store(openDatabase(join(dir, "senderban.db")));
   log("start", {
@@ -424,6 +436,59 @@ async function start(): Promise<Runtime> {
     states.set(account.id, "stopped");
   }
 
+  // Gmail: one background lane per signed-in account (filters, Trash, single addresses). A restart picks up a sign-in made
+  // while the app runs, as for MXroute.
+  let oauth: ReturnType<typeof createOAuthClient> | null = null;
+  let noClientReason: "no-client" | "client-unreadable" = "no-client";
+  try {
+    const clientFile = await loadGoogleClient(join(dir, "google-client.json"));
+    if (clientFile !== null) {
+      oauth = createOAuthClient({
+        clientId: clientFile.clientId,
+        getClientSecret: clientSecretGetter(clientFile),
+        onCall: (call) => {
+          log("google-call", { ...call });
+        },
+      });
+    }
+  } catch {
+    // An unreadable client file is shown on the Gmail page; the lanes wait for it.
+    noClientReason = "client-unreadable";
+  }
+  const built = buildGmailLanes({
+    accounts: configured,
+    oauth,
+    noClientReason,
+    // A Gmail lane id that another lane already holds (an IMAP account named `me.gmail` next to a Gmail account `me`) is
+    // left out, so one entry of accounts.json cannot stop the whole app from starting.
+    reservedLaneIds: new Set(lanes),
+    budgets: new GmailBudgets(),
+    saveState: (laneId, state) => {
+      store.setState(laneId, state);
+    },
+    decrypt: decryptPassword,
+    log,
+  });
+  gmailSkipped = [...built.skipped];
+  for (const lane of built.lanes) {
+    try {
+      engine.addAccount({
+        id: lane.laneId,
+        initialState: initialGmailState(),
+        background: true,
+        adapter: lane.adapter,
+      });
+    } catch {
+      // The engine refused it (lane limit): left out like the others, and told in the result toasts.
+      log("gmail-lane-skipped", { account: accountTag(lane.accountId), reason: "engine" });
+      gmailSkipped.push({ accountId: lane.accountId, email: lane.email, reason: "lane-id" });
+      continue;
+    }
+    lanes.push(lane.laneId);
+    gmailLanes.add(lane.laneId);
+    labels.set(lane.laneId, `${lane.email} (Gmail)`);
+  }
+
   // Interrupted syncs from a previous run are repaired before new mail can add to the list.
   for (const report of await engine.recover()) {
     log("recovered", {
@@ -575,7 +640,13 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           verified: result.status === "blocked" ? result.verified : undefined,
         });
         manage?.notifyChanged();
-        return describe(result, labels);
+        const toast = describe(result, labels);
+        if (result.status !== "blocked") return toast;
+        // ADR 0009 point 6: the toast says where the choice was not applied (Gmail takes single addresses and Trash only).
+        const gmailNote =
+          (gmailLanes.size > 0 ? gmailMissNote(store.list(), result.target) : "") +
+          gmailSkippedNote(gmailSkipped);
+        return { ...toast, text: toast.text + gmailNote };
       },
     });
     manage = new ManageWindow(assets, {
@@ -645,7 +716,11 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
               : undefined,
           accounts: result.status === "unblocked" ? result.accounts.length : undefined,
         });
-        return describeUnblock(value, result, labels);
+        const outcome = describeUnblock(value, result, labels);
+        // A Gmail account with no lane keeps its filter: the person is told, or "unblocked" would read as done.
+        return result.status === "unblocked"
+          ? { ...outcome, text: outcome.text + gmailSkippedNote(gmailSkipped) }
+          : outcome;
       },
     });
     tray = new Tray(nativeImage.createFromPath(join(assets, "icon.ico")));
