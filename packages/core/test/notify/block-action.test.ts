@@ -209,7 +209,7 @@ describe("blockPending when a rule already exists", () => {
   it("treats a subdomain of an own domain as own, and a lookalike domain as someone else", () => {
     const own = { domains: new Set(["example.com"]), addresses: new Set<string>() };
     expect(canRejectSender("a@mail.example.com", own)).toBe(false);
-    expect(canRejectSender("a@example.com", own)).toBe(false);
+    expect(canRejectSender("a@Example.com", own)).toBe(false);
     expect(canRejectSender("a@notexample.com", own)).toBe(true);
     expect(canRejectSender("a@example.com.evil.example", own)).toBe(true);
   });
