@@ -1,7 +1,7 @@
 # 0010 — Windows installer and toast identity
 
-Status: accepted (2026-10-27) for the build and install; the toast click through the installed identity is **not yet measured**
-(the machine was locked, see "Not measured"). Builds on ADR 0007 (native toasts need a Start-menu shortcut that carries the app identity).
+Status: accepted (2026-10-27) for the build and install; the toast click with the installed identity was measured on 2026-10-28
+(it reaches the app); the header text and icon were not seen by us (see "Not measured"). Builds on ADR 0007 (native toasts need a Start-menu shortcut that carries the app identity).
 
 ## Decision
 
@@ -60,11 +60,18 @@ Status: accepted (2026-10-27) for the build and install; the toast click through
   in the Start menu; `Get-StartApps` listed it as "Electron" next to the installer's entry. It was moved out of the Start menu for the test
   (backup kept), so the identity has exactly one shortcut.
 
+- **Toast click with the installed identity (2026-10-28 10:50, screen unlocked, Ali at the machine).** A harness (the dev Electron with the
+  product's own `Toasts` class and toast XML, `app.setAppUserModelId("com.senderban.desktop")`) showed one toast while the installer's
+  Start-menu shortcut was the only holder of that identity. Ali pressed "This sender" 19 s later: the harness log has `toast-activation`
+  and then `choose scope=address action=junk`, so a click is delivered with a shortcut-only identity (the registry key of ADR 0007 is
+  not needed and was not present). The click is a person's, not ours: UI Automation (`Windows.UI.Core.CoreWindow` named "notification")
+  found no toast window in the 20 s while it was on screen, so that route cannot read or press a Windows 11 toast. Process: the
+  harness runs in the dev Electron, not in the installed `Senderban.exe`; the identity is the shortcut's either way, but a click on a
+  toast of the installed app itself is not measured.
+
 ## Not measured
 
-- What a toast header and icon look like with the installed identity, and whether a click on "This sender" reaches the app
-  (`toast-activation` in the log, then `choose`). The machine was locked (LogonUI running; UI Automation found no toast window), so the
-  toasts went to the Action Center. ADR 0007's earlier finding (a hand-made registry key broke delivery) is not contradicted or
-  confirmed for a shortcut-only identity until this is run with the screen open.
+- What a toast header and icon look like with the installed identity (nobody has reported the header text yet). Three earlier tries
+  on a locked machine (LogonUI running, 2026-10-27 22:45, 2026-10-28 00:06 and 01:13) put the toasts in the Action Center only.
 - The installer on another Windows build, a per-machine install, SmartScreen behaviour for the unsigned file, the workflow run on GitHub.
 - Upgrade over an existing install (same `appId`, new version), and what happens to a running tray app.
