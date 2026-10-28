@@ -60,12 +60,7 @@ import {
 } from "./gmail-lanes.js";
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
-import {
-  SHUTDOWN_CAP_MS,
-  SHUTDOWN_DEADLINE_MS,
-  settleWithin,
-  stopThenClose,
-} from "./deadline.js";
+import { SHUTDOWN_CAP_MS, SHUTDOWN_DEADLINE_MS, settleWithin, stopThenClose } from "./deadline.js";
 import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
@@ -166,7 +161,10 @@ const destination = (action: BlockAction): string =>
 function noticeIfUnsynced(outcome: SyncOutcome): void {
   const id = outcome.accountId;
   const ok = outcome.status === "applied" || outcome.status === "unchanged";
-  if (outcome.status === "unchanged" || (outcome.status === "applied" && (outcome.deferred ?? 0) === 0)) {
+  if (
+    outcome.status === "unchanged" ||
+    (outcome.status === "applied" && (outcome.deferred ?? 0) === 0)
+  ) {
     gmailSettled.add(id);
   } else {
     gmailSettled.delete(id);

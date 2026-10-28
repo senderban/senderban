@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  SHUTDOWN_DEADLINE_MS,
-  settleWithin,
-  stopThenClose,
-} from "../src/deadline.js";
+import { SHUTDOWN_DEADLINE_MS, settleWithin, stopThenClose } from "../src/deadline.js";
 
 afterEach(() => {
   vi.useRealTimers();

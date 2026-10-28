@@ -755,9 +755,9 @@ describe("gmailAlreadyBlockedText", () => {
   ];
 
   it("says the mail goes to Trash only for an address a Gmail filter can hold whose last sync reached Gmail", () => {
-    expect(gmailAlreadyBlockedText(list("a@spam.example"), "a@spam.example", undefined, false)).toBe(
-      "a@spam.example is already blocked; on Gmail its mail goes to Trash.",
-    );
+    expect(
+      gmailAlreadyBlockedText(list("a@spam.example"), "a@spam.example", undefined, false),
+    ).toBe("a@spam.example is already blocked; on Gmail its mail goes to Trash.");
   });
 
   it("does not claim Gmail coverage for an address form the filter query refuses", () => {
@@ -773,11 +773,16 @@ describe("gmailAlreadyBlockedText", () => {
 
   it("does not claim Gmail coverage for the person's own address or a domain entry", () => {
     const own = (a: string) => a === "me@mine.example";
-    expect(gmailAlreadyBlockedText(list("me@mine.example"), "me@mine.example", own, false)).toContain(
-      "Not blocked on Gmail",
-    );
     expect(
-      gmailAlreadyBlockedText(list("spam.example", "exactDomain"), "spam.example", undefined, false),
+      gmailAlreadyBlockedText(list("me@mine.example"), "me@mine.example", own, false),
+    ).toContain("Not blocked on Gmail");
+    expect(
+      gmailAlreadyBlockedText(
+        list("spam.example", "exactDomain"),
+        "spam.example",
+        undefined,
+        false,
+      ),
     ).toContain("Not blocked on Gmail");
   });
 
