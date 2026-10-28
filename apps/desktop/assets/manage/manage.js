@@ -24,6 +24,9 @@ const ACTION_LABEL = {
   reject: "server block (Junk backup)",
 };
 
+// What a signed-in Gmail account does with the entry (a single address becomes a Trash filter); absent: no Gmail account.
+const GMAIL_LABEL = { trash: "Gmail: Trash", no: "Gmail: not applied" };
+
 let entries = [];
 let busy = false;
 
@@ -45,7 +48,8 @@ function row(entry) {
   const meta = document.createElement("div");
   meta.className = "meta";
   const added = new Date(entry.createdAt).toLocaleDateString();
-  meta.textContent = `${MATCH_LABEL[entry.match] ?? entry.match} · ${ACTION_LABEL[entry.action] ?? entry.action} · added ${added}`;
+  const gmail = GMAIL_LABEL[entry.gmail];
+  meta.textContent = `${MATCH_LABEL[entry.match] ?? entry.match} · ${ACTION_LABEL[entry.action] ?? entry.action} · added ${added}${gmail === undefined ? "" : ` · ${gmail}`}`;
   what.append(value, meta);
 
   const button = document.createElement("button");

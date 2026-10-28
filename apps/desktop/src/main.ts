@@ -52,6 +52,7 @@ import {
   buildGmailLanes,
   createGmailLifecycle,
   createHeldLanes,
+  gmailCover,
   gmailMissNote,
   gmailSkippedNote,
   skippedAfterDone,
@@ -586,6 +587,8 @@ async function start(): Promise<Runtime> {
         pending.dropAccount(lane.laneId);
         states.delete(lane.laneId);
         updateTray();
+        // The open window's rows said "Gmail: Trash" for this lane.
+        manage?.notifyChanged();
       }
       // An account that had no lane this session may still have a cursor from an earlier one.
       store.gmailCursors.delete(gmailLaneId(accountId));
@@ -789,7 +792,15 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
     });
     manage = new ManageWindow(assets, {
-      list: () => runtime?.store.list() ?? [],
+      // `gmailLanes` is the lanes that run this session: with none, a row says nothing about Gmail.
+      list: () => {
+        const own = runtime?.own.get();
+        const isOwn = (a: string) => own !== undefined && isOwnMailbox(a, own);
+        return (runtime?.store.list() ?? []).map((entry) => ({
+          ...entry,
+          gmail: gmailLanes.size > 0 ? gmailCover(entry, isOwn) : null,
+        }));
+      },
       onError: logIpcError,
       mxrouteList: () => listMxroute(accountsPath),
       mxrouteSave: async (input) => {

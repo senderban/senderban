@@ -39,9 +39,12 @@ export interface ManageOutcome {
   readonly text: string;
 }
 
+/** One row of the window: the list entry, and what a signed-in Gmail account does with it (`null`: no Gmail account, say nothing). */
+export type ManageEntry = BlockEntry & { readonly gmail: "trash" | "no" | null };
+
 export interface ManageHandlers {
   /** The device block list, oldest first. */
-  readonly list: () => readonly BlockEntry[];
+  readonly list: () => readonly ManageEntry[];
   /** Takes the entry off the list and every account; describes what happened. */
   readonly unblock: (id: string) => Promise<ManageOutcome>;
   /** Advanced: the accounts with their MXroute key status (the key itself stays in the main process). */

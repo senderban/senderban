@@ -16,6 +16,7 @@ import {
   createAccessTokenSource,
   createGmailLifecycle,
   createHeldLanes,
+  gmailCover,
   gmailLogTag,
   skippedAfterDone,
   gmailMissNote,
@@ -300,6 +301,38 @@ describe("gmailMissNote", () => {
     expect(gmailMissNote([e("spam.example", "subdomains", "trash")], "spam.example")).toContain(
       "single addresses only",
     );
+  });
+});
+
+describe("gmailCover", () => {
+  const entry = (
+    match: BlockEntry["match"],
+    value: string,
+    action: BlockEntry["action"],
+  ): BlockEntry => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    match,
+    value,
+    action,
+    createdAt: "2026-10-28T00:00:00.000Z",
+  });
+
+  it("says Trash for any single address the query contract allows, whatever its action", () => {
+    for (const action of ["junk", "trash", "reject"] as const) {
+      expect(gmailCover(entry("exactAddress", "a@spam.example", action))).toBe("trash");
+    }
+  });
+
+  it("says no for the person's own address, which the lane never writes", () => {
+    const own = (a: string) => a === "me@gmail.com";
+    expect(gmailCover(entry("exactAddress", "me@gmail.com", "junk"), own)).toBe("no");
+    expect(gmailCover(entry("exactAddress", "other@gmail.com", "junk"), own)).toBe("trash");
+  });
+
+  it("says no for a domain and for an address form the query contract refuses", () => {
+    expect(gmailCover(entry("subdomains", "spam.example", "junk"))).toBe("no");
+    expect(gmailCover(entry("exactDomain", "spam.example", "trash"))).toBe("no");
+    expect(gmailCover(entry("exactAddress", "-x@spam.example", "trash"))).toBe("no");
   });
 });
 

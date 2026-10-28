@@ -11,6 +11,7 @@ import {
 } from "@senderban/core";
 import type {
   AccountConfig,
+  BlockEntry,
   Blocklist,
   GmailBudgets,
   GmailLogEvent,
@@ -213,6 +214,20 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
     deps.log("gmail-lane", { account: tag });
   }
   return { lanes, skipped };
+}
+
+/**
+ * What a Gmail account does with one list entry, for the "Blocked senders" window: "trash" (a single address becomes a Trash filter,
+ * whatever its action) or "no" (a domain, an address form the query contract refuses, or the person's own address). Cheap by design: the window asks for the
+ * whole list on every change.
+ */
+export function gmailCover(
+  entry: BlockEntry,
+  isOwn?: (address: string) => boolean,
+): "trash" | "no" {
+  // The lane never writes the person's own address (the entry can predate the account), so it is not covered.
+  if (isOwn?.(entry.value) === true) return "no";
+  return entry.match === "exactAddress" && isGmailMirrorable(entry.value) ? "trash" : "no";
 }
 
 /**
