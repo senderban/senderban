@@ -59,6 +59,12 @@ import {
 } from "./gmail-lanes.js";
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
+import {
+  SHUTDOWN_CAP_MS,
+  SHUTDOWN_DEADLINE_MS,
+  settleWithin,
+  stopThenClose,
+} from "./deadline.js";
 import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
@@ -635,8 +641,15 @@ async function shutdown(): Promise<void> {
   manage?.closeAll();
   current.engine.dispose();
   current.gmailWatchers.stop();
-  await Promise.allSettled([...current.watchers.values()].map((w) => w.stop()));
-  current.store.close();
+  // A session still logging out is cut by the process exit that follows; the store closes either way.
+  await stopThenClose({
+    stop: () => Promise.allSettled([...current.watchers.values()].map((w) => w.stop())),
+    closeStore: () => {
+      current.store.close();
+    },
+    log,
+    ms: SHUTDOWN_DEADLINE_MS,
+  });
 }
 
 const addAccountArg = process.argv.find((a) => a.startsWith("--add-account="));
@@ -685,7 +698,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     if (quitting) return;
     quitting = true;
     event.preventDefault();
-    void shutdown().finally(() => {
+    // The cap also covers a start still running (`ready` not settled), which `stopThenClose` does not.
+    void settleWithin(shutdown(), SHUTDOWN_CAP_MS).then((outcome) => {
+      if (outcome === "timeout") log("quit-cap", { ms: SHUTDOWN_CAP_MS });
       app.exit(0);
     });
   });

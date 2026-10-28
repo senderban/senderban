@@ -89,11 +89,28 @@ function render() {
   }
 }
 
+// One list request at a time: a burst of "changed" events (a client change signs out every Gmail
+// account, one event each) costs one request in flight plus one more, not one per event.
+let refreshing = false;
+let refreshAgain = false;
+
 async function refresh() {
-  const init = await api.init();
-  if (init === null) return;
-  entries = init.entries;
-  render();
+  if (refreshing) {
+    refreshAgain = true;
+    return;
+  }
+  refreshing = true;
+  try {
+    do {
+      refreshAgain = false;
+      const init = await api.init();
+      if (init === null) return;
+      entries = init.entries;
+      render();
+    } while (refreshAgain);
+  } finally {
+    refreshing = false;
+  }
 }
 
 async function unblock(entry) {
