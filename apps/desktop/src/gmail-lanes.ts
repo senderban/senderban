@@ -256,6 +256,26 @@ export function gmailMissNote(
   return entry.action === "trash" ? "" : " On Gmail it goes to Trash (Gmail has no Junk filter).";
 }
 
+/**
+ * What a Gmail toast answers when the clicked sender is already in the list. The earlier "goes to Trash" claim holds only when a
+ * Gmail filter can hold the entry and the account's last sync reached Gmail; otherwise the text says what is missing.
+ */
+export function gmailAlreadyBlockedText(
+  list: Blocklist,
+  target: string,
+  isOwn: ((address: string) => boolean) | undefined,
+  syncPending: boolean,
+): string {
+  const entry = list.find((e) => e.value === target);
+  if (entry === undefined || gmailCover(entry, isOwn) === "no") {
+    return `${target} is already blocked.${gmailMissNote(list, target, isOwn)}`;
+  }
+  if (syncPending) {
+    return `${target} is already blocked; Gmail has not confirmed it yet, its last sync did not finish.`;
+  }
+  return `${target} is already blocked; on Gmail its mail goes to Trash.`;
+}
+
 const SKIP_TEXT: Record<GmailSkipReason, string> = {
   "no-client": "no Google client is set up",
   "client-unreadable": "the Google client file could not be read",

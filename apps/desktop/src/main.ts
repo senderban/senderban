@@ -53,6 +53,7 @@ import {
   createGmailLifecycle,
   createHeldLanes,
   gmailCover,
+  gmailAlreadyBlockedText,
   gmailMissNote,
   gmailSkippedNote,
   skippedAfterDone,
@@ -134,6 +135,11 @@ function notice(title: string, body: string): void {
 
 /** Accounts whose last sync failed and whose person was told; cleared by the next sync that did not fail. */
 const unsynced = new Set<string>();
+/**
+ * Lanes whose last round left nothing to send (`unchanged`, or `applied` with no `deferred` backlog). A Gmail toast says "goes to Trash"
+ * only for a lane in here: the signal is positive, so a start-up pass, a queued sync or a backlog read as "not confirmed yet".
+ */
+const gmailSettled = new Set<string>();
 /** Accounts a toast click is working on right now: the result toast reports their outcome, a notice would repeat it. */
 const clicking = new Set<string>();
 /** Engine lanes that write to an MXroute blacklist: their failures are about the API key, not the mail password. */
@@ -160,6 +166,11 @@ const destination = (action: BlockAction): string =>
 function noticeIfUnsynced(outcome: SyncOutcome): void {
   const id = outcome.accountId;
   const ok = outcome.status === "applied" || outcome.status === "unchanged";
+  if (outcome.status === "unchanged" || (outcome.status === "applied" && (outcome.deferred ?? 0) === 0)) {
+    gmailSettled.add(id);
+  } else {
+    gmailSettled.delete(id);
+  }
   if (ok) {
     unsynced.delete(id);
     return;
@@ -592,6 +603,7 @@ async function start(): Promise<Runtime> {
         // A toast of this account that is still on screen answers "expired" now, not "read back from the provider".
         pending.dropAccount(lane.laneId);
         states.delete(lane.laneId);
+        gmailSettled.delete(lane.laneId);
         updateTray();
         // The open window's rows said "Gmail: Trash" for this lane.
         manage?.notifyChanged();
@@ -777,7 +789,17 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           if (clicked !== null) clicking.delete(clicked);
         }
         // The result toast tells the person about this account; a notice for the same failure would repeat it.
-        if (result.status === "not-applied") unsynced.add(result.accountId);
+        if (result.status === "not-applied") {
+          unsynced.add(result.accountId);
+          gmailSettled.delete(result.accountId);
+        }
+        if (result.status === "blocked") {
+          // The other lanes got a queued sync (2 s debounce): none of them is settled until its round reports.
+          // The clicked lane keeps what its own round reported (a `deferred` backlog is not settled, whatever `verified` says).
+          const keep = gmailSettled.has(result.accountId);
+          gmailSettled.clear();
+          if (keep && result.verified) gmailSettled.add(result.accountId);
+        }
         log("choice", {
           scope,
           action,
@@ -793,7 +815,12 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         ) {
           return {
             tone: "warn",
-            text: `${result.target} is already blocked; on Gmail its mail goes to Trash.`,
+            text: gmailAlreadyBlockedText(
+              store.list(),
+              result.target,
+              (a) => isOwnMailbox(a, own.get()),
+              clicking.size > 0 || !gmailSettled.has(clicked),
+            ),
           };
         }
         const toast = describe(result, labels);
@@ -886,7 +913,11 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           for (const accountId of accountIds) clicking.delete(accountId);
         }
         if (result.status === "unblocked") {
-          for (const a of result.accounts) if (!a.confirmed) unsynced.add(a.accountId);
+          gmailSettled.clear();
+          for (const a of result.accounts) {
+            if (a.confirmed) gmailSettled.add(a.accountId);
+            else unsynced.add(a.accountId);
+          }
         }
         log("unblock", {
           result: result.status,
