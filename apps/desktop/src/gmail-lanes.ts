@@ -217,8 +217,8 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
 
 /**
  * What the result toast adds after a block when a Gmail account is set up (ADR 0009 point 6): the choice is applied where it
- * exists, and the toast says where it was not. A Gmail filter takes single addresses and Trash only, and only an address form
- * the query contract lets through; everything else is not blocked there.
+ * exists, and the toast says where it was not. A Gmail filter takes single addresses only (any action is carried out as
+ * Trash there), and only an address form the query contract lets through; everything else is not blocked there.
  */
 export function gmailMissNote(
   list: Blocklist,
@@ -230,17 +230,15 @@ export function gmailMissNote(
   if (entry.match !== "exactAddress") {
     return " Not blocked on Gmail: a Gmail filter takes single addresses only.";
   }
-  if (entry.action !== "trash") {
-    return " Not blocked on Gmail: Gmail has no Junk filter, choose Trash to block there.";
-  }
   if (isOwn?.(entry.value) === true) {
     return " Not blocked on Gmail: this is one of your own addresses (blocking it there could send your own mail to Trash).";
   }
-  // The one entry is asked, not the whole list (the earlier checks leave exactly the single-address Trash case; 130 ms of
+  // The one entry is asked, not the whole list (the earlier checks leave exactly the single-address case; 130 ms of
   // validation of 5,000 entries per click was measured for the list form).
-  return isGmailMirrorable(entry.value)
-    ? ""
-    : " Not blocked on Gmail: this address form cannot be written as a Gmail filter.";
+  if (!isGmailMirrorable(entry.value)) {
+    return " Not blocked on Gmail: this address form cannot be written as a Gmail filter.";
+  }
+  return entry.action === "trash" ? "" : " On Gmail it goes to Trash (Gmail has no Junk filter).";
 }
 
 const SKIP_TEXT: Record<GmailSkipReason, string> = {

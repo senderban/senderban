@@ -79,9 +79,13 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
    `parseAddress`; anything else (two mailboxes, two `From` headers, group syntax, comment, display name that looks like an address) is
    announced without Block buttons, or not at all, and logged as the fixed word `from-unparsable`. A display name is never an address
    (`"boss@co.com" <x@spam.example>` must offer `x@spam.example`). The subject goes through the same sanitiser as on IMAP.
-6. **Toast.** The choices a Gmail account can honour decide the buttons: Trash only ("Move to Junk" is not offered for Gmail: a filter
-   cannot add `SPAM`, measured); "Block at server" never. When one block spans accounts of different kinds, the person's choice is applied where it exists and the result toast says
-   where it was not (same wording rule as ADR 0008 point 3).
+6. **Toast.** The choices a Gmail account can honour decide the buttons: one "Move this sender to Trash" button, no choice box
+   ("Move to Junk" is not offered for Gmail: a filter cannot add `SPAM`, measured); "Block at server" never. When one block spans
+   accounts of different kinds, a single-address block reaches Gmail whatever its action: Junk and "Block at server" are carried
+   out there as Trash (amended 2026-10-28: a live test showed the default Junk click on an MXroute toast never reached the Gmail
+   account; both keep the mail, and Gmail empties Spam and Trash alike after 30 days). What cannot be applied (a whole domain, an
+   address form the query contract refuses, the person's own address) is named in the result toast (same wording rule as ADR 0008
+   point 3). The person's own addresses and own mail domains are never blocked on any account (amended 2026-10-28).
 
 ## Data
 
@@ -126,6 +130,11 @@ Unit = Gmail account. Quota units read: `history.list` 2, `messages.get` 20 (met
 | new mail               | 1 `messages.get`; ≤ 5 per drain (`DEFAULT_MAX_PER_DRAIN`) | 20 each → ≤ 100 per drain                               |
 | 50 mails/day (assumed) | 50 `messages.get`                                         | 1,000/day → **≈ 3,900/day**, the K8 figure, now derived |
 | one block change       | 1 `filters.list` + `create` + `delete` + verify `list`    | ≈ 12                                                    |
+
+Since 2026-10-28 every single-address block reaches every Gmail account (Junk and "Block at server" as Trash, point 6), not only
+Trash clicks: a block costs ≈ 12 units on each Gmail lane. The first sync after that update also writes the single-address Junk
+entries already in the list: at most `MAX_ENTRIES` / 50 = 100 filters × 5 units = 500 units once per account, under the 1,100 a
+minute client budget (A2d) in one round or spread over the next ones by it.
 
 10× (10 accounts): 10 requests/min, ≈ 39k units/day; 50× (`MAX_ACCOUNTS`): 50 requests/min, ≈ 195k units/day, 100 units/min on the
 project against 1.2M/min. Each Gmail account is its own "user", so the 6,000/min per-user limit is not shared between accounts.

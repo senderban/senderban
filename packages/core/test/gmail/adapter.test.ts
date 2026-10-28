@@ -130,7 +130,7 @@ describe("gmailLaneId", () => {
 });
 
 describe("plan", () => {
-  it("mirrors single addresses blocked with Trash that the query contract allows, and nothing else", async () => {
+  it("mirrors single addresses the query contract allows, any action as Trash, and no domain", async () => {
     const { adapter } = setup();
     const list = [
       entry("a@spam.example"),
@@ -139,11 +139,13 @@ describe("plan", () => {
       entry("spam.example", "trash", "exactDomain"),
       entry("bulk.example", "trash", "subdomains"),
       entry("-x@spam.example"),
-      entry("a*b@spam.example"),
+      entry("a*b@spam.example", "junk"),
     ];
     const plan = await adapter.plan(list, initialGmailState());
-    expect(plan.changes.map((c) => [c.kind, c.entry.value])).toEqual([
-      ["create", "a@spam.example"],
+    expect(plan.changes.map((c) => [c.kind, c.entry.value, c.entry.action])).toEqual([
+      ["create", "a@spam.example", "trash"],
+      ["create", "b@spam.example", "trash"],
+      ["create", "c@spam.example", "trash"],
     ]);
     expect(gmailUnsupported(list).map((e) => e.value)).toEqual([
       "-x@spam.example",
@@ -1164,10 +1166,13 @@ describe("a plan that had nothing to do", () => {
     expect((await adapter.plan(list.slice(1), state)).changes.map((c) => c.kind)).toEqual([
       "remove",
     ]);
-    // A Junk entry next to the same Trash ones: still nothing to do.
-    expect((await adapter.plan([...list, entry("j@spam.example", "junk")], state)).changes).toEqual(
-      [],
-    );
+    // A domain entry next to the same addresses: still nothing to do.
+    expect(
+      (await adapter.plan([...list, entry("spam.example", "junk", "subdomains")], state)).changes,
+    ).toEqual([]);
+    // An address that moved from Trash to Junk is still the same Trash filter here.
+    const asJunk = list.map((e) => ({ ...e, action: "junk" as const }));
+    expect((await adapter.plan(asJunk, state)).changes).toEqual([]);
     // The same list over another state: seen.
     expect((await adapter.plan(list, initialGmailState())).changes).toHaveLength(3);
     // An address that became the person's own: seen, though neither the list nor the state moved.

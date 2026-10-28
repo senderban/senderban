@@ -65,7 +65,7 @@ export const GMAIL_SUSPEND_WAIT_MS = GMAIL_ROUND_DEADLINE_MS + 15_000;
 export const GMAIL_MAX_FILTERS = (MAX_ENTRIES / GMAIL_ADDRESSES_PER_FILTER) * 2;
 
 /**
- * `exactAddress` + Trash only (ADR 0009 points 4 and 6): a Gmail filter cannot add `SPAM`, and domain terms are not
+ * `exactAddress` only, carried out as Trash (ADR 0009 points 4 and 6): a Gmail filter cannot add `SPAM`, and domain terms are not
  * declared until the match of `from:` on a domain is measured.
  */
 const CAPABILITIES: Capabilities = {
@@ -205,8 +205,9 @@ const matches = (remote: GmailFilter, record: FilterRecord): boolean =>
   matchesQuery(remote, queryOf(record.entries));
 
 /**
- * The entries this lane mirrors: single addresses the person blocked with Trash that the query contract lets through.
- * Anything else is left to the other lanes.
+ * The entries this lane mirrors: single addresses the query contract lets through, whatever their action. Gmail has no
+ * Junk filter (a filter cannot add `SPAM`), so Junk and "Block at server" are carried out as Trash here: both keep the
+ * mail, and Gmail empties Spam and Trash alike after 30 days (ADR 0009 point 6). Domain entries are left to the other lanes.
  */
 function mirrored(
   list: Blocklist,
@@ -214,23 +215,23 @@ function mirrored(
 ): Map<string, BlockEntry> {
   const out = new Map<string, BlockEntry>();
   for (const raw of list) {
-    // The cheap test first: a Junk or a domain entry is nobody's business here, and a list holds thousands.
-    if (raw.match !== "exactAddress" || raw.action !== "trash") continue;
+    // The cheap test first: a domain entry is nobody's business here, and a list holds thousands.
+    if (raw.match !== "exactAddress") continue;
     const checked = checkEntry(raw);
     if (!checked.ok) continue;
     const { entry } = checked;
-    if (entry.match !== "exactAddress" || entry.action !== "trash") continue;
+    if (entry.match !== "exactAddress") continue;
     if (!isGmailMirrorable(entry.value)) continue;
     if (exclude?.(entry.value) === true) continue;
-    out.set(entry.value, entry);
+    out.set(entry.value, { ...entry, action: "trash" });
   }
   return out;
 }
 
 /**
- * Trash blocks of single addresses that the Gmail query contract refuses (a local part with `-`, `{}`, `*` or other
- * symbols at an edge or inside). They are never written and never dropped silently: the result toast says "not blocked
- * on Gmail" for exactly these (ADR 0009 point 4, contract 2).
+ * Single-address blocks that the Gmail query contract refuses (a local part with `-`, `{}`, `*` or other symbols at an
+ * edge or inside). They are never written and never dropped silently: the result toast says "not blocked on Gmail" for
+ * exactly these (ADR 0009 point 4, contract 2).
  */
 export function gmailUnsupported(list: Blocklist): BlockEntry[] {
   const out: BlockEntry[] = [];
@@ -238,11 +239,7 @@ export function gmailUnsupported(list: Blocklist): BlockEntry[] {
     const checked = checkEntry(raw);
     if (!checked.ok) continue;
     const { entry } = checked;
-    if (
-      entry.match === "exactAddress" &&
-      entry.action === "trash" &&
-      !isGmailMirrorable(entry.value)
-    ) {
+    if (entry.match === "exactAddress" && !isGmailMirrorable(entry.value)) {
       out.push(entry);
     }
   }
@@ -485,7 +482,7 @@ export class GmailAdapter implements BlockAdapter {
   #planKey(list: Blocklist, state: OpaqueState): string {
     const hash = createHash("sha256");
     for (const raw of list) {
-      if (raw.match !== "exactAddress" || raw.action !== "trash") continue;
+      if (raw.match !== "exactAddress") continue;
       if (this.#exclude?.(raw.value) === true) continue;
       hash.update(raw.value).update("\n");
     }

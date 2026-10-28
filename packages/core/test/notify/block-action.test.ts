@@ -215,6 +215,23 @@ describe("blockPending when a rule already exists", () => {
     expect(add).not.toHaveBeenCalled();
   });
 
+  it("still adds the address for a Gmail click under a domain on Junk (a domain rule never reaches Gmail)", async () => {
+    const { deps, add } = setup({ existing: [entry("subdomains", "example.com", "junk")] });
+    const result = await blockPending(
+      { ...deps, trashOnlyAccount: (id) => id === "a" },
+      ID,
+      "address",
+    );
+    expect(result).toMatchObject({ status: "blocked", action: "trash" });
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        match: "exactAddress",
+        value: "spam@news.example.com",
+        action: "trash",
+      }),
+    );
+  });
+
   it("lets a Junk choice through even when Trash covers it, because Junk is written first", async () => {
     const { deps } = setup({ existing: [entry("subdomains", "example.com", "trash")] });
     const result = await blockPending(deps, ID, "address", "junk");

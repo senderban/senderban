@@ -188,9 +188,16 @@ export async function blockPending(
   // Junk rules (a `reject` entry is filed like Junk) are written first and each one stops, so Junk wins wherever
   // both would match. Say so instead of reporting a Trash rule that never fires.
   if (action === "trash") {
+    // A Gmail click is the exception for a domain winner: a domain rule never reaches Gmail, so the address entry is
+    // still needed there (on Sieve the domain's Junk rule keeps winning).
     const winner = deps.store
       .list()
-      .find((e) => folderAction(e.action) === "junk" && covers(e, match, target));
+      .find(
+        (e) =>
+          folderAction(e.action) === "junk" &&
+          covers(e, match, target) &&
+          (!trashOnly || e.match === "exactAddress"),
+      );
     if (winner !== undefined) {
       return { status: "already-blocked", target: winner.value, action: winner.action };
     }

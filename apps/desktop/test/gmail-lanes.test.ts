@@ -288,13 +288,15 @@ describe("gmailMissNote", () => {
       gmailMissNote([e("-x@spam.example", "exactAddress", "trash")], "-x@spam.example"),
     ).toContain("address form");
   });
-  it("says so for Junk (use Trash), a whole domain (single addresses only) and a refusal at the server", () => {
-    expect(
-      gmailMissNote([e("a@spam.example", "exactAddress", "junk")], "a@spam.example"),
-    ).toContain("no Junk filter");
-    expect(
-      gmailMissNote([e("a@spam.example", "exactAddress", "reject")], "a@spam.example"),
-    ).toContain("no Junk filter");
+  it("says a Junk or a refuse-at-server address goes to Trash on Gmail, nothing for Trash, and so for a whole domain", () => {
+    for (const action of ["junk", "reject"] as const) {
+      expect(gmailMissNote([e("a@spam.example", "exactAddress", action)], "a@spam.example")).toBe(
+        " On Gmail it goes to Trash (Gmail has no Junk filter).",
+      );
+    }
+    expect(gmailMissNote([e("a@spam.example", "exactAddress", "trash")], "a@spam.example")).toBe(
+      "",
+    );
     expect(gmailMissNote([e("spam.example", "subdomains", "trash")], "spam.example")).toContain(
       "single addresses only",
     );

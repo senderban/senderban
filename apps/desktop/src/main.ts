@@ -766,6 +766,17 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           verified: result.status === "blocked" ? result.verified : undefined,
         });
         manage?.notifyChanged();
+        // On a Gmail account every single-address entry is a Trash filter, whatever action the list holds for it.
+        if (
+          result.status === "already-blocked" &&
+          clicked !== null &&
+          gmailToastLanes.has(clicked)
+        ) {
+          return {
+            tone: "warn",
+            text: `${result.target} is already blocked; on Gmail its mail goes to Trash.`,
+          };
+        }
         const toast = describe(result, labels);
         if (result.status !== "blocked") return toast;
         // ADR 0009 point 6: the toast says where the choice was not applied (Gmail takes single addresses and Trash only).
