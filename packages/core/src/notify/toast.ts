@@ -34,7 +34,7 @@ export interface MailToast {
    */
   readonly rejectsAtServer: boolean;
   /**
-   * True for a Gmail message: a Gmail filter can only move to Trash, so that is the one choice listed (no Junk, no "Block at
+   * True for a Gmail message: a Gmail filter can only move to Trash, so the toast is one "Move this sender to Trash" button (no Junk, no "Block at
    * server"). The click is held to Trash again in `blockPending`, because a click does not have to match what the toast showed.
    */
   readonly trashOnly?: boolean;
@@ -91,20 +91,26 @@ export function buildMailToastXml(toast: MailToast): string {
   const lines = [toast.sender, subject, `${score}${toast.account}`]
     .map((line) => `<text>${escapeXml(line)}</text>`)
     .join("");
+  // One possible effect needs no choice: a Gmail toast is a single button that says what it does. The click carries no
+  // `target`, and `blockPending` holds a Gmail account to Trash whatever the click says.
+  if (toast.trashOnly === true) {
+    return (
+      `<toast duration="long"><visual><binding template="ToastGeneric">${lines}</binding></visual>` +
+      `<actions><action content="Move this sender to Trash" arguments="${args("sender", toast.id)}" activationType="foreground"/>` +
+      `</actions></toast>`
+    );
+  }
   const domainButton =
     toast.domain === null
       ? ""
       : `<action content="Whole domain" arguments="${args("domain", toast.id)}" activationType="foreground"/>`;
   // Junk is first and the default: "Block at server" is the one choice that keeps no copy of later mail, so it
   // is listed last and never pre-selected (ADR 0008).
-  const choices: readonly (readonly [BlockAction, string])[] =
-    toast.trashOnly === true
-      ? [["trash", "Move to Trash"]]
-      : [
-          ["junk", "Move to Junk"],
-          ["trash", "Move to Trash"],
-          ...(toast.rejectsAtServer ? ([["reject", "Block at server"]] as const) : []),
-        ];
+  const choices: readonly (readonly [BlockAction, string])[] = [
+    ["junk", "Move to Junk"],
+    ["trash", "Move to Trash"],
+    ...(toast.rejectsAtServer ? ([["reject", "Block at server"]] as const) : []),
+  ];
   const selections = choices
     .map(([id, label]) => `<selection id="${id}" content="${label}"/>`)
     .join("");

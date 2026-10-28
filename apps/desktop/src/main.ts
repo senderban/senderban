@@ -57,7 +57,7 @@ import {
   skippedAfterDone,
 } from "./gmail-lanes.js";
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
-import { createGmailWatchers } from "./gmail-watchers.js";
+import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
@@ -419,6 +419,19 @@ async function start(): Promise<Runtime> {
           password: () => decryptPassword(account.passwordCipher),
         }),
         onMessage: (accountId: string, message: IncomingMessage) => {
+          // The same rule as the Gmail watcher: an own address is never blocked (blockPending refuses it), so no button.
+          if (isOwnMailbox(message.from, own.get())) {
+            log("announce", {
+              account: accountTag(accountId),
+              uid: message.uid,
+              sender: "own-address",
+            });
+            notice(
+              "Senderban",
+              `New mail in ${labels.get(accountId) ?? accountId} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
+            );
+            return;
+          }
           const id = pending.add({ accountId, sender: message.from });
           log("announce", {
             account: accountTag(accountId),
@@ -431,7 +444,7 @@ async function start(): Promise<Runtime> {
             subject: message.subject,
             account: labels.get(accountId) ?? accountId,
             spamScore: message.spamScore,
-            domain: blockableDomain(message.from),
+            domain: blockableDomain(message.from, own.get()),
             // A wildcard address is never written to the blacklist (it would refuse a whole provider).
             rejectsAtServer:
               rejectingAccounts.has(accountId) && canRejectSender(message.from, own.get()),

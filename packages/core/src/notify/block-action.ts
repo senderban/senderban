@@ -14,13 +14,27 @@ export type BlockScope = (typeof BLOCK_SCOPES)[number];
 
 /**
  * The domain a popup may offer to block for this sender, or null when it must not (a freemail
- * provider, or a shape the block list would refuse). Hiding the button is only a courtesy: the list
- * enforces the same rule.
+ * provider, a shape the block list would refuse, or a mail domain the person owns). Hiding the button is only a
+ * courtesy: the list enforces the shape rule and `blockPending` the own-domain rule.
  */
-export function blockableDomain(sender: string): string | null {
+export function blockableDomain(sender: string, own: OwnMail): string | null {
   const domain = sender.slice(sender.lastIndexOf("@") + 1);
   if (validateDomain(domain) !== null || isFreemail(domain) || isCountrySuffix(domain)) return null;
+  if (isOwnDomain(domain, own)) return null;
   return domain;
+}
+
+/**
+ * True when a rule on `domain` (subdomains included) would reach a mail domain the person owns: the domain itself, a
+ * subdomain of it, or a parent of it. A spammer can forge the person's own domain in From; a domain rule would file
+ * every colleague's mail away.
+ */
+function isOwnDomain(domain: string, own: OwnMail): boolean {
+  const lower = domain.toLowerCase();
+  for (const owned of own.domains) {
+    if (lower === owned || lower.endsWith(`.${owned}`) || owned.endsWith(`.${lower}`)) return true;
+  }
+  return false;
 }
 
 /**
@@ -146,13 +160,16 @@ export async function blockPending(
   if (trashOnly && scope === "domain") {
     return { status: "refused", detail: "a Gmail filter takes single addresses only" };
   }
-  // The Gmail filter lane would refuse an own address anyway; the click says so up front instead of adding it to the list for
-  // the other accounts' rules to carry out.
-  if (trashOnly && isOwnMailbox(sender, deps.own)) {
+  // The list is global, so an own address blocked from one account would file the person's own mail away on every other
+  // (and the Gmail filter lane refuses it anyway): never on any account. A forged own From is the server's job (SPF/DMARC).
+  if (isOwnMailbox(sender, deps.own)) {
     return { status: "refused", detail: "this is one of your own addresses" };
   }
+  if (scope === "domain" && isOwnDomain(sender.slice(sender.lastIndexOf("@") + 1), deps.own)) {
+    return { status: "refused", detail: "this domain would reach one of your own mail domains" };
+  }
   const action: BlockAction = trashOnly ? "trash" : requested;
-  const target = scope === "domain" ? blockableDomain(sender) : sender;
+  const target = scope === "domain" ? blockableDomain(sender, deps.own) : sender;
   if (target === null) {
     return { status: "refused", detail: "this domain cannot be blocked as a whole" };
   }

@@ -53,11 +53,26 @@ function setup(
   return { deps, add, sync, verify, requestSync };
 }
 
+const NOBODY = { domains: new Set<string>(), addresses: new Set<string>() };
+
 describe("blockableDomain", () => {
   it("offers the sender's own domain, and nothing for a freemail provider", () => {
-    expect(blockableDomain("spam@news.example.com")).toBe("news.example.com");
-    expect(blockableDomain("someone@gmail.com")).toBeNull();
-    expect(blockableDomain("someone@mail.gmail.com")).toBeNull();
+    expect(blockableDomain("spam@news.example.com", NOBODY)).toBe("news.example.com");
+    expect(blockableDomain("someone@gmail.com", NOBODY)).toBeNull();
+    expect(blockableDomain("someone@mail.gmail.com", NOBODY)).toBeNull();
+  });
+
+  it("offers nothing for a mail domain the person owns, its subdomains or its parents, and a lookalike as usual", () => {
+    const own = { domains: new Set(["mail.example.com"]), addresses: new Set<string>() };
+    expect(blockableDomain("colleague@mail.example.com", own)).toBeNull();
+    expect(blockableDomain("colleague@MAIL.Example.com", own)).toBeNull();
+    expect(blockableDomain("x@eu.mail.example.com", own)).toBeNull();
+    // A rule on the parent would reach the owned subdomain too.
+    expect(blockableDomain("x@example.com", own)).toBeNull();
+    expect(blockableDomain("x@notmail.example.com", own)).toBe("notmail.example.com");
+    expect(blockableDomain("x@mail.example.com.evil.example", own)).toBe(
+      "mail.example.com.evil.example",
+    );
   });
 
   it("offers nothing for a country public suffix or a country freemail variant", () => {
@@ -69,9 +84,46 @@ describe("blockableDomain", () => {
       "x@hotmail.co.uk",
       "x@yahoo.co.jp",
     ]) {
-      expect(blockableDomain(sender)).toBeNull();
+      expect(blockableDomain(sender, NOBODY)).toBeNull();
     }
-    expect(blockableDomain("a@shop.co.uk")).toBe("shop.co.uk");
+    expect(blockableDomain("a@shop.co.uk", NOBODY)).toBe("shop.co.uk");
+  });
+});
+
+describe("blockPending for the person's own mail", () => {
+  it("refuses the person's own address on any account, whatever the action, and writes nothing", async () => {
+    for (const requested of ["junk", "trash", "reject"] as const) {
+      const run = setup({ sender: "info@example.com", ownAddresses: ["info@example.com"] });
+      const result = await blockPending(run.deps, ID, "address", requested);
+      expect(result).toEqual({ status: "refused", detail: "this is one of your own addresses" });
+      expect(run.add).not.toHaveBeenCalled();
+      expect(run.sync).not.toHaveBeenCalled();
+    }
+  });
+
+  it("refuses a whole-domain click on an own mail domain, its subdomain or its parent, even if a toast showed the button", async () => {
+    for (const sender of ["colleague@mail.example.com", "x@eu.mail.example.com", "x@example.com"]) {
+      const run = setup({ sender, ownDomains: ["mail.example.com"] });
+      const result = await blockPending(run.deps, ID, "domain");
+      expect(result).toEqual({
+        status: "refused",
+        detail: "this domain would reach one of your own mail domains",
+      });
+      expect(run.add).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still blocks a colleague's single address to Junk (only Block at server is held back for it)", async () => {
+    const run = setup({ sender: "colleague@example.com", ownDomains: ["example.com"] });
+    const result = await blockPending(run.deps, ID, "address");
+    expect(result.status).toBe("blocked");
+    expect(run.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        match: "exactAddress",
+        value: "colleague@example.com",
+        action: "junk",
+      }),
+    );
   });
 });
 

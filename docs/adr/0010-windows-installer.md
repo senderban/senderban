@@ -75,7 +75,7 @@ Status: accepted (2026-10-27) for the build and install; the toast of the instal
   AppUserModelID, and Windows took the display name from it; `Get-StartApps` listed `Electron` and `Senderban` apart. After the stray
   shortcut was moved out (not deleted), the second toast had header "Senderban", the app icon, the Junk/Trash action selection and the
   "This sender" / "Whole domain" buttons. Ali pressed "This sender": log `toast-activation`, then `sync applied=1`, then `choice
-  scope=address action=junk result=blocked verified=true`. Unblock from the "Blocked senders" window: "The rule is gone from 2 place(s)
+scope=address action=junk result=blocked verified=true`. Unblock from the "Blocked senders" window: "The rule is gone from 2 place(s)
   and was read back from the provider", log `unblock result=unblocked confirmed=2 accounts=2`; no toast follows an Unblock (the window shows
   the result). Lesson: a second shortcut with the same AppUserModelID takes over the header; after install, scan the Start menu for `.lnk`
   files that carry the identity.

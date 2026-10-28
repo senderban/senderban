@@ -75,16 +75,27 @@ describe("buildMailToastXml", () => {
     expect(xml).toContain('<selection id="trash" content="Move to Trash"/>');
   });
 
-  it("offers Move to Trash alone, preselected, for a Gmail message (a Gmail filter has no other action)", () => {
+  it("shows a Gmail message as one button that says what it does, with no choice (a Gmail filter has no other action)", () => {
     const xml = buildMailToastXml(toast({ trashOnly: true, domain: null, rejectsAtServer: false }));
-    expect(xml).toContain('<selection id="trash" content="Move to Trash"/>');
-    expect(xml).toContain('defaultInput="trash"');
-    expect(xml).not.toContain('id="junk"');
-    expect(xml).not.toContain('id="reject"');
-    // Even if a caller asks for the server button, a trash-only toast does not show it.
-    expect(buildMailToastXml(toast({ trashOnly: true, rejectsAtServer: true }))).not.toContain(
-      'id="reject"',
+    expect(xml).toContain(
+      `<action content="Move this sender to Trash" arguments="act=sender;id=${ID}"`,
     );
+    expect(xml).not.toContain("<input");
+    expect(xml).not.toContain("<selection");
+    expect(xml.match(/<action /gu)).toHaveLength(1);
+    // Even if a caller asks for the server or domain button, a trash-only toast does not show them.
+    const asked = buildMailToastXml(
+      toast({ trashOnly: true, rejectsAtServer: true, domain: "example.com" }),
+    );
+    expect(asked).not.toContain('id="reject"');
+    expect(asked).not.toContain("act=domain");
+  });
+
+  it("reads a click on the Gmail button as this sender with no choice (blockPending holds it to Trash)", () => {
+    expect(parseActivation({ arguments: `act=sender;id=${ID}` })).toEqual({
+      ok: true,
+      activation: { id: ID, scope: "address", action: "junk" },
+    });
   });
 
   it("names the buttons by who they apply to, not by what they do", () => {
