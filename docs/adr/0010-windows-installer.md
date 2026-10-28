@@ -1,7 +1,7 @@
 # 0010 — Windows installer and toast identity
 
-Status: accepted (2026-10-27) for the build and install; the toast click with the installed identity was measured on 2026-10-28
-(it reaches the app); the header text and icon were not seen by us (see "Not measured"). Builds on ADR 0007 (native toasts need a Start-menu shortcut that carries the app identity).
+Status: accepted (2026-10-27) for the build and install; the toast of the installed app (header "Senderban", icon, click, Unblock) was measured on 2026-10-28
+(see "Measured"). Builds on ADR 0007 (native toasts need a Start-menu shortcut that carries the app identity).
 
 ## Decision
 
@@ -69,9 +69,20 @@ Status: accepted (2026-10-27) for the build and install; the toast click with th
   harness runs in the dev Electron, not in the installed `Senderban.exe`; the identity is the shortcut's either way, but a click on a
   toast of the installed app itself is not measured.
 
+- **Toast of the installed app itself (2026-10-28 11:14-11:19, screen unlocked, Ali at the machine, one MXroute IMAP account).** Mail
+  to the watched mailbox made the installed `Senderban.exe` show its own toast. First toast: header "Electron". Cause: a leftover
+  dev-harness shortcut `Electron.lnk` (target `node_modules/electron/dist/electron.exe`) was still in the Start menu and carried the same
+  AppUserModelID, and Windows took the display name from it; `Get-StartApps` listed `Electron` and `Senderban` apart. After the stray
+  shortcut was moved out (not deleted), the second toast had header "Senderban", the app icon, the Junk/Trash action selection and the
+  "This sender" / "Whole domain" buttons. Ali pressed "This sender": log `toast-activation`, then `sync applied=1`, then `choice
+  scope=address action=junk result=blocked verified=true`. Unblock from the "Blocked senders" window: "The rule is gone from 2 place(s)
+  and was read back from the provider", log `unblock result=unblocked confirmed=2 accounts=2`; no toast follows an Unblock (the window shows
+  the result). Lesson: a second shortcut with the same AppUserModelID takes over the header; after install, scan the Start menu for `.lnk`
+  files that carry the identity.
+
 ## Not measured
 
-- What a toast header and icon look like with the installed identity (nobody has reported the header text yet). Three earlier tries
-  on a locked machine (LogonUI running, 2026-10-27 22:45, 2026-10-28 00:06 and 01:13) put the toasts in the Action Center only.
+- The Action Center entry of the second toast and the toast on a locked machine (three earlier tries on a locked machine, LogonUI running,
+  2026-10-27 22:45, 2026-10-28 00:06 and 01:13, put the toasts in the Action Center only).
 - The installer on another Windows build, a per-machine install, SmartScreen behaviour for the unsigned file, the workflow run on GitHub.
 - Upgrade over an existing install (same `appId`, new version), and what happens to a running tray app.
