@@ -16,6 +16,7 @@ const gEls = {
   empty: document.getElementById("google-empty"),
   add: document.getElementById("google-add"),
   cancel: document.getElementById("google-cancel"),
+  restart: document.getElementById("google-restart"),
   message: document.getElementById("google-message"),
 };
 
@@ -130,6 +131,8 @@ function gSetBusy(busy) {
   gBusy = busy;
   gEls.add.disabled = busy || gState === null || gState.client === null;
   gEls.save.disabled = busy;
+  // Not while a Google step runs: a Remove that is deleting filters must not be cut off by the restart.
+  gEls.restart.disabled = busy;
   for (const button of gEls.list.querySelectorAll("button")) button.disabled = busy;
 }
 
@@ -246,6 +249,7 @@ async function gSaveClient(confirmSignOut) {
 async function gSignIn(request) {
   gSetBusy(true);
   gEls.cancel.hidden = false;
+  gEls.restart.hidden = true;
   try {
     gSetMessage(gEls.message, "working", "Waiting for Google in your browser…");
     const outcome = await gApi.googleSignIn(request);
@@ -258,6 +262,8 @@ async function gSignIn(request) {
         ? `${text} Google ends this access in ${String(days)} day(s) while your project is in testing; sign in again then.`
         : text,
     );
+    // A sign-in is picked up when Senderban starts: offer the restart right here instead of making the person find the tray.
+    gEls.restart.hidden = outcome.reply !== "signed-in";
     await gRefresh();
   } catch {
     gSetMessage(gEls.message, "error", "Could not sign in. See the log.");
@@ -308,6 +314,10 @@ gEls.add.addEventListener("click", () => {
 });
 gEls.cancel.addEventListener("click", () => {
   void gApi.googleCancel();
+});
+gEls.restart.addEventListener("click", () => {
+  gEls.restart.disabled = true;
+  void gApi.restart();
 });
 
 // Drawn when the section is opened, and again after every step (never while a key is being typed).

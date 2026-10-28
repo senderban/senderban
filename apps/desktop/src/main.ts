@@ -58,6 +58,7 @@ import {
 } from "./gmail-lanes.js";
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
+import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
@@ -826,6 +827,21 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return outcome;
       },
       googleCancel: cancelGoogleSignIn,
+      restart: () => {
+        restartApp({
+          isQuitting: () => quitting,
+          log,
+          releaseLock: () => {
+            app.releaseSingleInstanceLock();
+          },
+          relaunch: () => {
+            app.relaunch();
+          },
+          quit: () => {
+            app.quit();
+          },
+        });
+      },
       googleRemove: async (accountId) => {
         const reply = await removeGoogleAccount(googleDeps, accountId);
         log("google-removed", { account: accountTag(accountId), reply });

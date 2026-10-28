@@ -63,6 +63,7 @@ let googleSaveClient: ReturnType<typeof vi.fn>;
 let googleSignIn: ReturnType<typeof vi.fn>;
 let googleCancel: ReturnType<typeof vi.fn>;
 let googleRemove: ReturnType<typeof vi.fn>;
+let restart: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -78,6 +79,7 @@ beforeEach(() => {
   googleSignIn = vi.fn(() => Promise.resolve({ reply: "signed-in" }));
   googleCancel = vi.fn();
   googleRemove = vi.fn(() => Promise.resolve("removed"));
+  restart = vi.fn();
   onError = vi.fn();
   new ManageWindow("assets", {
     list: () => [],
@@ -87,6 +89,7 @@ beforeEach(() => {
     googleSignIn,
     googleCancel,
     googleRemove,
+    restart,
     onError,
   } as never).show();
 });
@@ -183,6 +186,14 @@ describe("manage:google-state, -remove and -cancel", () => {
   it("stops a waiting sign-in when its window closes", () => {
     windowEvents.get("closed")?.();
     expect(googleCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts only for the trusted page, with nothing taken from the page", async () => {
+    await call("manage:restart", otherFrame, "anything");
+    expect(restart).not.toHaveBeenCalled();
+    await call("manage:restart", trusted, "anything");
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(restart).toHaveBeenCalledWith();
   });
 
   it("cancels a waiting sign-in only for the trusted page", async () => {

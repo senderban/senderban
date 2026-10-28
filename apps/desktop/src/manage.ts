@@ -62,6 +62,8 @@ export interface ManageHandlers {
   /** Stops a sign-in that is waiting for the browser. */
   readonly googleCancel: () => void;
   readonly googleRemove: (accountId: string) => Promise<GoogleRemoveReply>;
+  /** Quits the way the tray's Quit does, then starts Senderban again (a Gmail sign-in is picked up at start). */
+  readonly restart: () => void;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -102,6 +104,9 @@ export class ManageWindow {
       this.#googleCancel(event);
     });
     ipcMain.handle("manage:google-remove", (event, id: unknown) => this.#googleRemove(event, id));
+    ipcMain.handle("manage:restart", (event) => {
+      this.#restart(event);
+    });
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -293,6 +298,11 @@ export class ManageWindow {
 
   #googleCancel(event: IpcMainInvokeEvent): void {
     if (this.#trusted(event)) this.#handlers.googleCancel();
+  }
+
+  /** No payload: nothing from the page decides what restarts. A second click while it quits does nothing (main guards it). */
+  #restart(event: IpcMainInvokeEvent): void {
+    if (this.#trusted(event)) this.#handlers.restart();
   }
 
   async #googleRemove(

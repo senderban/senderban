@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("senderban", {
   googleSignIn: (request) => ipcRenderer.invoke("manage:google-sign-in", request),
   googleCancel: () => ipcRenderer.invoke("manage:google-cancel"),
   googleRemove: (accountId) => ipcRenderer.invoke("manage:google-remove", accountId),
+  restart: () => ipcRenderer.invoke("manage:restart"),
   /** The list changed behind the page's back (a popup blocked something): ask for it again. */
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {
