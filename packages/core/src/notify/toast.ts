@@ -66,6 +66,12 @@ export function escapeXml(text: string): string {
 export const SPAM_MEDIUM = 2;
 export const SPAM_HIGH = 5;
 
+/** The one line a Gmail toast carries about the missing "Whole domain" button (a Gmail filter takes single addresses, ADR 0009). */
+const GMAIL_NO_DOMAIN_NOTE = "Gmail has no whole-domain option";
+
+/** Marks the sender line: this is the address the buttons act on. A fixed emoji, so it adds no mail text to the XML. */
+const SENDER_MARK = "🚫";
+
 /** `🟢 Spam 1.6 · low`: toasts cannot colour text, a dot is the colour that survives; the word is the other cue. */
 export function spamLabel(score: number): string {
   const [dot, word] =
@@ -84,19 +90,34 @@ function args(act: "sender" | "domain", id: string): string {
  * Trash" (both keep the mail, K7), and "Block at server", only offered when the server can refuse the sender. The domain button is left out when the domain must not be blocked; a whole domain is never refused at
  * the server, so it always moves to Junk (or Trash when that is chosen).
  */
-export function buildMailToastXml(toast: MailToast): string {
+export function buildMailToastXml(
+  toast: MailToast,
+  options: { readonly buttonStyle?: boolean } = {},
+): string {
   if (!isNotificationId(toast.id)) throw new Error("invalid notification id");
   const subject = toast.subject === "" ? "(no subject)" : toast.subject;
   const score = toast.spamScore === null ? "" : `${spamLabel(toast.spamScore)} · `;
-  const lines = [toast.sender, subject, `${score}${toast.account}`]
-    .map((line) => `<text>${escapeXml(line)}</text>`)
-    .join("");
+  // Three lines that read apart: the sender (with a "blocked" mark, so the toast says what the buttons do), the subject cut at two
+  // lines (a long one used to run into the next line and read as one paragraph), and "To: <account>" so the account is never taken
+  // for the end of the subject. The mark is ours, not mail's, so it is not escaped input.
+  const lines =
+    // Two lines: the domain is the end of the address, and a long bounce address cut at one line would hide it.
+    `<text hint-maxLines="2">${SENDER_MARK} ${escapeXml(toast.sender)}</text>` +
+    `<text hint-maxLines="2">${escapeXml(subject)}</text>` +
+    `<text hint-maxLines="1">${escapeXml(`${score}To: ${toast.account}`)}</text>`;
   // One possible effect needs no choice: a Gmail toast is a single button that says what it does. The click carries no
   // `target`, and `blockPending` holds a Gmail account to Trash whatever the click says.
   if (toast.trashOnly === true) {
+    // A toast button cannot be greyed out or carry a caption (App notification content schema, Microsoft Learn), and a button that
+    // does nothing would still close the toast. The small attribution line says what is missing instead.
+    // The red button style needs `useButtonStyle` on the toast (schema, Microsoft Learn: new in Windows 11, so the caller opts in). The second button is the system's own
+    // Dismiss (`activationType="system"`): Windows draws it in the person's language and never calls us.
+    const styled = options.buttonStyle === true;
     return (
-      `<toast duration="long"><visual><binding template="ToastGeneric">${lines}</binding></visual>` +
-      `<actions><action content="Move this sender to Trash" arguments="${args("sender", toast.id)}" activationType="foreground"/>` +
+      `<toast duration="long"${styled ? ' useButtonStyle="true"' : ""}><visual><binding template="ToastGeneric">${lines}` +
+      `<text placement="attribution">${GMAIL_NO_DOMAIN_NOTE}</text></binding></visual>` +
+      `<actions><action content="Move this sender to Trash" arguments="${args("sender", toast.id)}" activationType="foreground"${styled ? ' hint-buttonStyle="Critical"' : ""}/>` +
+      `<action content="" arguments="dismiss" activationType="system"/>` +
       `</actions></toast>`
     );
   }

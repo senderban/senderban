@@ -47,9 +47,11 @@ describe("escapeXml", () => {
 describe("buildMailToastXml", () => {
   it("builds both buttons, the choice and the spam score", () => {
     const xml = buildMailToastXml(toast());
-    expect(xml).toContain("<text>news@example.com</text>");
-    expect(xml).toContain("<text>Hello</text>");
-    expect(xml).toContain("<text>🟢 Spam 1.6 · low · info@example.com</text>");
+    expect(xml).toContain('<text hint-maxLines="2">🚫 news@example.com</text>');
+    expect(xml).toContain('<text hint-maxLines="2">Hello</text>');
+    expect(xml).toContain(
+      '<text hint-maxLines="1">🟢 Spam 1.6 · low · To: info@example.com</text>',
+    );
     expect(xml).toContain(`arguments="act=sender;id=${ID}"`);
     expect(xml).toContain(`arguments="act=domain;id=${ID}"`);
     expect(xml).toContain('defaultInput="junk"');
@@ -76,13 +78,22 @@ describe("buildMailToastXml", () => {
   });
 
   it("shows a Gmail message as one button that says what it does, with no choice (a Gmail filter has no other action)", () => {
-    const xml = buildMailToastXml(toast({ trashOnly: true, domain: null, rejectsAtServer: false }));
+    const xml = buildMailToastXml(
+      toast({ trashOnly: true, domain: null, rejectsAtServer: false }),
+      {
+        buttonStyle: true,
+      },
+    );
     expect(xml).toContain(
       `<action content="Move this sender to Trash" arguments="act=sender;id=${ID}"`,
     );
+    expect(xml).toContain('<text placement="attribution">Gmail has no whole-domain option</text>');
     expect(xml).not.toContain("<input");
     expect(xml).not.toContain("<selection");
-    expect(xml.match(/<action /gu)).toHaveLength(1);
+    // Our one button (red) and the system's own Dismiss, which Windows draws and never reports to us.
+    expect(xml).toContain('hint-buttonStyle="Critical"');
+    expect(xml).toContain('<action content="" arguments="dismiss" activationType="system"/>');
+    expect(xml.match(/<action /gu)).toHaveLength(2);
     // Even if a caller asks for the server or domain button, a trash-only toast does not show them.
     const asked = buildMailToastXml(
       toast({ trashOnly: true, rejectsAtServer: true, domain: "example.com" }),
@@ -110,7 +121,7 @@ describe("buildMailToastXml", () => {
 
   it("omits the score when the server sent none", () => {
     const xml = buildMailToastXml(toast({ spamScore: null }));
-    expect(xml).toContain("<text>info@example.com</text>");
+    expect(xml).toContain('<text hint-maxLines="1">To: info@example.com</text>');
     expect(xml).not.toContain("Spam score");
   });
 
@@ -119,7 +130,7 @@ describe("buildMailToastXml", () => {
     const xml = buildMailToastXml(toast({ subject: hostile, account: hostile }));
     // Exactly the two buttons we wrote: the hostile text added no element.
     expect(xml.match(/<action /gu)).toHaveLength(2);
-    expect(xml.match(/<text>/gu)).toHaveLength(3);
+    expect(xml.match(/<text /gu)).toHaveLength(3);
     expect(xml).not.toContain(hostile);
   });
 
@@ -127,8 +138,30 @@ describe("buildMailToastXml", () => {
     expect(() => buildMailToastXml(toast({ id: `${ID}" x="` }))).toThrow();
   });
 
+  it("gives the Gmail toast the red button style only when the caller says Windows can draw it", () => {
+    const gmail = toast({ trashOnly: true, domain: null });
+    expect(buildMailToastXml(gmail)).not.toContain("useButtonStyle");
+    expect(buildMailToastXml(gmail)).not.toContain("hint-buttonStyle");
+    expect(buildMailToastXml(gmail, { buttonStyle: true })).toContain('useButtonStyle="true"');
+  });
+
+  it("leaves the Gmail extras (attribution, Dismiss, button style) off the other toasts", () => {
+    const xml = buildMailToastXml(toast(), { buttonStyle: true });
+    expect(xml).not.toContain("attribution");
+    expect(xml).not.toContain('activationType="system"');
+    expect(xml).not.toContain("useButtonStyle");
+  });
+
+  it("ignores a click on the system Dismiss, the toast body or the close button (nothing to do)", () => {
+    for (const args of ["dismiss", "", "snooze"]) {
+      expect(parseActivation({ arguments: args })).toEqual({ ok: false, reason: "not-a-button" });
+    }
+  });
+
   it("shows an empty subject as a placeholder", () => {
-    expect(buildMailToastXml(toast({ subject: "" }))).toContain("<text>(no subject)</text>");
+    expect(buildMailToastXml(toast({ subject: "" }))).toContain(
+      '<text hint-maxLines="2">(no subject)</text>',
+    );
   });
 });
 

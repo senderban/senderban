@@ -1,6 +1,7 @@
 import { buildMailToastXml, parseActivation } from "@senderban/core";
 import type { BlockAction, BlockScope, MailToast } from "@senderban/core";
 import { Notification } from "electron";
+import { release } from "node:os";
 
 // Scale budget: the watcher announces at most 5 messages per drain per account (DEFAULT_MAX_PER_DRAIN), so
 // toasts are a burst, not a rate. Windows queues and stacks them. Here only the Notification objects whose
@@ -24,6 +25,11 @@ export interface ToastHandlers {
   readonly onError: (channel: string, error: unknown) => void;
 }
 
+/** First Windows 11 build (21H2). Unit: Windows build number (`os.release()` is "10.0.<build>"). */
+const WINDOWS_11_BUILD = 22000;
+/** Red/green toast buttons (`hint-buttonStyle`) are a Windows 11 feature; an older Windows gets the plain button instead of a toast it may refuse. */
+const BUTTON_STYLE = Number(release().split(".")[2] ?? 0) >= WINDOWS_11_BUILD;
+
 const MARK: Readonly<Record<ToastResult["tone"], string>> = { ok: "", warn: "! ", error: "✗ " };
 
 /**
@@ -46,7 +52,9 @@ export class Toasts {
 
   /** A mail announcement with buttons. */
   show(toast: MailToast): void {
-    const notification = new Notification({ toastXml: buildMailToastXml(toast) });
+    const notification = new Notification({
+      toastXml: buildMailToastXml(toast, { buttonStyle: BUTTON_STYLE }),
+    });
     this.#live.set(toast.id, notification);
     while (this.#live.size > MAX_TRACKED) {
       const oldest = this.#live.keys().next().value;

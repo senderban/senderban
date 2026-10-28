@@ -79,7 +79,8 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
    `parseAddress`; anything else (two mailboxes, two `From` headers, group syntax, comment, display name that looks like an address) is
    announced without Block buttons, or not at all, and logged as the fixed word `from-unparsable`. A display name is never an address
    (`"boss@co.com" <x@spam.example>` must offer `x@spam.example`). The subject goes through the same sanitiser as on IMAP.
-6. **Toast.** The choices a Gmail account can honour decide the buttons: one "Move this sender to Trash" button, no choice box
+6. **Toast.** The choices a Gmail account can honour decide the buttons: one red "Move this sender to Trash" button (Windows 11; plain on older builds) next to the system Dismiss, no choice box, and a small
+   line "Gmail has no whole-domain option" (a toast has no disabled button and no text under the buttons)
    ("Move to Junk" is not offered for Gmail: a filter cannot add `SPAM`, measured); "Block at server" never. When one block spans
    accounts of different kinds, a single-address block reaches Gmail whatever its action: Junk and "Block at server" are carried
    out there as Trash (amended 2026-10-28: a live test showed the default Junk click on an MXroute toast never reached the Gmail
