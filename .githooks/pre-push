@@ -1,0 +1,6 @@
+#!/bin/sh
+# A push publishes at once and CI runs after it: the whole tree, every commit message and the whole history are checked
+# before anything leaves this machine (incident 2026-10-28).
+set -e
+node scripts/check-identifiers.ts --messages
+sh scripts/gitleaks-history.sh

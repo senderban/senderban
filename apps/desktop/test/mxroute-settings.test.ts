@@ -26,7 +26,7 @@ const account = (id: string) => ({
 });
 // The key check talks to MXroute; tests give it a stand-in.
 const ok = () => Promise.resolve();
-const KEY = "Zk3-very-secret-api-key-0123456789";
+const KEY = "test-mxroute-key-not-real-0000";
 const input = (accountId: string) => ({
   accountId,
   server: "mx.example.net",

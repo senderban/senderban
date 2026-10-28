@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Every branch and tag: the repository is public, a pushed branch is published whether or not a pull request follows.
   push:
-    branches: [main]
+    branches: ["**"]
+    tags: ["**"]
   pull_request:
 
 permissions:
@@ -25,3 +27,24 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm test
+
+  # Public repository: no real mail identity and no secret, in the tree, in any commit message or anywhere in history
+  # (incident 2026-10-28, scripts/check-identifiers.ts). The denylist lives only in the SENDERBAN_DENYLIST secret.
+  leaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # Single-line steps: scripts/ci-local.mjs reads only `- run: <command>` lines.
+      # The denylist is required except where GitHub withholds secrets: a fork's pull request and Dependabot's runs. There
+      # the allowlist runs alone and the log says so.
+      - run: node scripts/check-identifiers.ts --messages
+        env:
+          SENDERBAN_DENYLIST: ${{ secrets.SENDERBAN_DENYLIST }}
+          SENDERBAN_REQUIRE_DENYLIST: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      - run: sh scripts/gitleaks-history.sh

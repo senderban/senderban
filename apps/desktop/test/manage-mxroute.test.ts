@@ -37,7 +37,7 @@ vi.mock("electron", () => {
 
 const { ManageWindow } = await import("../src/manage.js");
 
-const KEY = "Zk3-very-secret-api-key-0123456789";
+const KEY = "test-mxroute-key-not-real-0000";
 const good = {
   accountId: "main",
   server: "mx.example.net",

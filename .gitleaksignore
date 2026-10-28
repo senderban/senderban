@@ -1,0 +1,5 @@
+# Made-up MXroute test key in history (first written by a test, never a real key; replaced 2026-10-28). Fingerprints only.
+888f3295a84c2da1a9de1351d2e6b18acf3aa3de:packages/core/test/mxroute/client.test.ts:generic-api-key:12
+888f3295a84c2da1a9de1351d2e6b18acf3aa3de:packages/core/test/mxroute/adapter.test.ts:generic-api-key:19
+06005e294cd9b8d266d2b5af84bba6815102e26f:apps/desktop/test/manage-mxroute.test.ts:generic-api-key:40
+06005e294cd9b8d266d2b5af84bba6815102e26f:apps/desktop/test/mxroute-settings.test.ts:generic-api-key:25

@@ -16,7 +16,7 @@ import { SyncEngine } from "../../src/sync/engine.js";
 import { unblock } from "../../src/notify/unblock.js";
 import { FakeMxroute } from "./fake-mxroute.js";
 
-const KEY = "Zk3-very-secret-api-key-0123456789";
+const KEY = "test-mxroute-key-not-real-0000";
 const LANE = "info@example.com.mxroute";
 
 let n = 0;

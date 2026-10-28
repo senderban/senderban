@@ -1,0 +1,10 @@
+#!/bin/sh
+# Public repository: staged content may hold no real mail identity and no secret (incident 2026-10-28).
+# Enabled per clone with: git config core.hooksPath .githooks
+set -e
+node scripts/check-identifiers.ts --staged
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed (https://github.com/gitleaks/gitleaks, 8.30.1); the commit is refused." >&2
+  exit 1
+fi
+gitleaks git --pre-commit --staged --redact --no-banner --log-level warn

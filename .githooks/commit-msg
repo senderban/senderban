@@ -1,0 +1,8 @@
+#!/bin/sh
+# Ali (2026-10-24): public repoda Claude/Anthropic katkıcı olarak görünmesin.
+if grep -qiE '^co-authored-by:.*(claude|anthropic)|generated with.*claude' "$1"; then
+  echo "commit-msg: Claude/Anthropic ek satırı (Co-Authored-By / Generated with) bu repoda yasak." >&2
+  exit 1
+fi
+# A commit message is public too (incident 2026-10-28).
+node scripts/check-identifiers.ts --message "$1"

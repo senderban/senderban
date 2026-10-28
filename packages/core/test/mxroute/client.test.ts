@@ -9,7 +9,7 @@ import {
 } from "../../src/mxroute/client.js";
 import { FakeMxroute } from "./fake-mxroute.js";
 
-const KEY = "Zk3-very-secret-api-key-0123456789";
+const KEY = "test-mxroute-key-not-real-0000";
 
 function setup() {
   const fake = new FakeMxroute();
