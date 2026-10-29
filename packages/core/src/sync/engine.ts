@@ -2,6 +2,7 @@ import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode, BlockAdapter, Drift, OpaqueState } from "../adapter.js";
 import { MAX_CONCURRENT_BACKGROUND, MAX_CONCURRENT_SYNCS, createGate } from "../gate.js";
 import type { Gate } from "../gate.js";
+import type { BlockEntry, Blocklist } from "../blocklist.js";
 import type { Store } from "../store/store.js";
 
 /**
@@ -106,6 +107,12 @@ export interface EngineOptions {
   readonly random?: () => number;
   /** Injectable clock for tests; milliseconds. */
   readonly now?: () => number;
+  /**
+   * The current test for entries no lane may write (the person's own mail): they are left out of every plan, so a stored one is
+   * taken out like an Unblock. Return the same function while nothing changed: the filtered list is kept until the list or the
+   * test changes, instead of filtering 5,000 entries once per lane per round.
+   */
+  readonly exclude?: () => (entry: BlockEntry) => boolean;
 }
 
 interface Lane {
@@ -173,6 +180,12 @@ export class SyncEngine {
   readonly #onOutcome: ((outcome: SyncOutcome) => void) | undefined;
   readonly #retry: { readonly baseMs: number; readonly maxMs: number };
   readonly #random: () => number;
+  readonly #exclude: (() => (entry: BlockEntry) => boolean) | undefined;
+  #wantedCache: {
+    readonly list: Blocklist;
+    readonly test: (entry: BlockEntry) => boolean;
+    readonly wanted: Blocklist;
+  } | null = null;
   readonly #now: () => number;
   readonly #gate: Gate;
   readonly #backgroundGate: Gate;
@@ -185,6 +198,7 @@ export class SyncEngine {
     this.#onOutcome = options.onOutcome;
     this.#retry = options.retry ?? DEFAULT_RETRY;
     this.#random = options.random ?? Math.random;
+    this.#exclude = options.exclude;
     this.#now = options.now ?? Date.now;
     this.#gate = createGate(options.maxConcurrent ?? MAX_CONCURRENT_SYNCS);
     this.#backgroundGate = createGate(options.maxConcurrentBackground ?? MAX_CONCURRENT_BACKGROUND);
@@ -281,6 +295,9 @@ export class SyncEngine {
 
         const outcome = await this.sync(accountId);
         if (outcome.status === "failed") return { accountId, interrupted, outcome };
+        // Watchers run during recovery, so a click may have queued a round behind this one: read back after it, not during
+        // its apply (a second session, and a "drifted" for a write still in flight).
+        await this.#settled(accountId);
         try {
           const state = this.#store.getState(accountId) ?? account.initialState;
           const drift = await this.#gateFor(accountId)(() =>
@@ -298,6 +315,16 @@ export class SyncEngine {
         }
       }),
     );
+  }
+
+  /** Resolves once the lane has no round running or queued. */
+  async #settled(accountId: string): Promise<void> {
+    const lane = this.#lanes.get(accountId);
+    while (lane !== undefined) {
+      const busy = lane.queued ?? lane.running;
+      if (busy === null) return;
+      await busy;
+    }
   }
 
   /** Cancels pending debounce timers; running syncs finish on their own. */
@@ -383,6 +410,17 @@ export class SyncEngine {
     return outcome;
   }
 
+  #wanted(): Blocklist {
+    const list = this.#store.list();
+    if (this.#exclude === undefined) return list;
+    const test = this.#exclude();
+    const cached = this.#wantedCache;
+    if (cached?.list === list && cached.test === test) return cached.wanted;
+    const wanted = list.filter((entry) => !test(entry));
+    this.#wantedCache = { list, test, wanted };
+    return wanted;
+  }
+
   async #attempt(accountId: string): Promise<SyncOutcome> {
     const account = this.#accounts.get(accountId);
     if (account === undefined) return failure(accountId, new Error("unknown account"));
@@ -393,7 +431,7 @@ export class SyncEngine {
       // The Sieve plan is local, but an adapter may read the provider while planning; a deadline keeps a stuck
       // read from holding a slot for good.
       const plan = await withTimeout(
-        () => account.adapter.plan(this.#store.list(), state),
+        () => account.adapter.plan(this.#wanted(), state),
         this.#timeoutMs,
       );
       if (plan.changes.length === 0) return { accountId, status: "unchanged" };

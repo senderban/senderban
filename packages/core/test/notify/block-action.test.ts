@@ -3,6 +3,7 @@ import {
   blockPending,
   blockableDomain,
   canRejectSender,
+  isOwnEntry,
   isOwnMailbox,
 } from "../../src/notify/block-action.js";
 import type { BlockActionDeps } from "../../src/notify/block-action.js";
@@ -442,5 +443,16 @@ describe("isOwnMailbox", () => {
     expect(isOwnMailbox("M.E+news@googlemail.com", own)).toBe(true);
     expect(isOwnMailbox("boss@mycompany.com", own)).toBe(false);
     expect(isOwnMailbox("you@gmail.com", own)).toBe(false);
+  });
+});
+
+describe("isOwnEntry", () => {
+  const own = { addresses: new Set(["me@gmail.com"]), domains: new Set(["corp.example"]) };
+  it("is an own mailbox, or a domain rule that reaches an own domain (itself, a subdomain or a parent)", () => {
+    expect(isOwnEntry({ match: "exactAddress", value: "m.e@gmail.com" }, own)).toBe(true);
+    expect(isOwnEntry({ match: "exactAddress", value: "boss@corp.example" }, own)).toBe(false);
+    expect(isOwnEntry({ match: "subdomains", value: "corp.example" }, own)).toBe(true);
+    expect(isOwnEntry({ match: "exactDomain", value: "mail.corp.example" }, own)).toBe(true);
+    expect(isOwnEntry({ match: "subdomains", value: "spam.example" }, own)).toBe(false);
   });
 });

@@ -317,7 +317,23 @@ gEls.cancel.addEventListener("click", () => {
 });
 gEls.restart.addEventListener("click", () => {
   gEls.restart.disabled = true;
-  void gApi.restart();
+  void gApi.restart().then(
+    (reply) => {
+      // Main refuses while a step (an Unblock in the list too) is still running: say so and let the person try again.
+      if (reply === "restarting") return;
+      gSetMessage(
+        gEls.message,
+        "warn",
+        reply === "busy"
+          ? "A step is still running. Wait for it to finish, then restart."
+          : "Could not restart. See the log.",
+      );
+      gEls.restart.disabled = gBusy;
+    },
+    () => {
+      gEls.restart.disabled = gBusy;
+    },
+  );
 });
 
 // Drawn when the section is opened, and again after every step (never while a key is being typed).

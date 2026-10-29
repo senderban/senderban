@@ -165,6 +165,19 @@ describe("AccountWatcher announcing", () => {
     await watcher.stop();
   });
 
+  it("writes the cursor once per drain, not once per message", async () => {
+    const session = new FakeSession([msg(1)]);
+    const { watcher, cursors } = setup([session]);
+    watcher.start();
+    await flush();
+    const writes = vi.spyOn(cursors, "set");
+    session.deliver(...[2, 3, 4, 5, 6, 7, 8, 9].map((u) => msg(u)));
+    await flush();
+    expect(writes).toHaveBeenCalledTimes(1);
+    expect(writes).toHaveBeenCalledWith("acc", { uidValidity: "1", lastUid: 9 });
+    await watcher.stop();
+  });
+
   it("keeps the cursor moving when the consumer throws", async () => {
     const session = new FakeSession([msg(1)]);
     const cursors = new MemoryCursors();
@@ -289,7 +302,13 @@ describe("AccountWatcher reconnecting", () => {
     await vi.advanceTimersByTimeAsync(3_600_000);
     expect(connects()).toBe(1);
 
-    watcher.reconnectNow(); // user fixed the password
+    // A system resume does not retry a wrong password (a lockout risk): only the person's own start does.
+    watcher.reconnectNow();
+    await flush();
+    expect(connects()).toBe(1);
+    expect(watcher.current).toBe("halted");
+
+    watcher.start(); // user fixed the password
     await flush();
     expect(connects()).toBe(2);
     expect(watcher.current).toBe("watching");

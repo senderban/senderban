@@ -74,6 +74,25 @@ describe("block list", () => {
     expect(b.list().map((e) => e.value)).toEqual(["keep@example.com"]);
     b.close();
   });
+
+  it("reads and validates the list once until it changes, and hands out a copy nobody can edit", () => {
+    const store = new Store(openDatabase(":memory:"));
+    const added = store.add(entry("a@example.com"));
+    if (!added.ok) throw new Error("add failed");
+    const first = store.list();
+    expect(store.list()).toBe(first);
+    expect(Object.isFrozen(first) && Object.isFrozen(first[0])).toBe(true);
+
+    store.add(entry("a@example.com")); // a duplicate changes nothing
+    expect(store.list()).toBe(first);
+    store.add(entry("b@example.com"));
+    const second = store.list();
+    expect(second.map((e) => e.value)).toEqual(["a@example.com", "b@example.com"]);
+    expect(store.remove(crypto.randomUUID())).toBe(false);
+    expect(store.list()).toBe(second);
+    store.remove(added.entry.id);
+    expect(store.list().map((e) => e.value)).toEqual(["b@example.com"]);
+  });
 });
 
 describe("database", () => {
@@ -381,6 +400,40 @@ describe("sync journal", () => {
     store.failSync(seq, "acct", "connection reset");
     expect(store.journal("acct")[0]?.status).toBe("interrupted");
     expect(store.getState("acct")).toEqual(state({ v: 1 }));
+  });
+
+  it("keeps the journal bounded when every round fails (a server that never answers)", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    for (let i = 0; i < JOURNAL_KEEP + 300; i++) {
+      store.failSync(store.beginSync(planFor("acct", store)), "acct", "ETIMEDOUT");
+    }
+    const count = (id: string) =>
+      db.prepare("SELECT count(*) AS n FROM sync_journal WHERE account_id = ?").get(id)?.["n"];
+    expect(count("acct")).toBe(JOURNAL_KEEP);
+  });
+
+  it("forgets a removed account: state, closed journal rows and cursors, and nothing of another account", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    for (const id of ["gone", "kept"]) {
+      store.setState(id, state({ v: 1 }));
+      store.failSync(store.beginSync(planFor(id, store)), id, "x");
+      store.cursors.set(id, { uidValidity: "1", lastUid: 5 });
+      store.gmailCursors.set(id, "123");
+    }
+    const open = store.beginSync(planFor("gone", store));
+    store.forgetAccount("gone");
+    expect(store.getState("gone")).toBeUndefined();
+    expect(store.cursors.get("gone")).toBeUndefined();
+    expect(store.gmailCursors.get("gone")).toBeUndefined();
+    // The round still running closes its own row.
+    expect(store.journal("gone").map((r) => r.seq)).toEqual([open]);
+    store.failSync(open, "gone", "x");
+    expect(store.getState("kept")).toEqual(state({ v: 1 }));
+    expect(store.cursors.get("kept")).toEqual({ uidValidity: "1", lastUid: 5 });
+    expect(store.gmailCursors.get("kept")).toBe("123");
+    expect(store.journal("kept")).toHaveLength(1);
   });
 
   it("keeps the journal bounded and never prunes an open row", () => {

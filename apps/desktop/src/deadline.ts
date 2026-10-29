@@ -31,7 +31,7 @@ export async function settleWithin(
 
 /**
  * The whole quit, start to `app.exit`: the IMAP leg has `SHUTDOWN_DEADLINE_MS`, and this cap also covers the wait for a
- * start that is still running (`engine.recover()` with the network down), which has no deadline of its own.
+ * start that is still running, which has no deadline of its own.
  */
 export const SHUTDOWN_CAP_MS = SHUTDOWN_DEADLINE_MS + 2_000;
 

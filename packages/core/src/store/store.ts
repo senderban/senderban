@@ -64,6 +64,12 @@ function text(value: unknown): string {
  */
 export class Store {
   readonly #db: Db;
+  /**
+   * The parsed list until `add` or `remove` changes it. One block fans out to every lane (up to 100) and each round read and
+   * validated the whole list: 5,000 entries cost about 17 ms per read (performance review 2026-10-28, FLAG 1). This process is
+   * the only writer (single-instance lock), so the cache cannot go stale behind its back. Frozen: callers share one copy.
+   */
+  #listCache: Blocklist | null = null;
 
   constructor(db: Db) {
     this.#db = db;
@@ -94,17 +100,23 @@ export class Store {
           "INSERT INTO entries (id, match, value, action, created_at) VALUES (?, ?, ?, ?, ?)",
         )
         .run(entry.id, entry.match, entry.value, entry.action, entry.createdAt);
+      this.#listCache = null;
       return { ok: true, entry, added: true };
     });
   }
 
   remove(id: string): boolean {
-    return this.#db.prepare("DELETE FROM entries WHERE id = ?").run(id).changes > 0;
+    const removed = this.#db.prepare("DELETE FROM entries WHERE id = ?").run(id).changes > 0;
+    if (removed) this.#listCache = null;
+    return removed;
   }
 
   list(): Blocklist {
+    if (this.#listCache !== null) return this.#listCache;
     const rows = this.#db.prepare("SELECT * FROM entries ORDER BY created_at, id").all();
-    return BlocklistSchema.parse(rows.map(toEntry));
+    const list = BlocklistSchema.parse(rows.map(toEntry)).map((entry) => Object.freeze(entry));
+    this.#listCache = Object.freeze(list) as Blocklist;
+    return this.#listCache;
   }
 
   // --- provider state -------------------------------------------------------------------------
@@ -233,11 +245,30 @@ export class Store {
 
   /** The adapter threw before returning a result: close the row as interrupted, keep old state. */
   failSync(seq: number, accountId: string, reason: string): void {
-    this.#db
-      .prepare(
-        "UPDATE sync_journal SET status = 'interrupted', plan = '', detail = ?, finished_at = ? WHERE seq = ? AND account_id = ? AND status = 'pending'",
-      )
-      .run(JSON.stringify({ reason: reason.slice(0, 500) }), now(), seq, accountId);
+    inTransaction(this.#db, () => {
+      this.#db
+        .prepare(
+          "UPDATE sync_journal SET status = 'interrupted', plan = '', detail = ?, finished_at = ? WHERE seq = ? AND account_id = ? AND status = 'pending'",
+        )
+        .run(JSON.stringify({ reason: reason.slice(0, 500) }), now(), seq, accountId);
+      // A server that fails for ever (a mistyped host) retries 64 times a day: without this the table grows without end.
+      this.#prune(accountId);
+    });
+  }
+
+  /**
+   * A removed account: its provider state, closed journal rows and cursors go in one transaction (a new sign-in gets a new id, so
+   * nothing would ever read them again). A row still `pending` belongs to a round that is finishing and is left for it to close.
+   */
+  forgetAccount(accountId: string): void {
+    inTransaction(this.#db, () => {
+      this.#db.prepare("DELETE FROM account_state WHERE account_id = ?").run(accountId);
+      this.#db
+        .prepare("DELETE FROM sync_journal WHERE account_id = ? AND status <> 'pending'")
+        .run(accountId);
+      this.#db.prepare("DELETE FROM imap_cursor WHERE account_id = ?").run(accountId);
+      this.#db.prepare("DELETE FROM gmail_cursor WHERE account_id = ?").run(accountId);
+    });
   }
 
   /**

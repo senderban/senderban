@@ -181,7 +181,8 @@ export class AccountWatcher {
 
   /** After system resume (a sleeping socket is dead but not yet reported) or when settings change. */
   reconnectNow(): void {
-    if (this.state === "stopped") return;
+    // A halted account (wrong password) waits for the person: a retry on every resume risks a server lockout (ADR 0003).
+    if (this.state === "stopped" || this.state === "halted") return;
     this.epoch += 1;
     this.clearTimers();
     const session = this.session;
@@ -311,15 +312,18 @@ export class AccountWatcher {
 
     const skipped = Math.max(0, fresh.length - this.maxPerDrain);
     for (const [index, message] of fresh.entries()) {
-      if (index >= skipped) {
-        try {
-          this.options.onMessage(accountId, message);
-        } catch {
-          // A consumer bug must not wedge the cursor on one message.
-        }
+      if (index < skipped) continue;
+      try {
+        this.options.onMessage(accountId, message);
+      } catch {
+        // A consumer bug must not wedge the cursor on one message.
       }
-      cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: message.uid });
     }
+    // One write per drain, not one per message (200 upserts were 287 ms on the main thread). A crash inside the loop announces
+    // this batch again on the next start: at least once, never lost.
+    const last = fresh[fresh.length - 1];
+    if (last !== undefined)
+      cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: last.uid });
     if (skipped > 0) this.options.onOverflow?.(accountId, skipped);
   }
 

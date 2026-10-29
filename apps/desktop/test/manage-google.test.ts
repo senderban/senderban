@@ -64,6 +64,7 @@ let googleSignIn: ReturnType<typeof vi.fn>;
 let googleCancel: ReturnType<typeof vi.fn>;
 let googleRemove: ReturnType<typeof vi.fn>;
 let restart: ReturnType<typeof vi.fn>;
+let unblock: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -80,10 +81,11 @@ beforeEach(() => {
   googleCancel = vi.fn();
   googleRemove = vi.fn(() => Promise.resolve("removed"));
   restart = vi.fn();
+  unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "" }));
   onError = vi.fn();
   new ManageWindow("assets", {
     list: () => [],
-    unblock: () => Promise.resolve({ tone: "ok", text: "" }),
+    unblock,
     googleState,
     googleSaveClient,
     googleSignIn,
@@ -189,11 +191,41 @@ describe("manage:google-state, -remove and -cancel", () => {
   });
 
   it("restarts only for the trusted page, with nothing taken from the page", async () => {
-    await call("manage:restart", otherFrame, "anything");
+    expect(await call("manage:restart", otherFrame, "anything")).toBe("denied");
     expect(restart).not.toHaveBeenCalled();
-    await call("manage:restart", trusted, "anything");
+    expect(await call("manage:restart", trusted, "anything")).toBe("restarting");
     expect(restart).toHaveBeenCalledTimes(1);
     expect(restart).toHaveBeenCalledWith();
+  });
+
+  it.each([
+    ["a Remove deleting filters", "manage:google-remove", "g1"],
+    ["a sign-in", "manage:google-sign-in", {}],
+    ["an Unblock", "manage:unblock", "0b8c4e1a-6f2d-4c3b-9a7e-5d1f3b2a4c6e"],
+  ])(
+    "refuses a restart in the main process while %s runs, and allows it after",
+    async (_name, channel, payload) => {
+      let finish: (value: unknown) => void = () => undefined;
+      const pending = new Promise((resolve) => {
+        finish = resolve;
+      });
+      googleRemove.mockReturnValue(pending.then(() => "removed"));
+      googleSignIn.mockReturnValue(pending.then(() => ({ reply: "signed-in" })));
+      unblock.mockReturnValue(pending.then(() => ({ tone: "ok", text: "" })));
+      const step = call(channel, trusted, payload);
+      expect(await call("manage:restart", trusted)).toBe("busy");
+      expect(restart).not.toHaveBeenCalled();
+      finish(undefined);
+      await step;
+      expect(await call("manage:restart", trusted)).toBe("restarting");
+      expect(restart).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("frees the restart when a step throws", async () => {
+    googleRemove.mockRejectedValue(new Error("boom"));
+    expect(await call("manage:google-remove", trusted, "g1")).toBe("failed");
+    expect(await call("manage:restart", trusted)).toBe("restarting");
   });
 
   it("cancels a waiting sign-in only for the trusted page", async () => {

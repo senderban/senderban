@@ -82,6 +82,8 @@ export class ManageWindow {
   #win: BrowserWindow | null = null;
   /** One unblock at a time: a second click while one runs must not start another sync round. */
   #unblocking = false;
+  /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
+  #steps = 0;
 
   constructor(assetsDir: string, handlers: ManageHandlers) {
     this.#assets = assetsDir;
@@ -107,9 +109,7 @@ export class ManageWindow {
       this.#googleCancel(event);
     });
     ipcMain.handle("manage:google-remove", (event, id: unknown) => this.#googleRemove(event, id));
-    ipcMain.handle("manage:restart", (event) => {
-      this.#restart(event);
-    });
+    ipcMain.handle("manage:restart", (event) => this.#restart(event));
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -193,7 +193,7 @@ export class ManageWindow {
     if (!this.#trusted(event) || !isEntryId(id) || this.#unblocking) return null;
     this.#unblocking = true;
     try {
-      const outcome = await this.#handlers.unblock(id);
+      const outcome = await this.#step(() => this.#handlers.unblock(id));
       return { ...outcome, entries: this.#handlers.list() };
     } catch (error) {
       this.#handlers.onError("manage:unblock", error);
@@ -220,7 +220,7 @@ export class ManageWindow {
     const parsed = MxrouteInputSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#handlers.mxrouteSave(parsed.data);
+      return await this.#step(() => this.#handlers.mxrouteSave(parsed.data));
     } catch (error) {
       this.#handlers.onError("manage:mxroute-save", error);
       return "failed";
@@ -232,7 +232,9 @@ export class ManageWindow {
     const parsed = MxrouteEnableSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#handlers.mxrouteEnable(parsed.data.accountId, parsed.data.enabled);
+      return await this.#step(() =>
+        this.#handlers.mxrouteEnable(parsed.data.accountId, parsed.data.enabled),
+      );
     } catch (error) {
       this.#handlers.onError("manage:mxroute-enable", error);
       return "failed";
@@ -243,7 +245,7 @@ export class ManageWindow {
     if (!this.#trusted(event)) return "denied";
     if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
     try {
-      return await this.#handlers.mxrouteRemove(id);
+      return await this.#step(() => this.#handlers.mxrouteRemove(id));
     } catch (error) {
       this.#handlers.onError("manage:mxroute-remove", error);
       return "failed";
@@ -275,7 +277,7 @@ export class ManageWindow {
     const parsed = GoogleClientInputSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#handlers.googleSaveClient(parsed.data);
+      return await this.#step(() => this.#handlers.googleSaveClient(parsed.data));
     } catch (error) {
       this.#handlers.onError("manage:google-save-client", error);
       return "failed";
@@ -290,8 +292,10 @@ export class ManageWindow {
     const parsed = GoogleSignInRequestSchema.safeParse(value ?? {});
     if (!parsed.success) return { reply: "invalid" };
     try {
-      return await this.#handlers.googleSignIn(
-        parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
+      return await this.#step(() =>
+        this.#handlers.googleSignIn(
+          parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
+        ),
       );
     } catch (error) {
       this.#handlers.onError("manage:google-sign-in", error);
@@ -303,9 +307,24 @@ export class ManageWindow {
     if (this.#trusted(event)) this.#handlers.googleCancel();
   }
 
-  /** No payload: nothing from the page decides what restarts. A second click while it quits does nothing (main guards it). */
-  #restart(event: IpcMainInvokeEvent): void {
-    if (this.#trusted(event)) this.#handlers.restart();
+  /**
+   * No payload: nothing from the page decides what restarts. A second click while it quits does nothing (main guards it).
+   * Refused while a step runs: an Unblock or a Remove deleting filters must not be cut off by the restart.
+   */
+  #restart(event: IpcMainInvokeEvent): RestartReply {
+    if (!this.#trusted(event)) return "denied";
+    if (this.#steps > 0) return "busy";
+    this.#handlers.restart();
+    return "restarting";
+  }
+
+  async #step<T>(work: () => Promise<T>): Promise<T> {
+    this.#steps += 1;
+    try {
+      return await work();
+    } finally {
+      this.#steps -= 1;
+    }
   }
 
   async #googleRemove(
@@ -315,13 +334,15 @@ export class ManageWindow {
     if (!this.#trusted(event)) return "denied";
     if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
     try {
-      return await this.#handlers.googleRemove(id);
+      return await this.#step(() => this.#handlers.googleRemove(id));
     } catch (error) {
       this.#handlers.onError("manage:google-remove", error);
       return "failed";
     }
   }
 }
+
+type RestartReply = "restarting" | "busy" | "denied";
 
 /** Gmail replies are a fixed word (and a day count), never the input and never an error text: the secret must not travel back. */
 type GoogleFailure = { readonly reply: "invalid" | "denied" | "failed" };

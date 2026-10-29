@@ -201,6 +201,25 @@ describe("SyncEngine.sync", () => {
     expect(await engine.sync("acct")).toMatchObject({ status: "unchanged" });
   });
 
+  it("never writes an excluded entry, and takes one already written out like an Unblock", async () => {
+    let excluded = new Set<string>();
+    let test = (entry: { id: string }) => excluded.has(entry.id);
+    const { store, engine, add } = track(setup({ exclude: () => test }));
+    const a = add("acct");
+    const mine = store.add(addr());
+    const other = store.add(addr());
+    if (!mine.ok || !other.ok) throw new Error("add failed");
+
+    expect(await engine.sync("acct")).toMatchObject({ status: "applied", applied: 2 });
+    excluded = new Set([mine.entry.id]);
+    test = (entry) => excluded.has(entry.id); // a new own set is a new test
+    expect(await engine.sync("acct")).toMatchObject({ status: "applied", applied: 1 });
+    expect([...a.remote]).toEqual([other.entry.id]);
+    // Still in the list (the person sees it), just never on a provider.
+    expect(store.list()).toHaveLength(2);
+    expect(await engine.sync("acct")).toMatchObject({ status: "unchanged" });
+  });
+
   it("turns a provider error into a failed outcome and an interrupted journal row", async () => {
     const { store, engine, add } = track(setup());
     const a = add("acct");
@@ -305,6 +324,41 @@ describe("SyncEngine.requestSync", () => {
 });
 
 describe("SyncEngine.recover", () => {
+  it("closes the interrupted rows before returning, so a click right after queues behind the repair; reads back after both", async () => {
+    const { store, engine, add } = track(setup());
+    const a = add("acct");
+    store.add(addr());
+    store.beginSync(await a.plan(store.list(), empty)); // crash mid-sync
+    let release!: () => void;
+    a.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let finished = 0;
+    const apply = a.apply.bind(a);
+    a.apply = async (plan, signal) => {
+      const result = await apply(plan, signal);
+      finished++;
+      return result;
+    };
+    const appliesAtVerify: number[] = [];
+    const verify = a.verify.bind(a);
+    a.verify = () => {
+      appliesAtVerify.push(finished);
+      return verify();
+    };
+
+    const recovery = engine.recover(); // not awaited: the watchers start now (main.ts)
+    store.add(addr());
+    const click = engine.sync("acct"); // must not meet an open journal row
+    a.gate = null;
+    release();
+    expect(await click).toMatchObject({ status: "applied" });
+    const [report] = await recovery;
+    expect(report).toMatchObject({ interrupted: 1, drift: { drifted: false } });
+    expect(appliesAtVerify).toEqual([2]);
+    expect(store.journal("acct").filter((r) => r.status === "pending")).toEqual([]);
+  });
+
   it("re-syncs and verifies an account whose process died mid-sync", async () => {
     const { store, engine, add } = track(setup());
     const a = add("acct");

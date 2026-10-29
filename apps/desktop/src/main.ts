@@ -20,16 +20,19 @@ import {
   mxrouteLaneId,
   createOAuthClient,
   GmailBudgets,
+  isOwnEntry,
   isOwnMailbox,
   initialGmailState,
   gmailLaneId,
 } from "@senderban/core";
 import type {
   BlockAction,
+  BlockEntry,
   BlockResult,
   GmailWatcherState,
   ImapAccountConfig,
   IncomingMessage,
+  OwnMail,
   SyncOutcome,
   UnblockResult,
   WatcherState,
@@ -324,7 +327,21 @@ async function start(): Promise<Runtime> {
     skipped: configured.length - accounts.length,
     electron: process.versions.electron,
   });
+  // Never-refuse set for "Block at server" (ADR 0008 point 3); see own-mail.ts.
+  const own = createOwnMail(collectOwnMail(configured), () =>
+    loadAccounts(join(dir, "accounts.json")),
+  );
+  // One test per own set (it changes only when accounts change), so the engine can keep its filtered list.
+  let ownCache: { readonly own: OwnMail; readonly test: (entry: BlockEntry) => boolean } | null =
+    null;
+  const ownTest = (current: OwnMail) => {
+    if (ownCache?.own !== current)
+      ownCache = { own: current, test: (entry) => isOwnEntry(entry, current) };
+    return ownCache.test;
+  };
   const engine = new SyncEngine(store, {
+    // An entry that reaches the person's own mail is never written to any provider, whenever it was stored (ADR 0009 point 6).
+    exclude: () => ownTest(own.get()),
     onOutcome: (outcome) => {
       log("sync", {
         account: accountTag(outcome.accountId),
@@ -344,10 +361,6 @@ async function start(): Promise<Runtime> {
   );
   const watchers = new Map<string, AccountWatcher>();
   const lanes = accounts.map((a) => a.id);
-  // Never-refuse set for "Block at server" (ADR 0008 point 3); see own-mail.ts.
-  const own = createOwnMail(collectOwnMail(configured), () =>
-    loadAccounts(join(dir, "accounts.json")),
-  );
   // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
   // it would otherwise send the same entries five times. The first account owns the lane and its key.
   const mxrouteGroups = new Map<string, { owner: string; mirror: boolean }>();
@@ -606,8 +619,10 @@ async function start(): Promise<Runtime> {
         // The open window's rows said "Gmail: Trash" for this lane.
         manage?.notifyChanged();
       }
-      // An account that had no lane this session may still have a cursor from an earlier one.
-      store.gmailCursors.delete(gmailLaneId(accountId));
+      // An account that had no lane this session may still have a cursor from an earlier one. A removed account takes its
+      // state and journal with it; a signed-out one keeps them (its filters may still be in Gmail, and a new sign-in reuses the id).
+      if (why === "removed") store.forgetAccount(gmailLaneId(accountId));
+      else store.gmailCursors.delete(gmailLaneId(accountId));
       gmailSkipped = skippedAfterDone(gmailSkipped, accountId, why, lane?.email);
       log("gmail-lane-retired", {
         account: accountTag(accountId),
@@ -617,20 +632,29 @@ async function start(): Promise<Runtime> {
     },
   });
 
-  // Interrupted syncs from a previous run are repaired before new mail can add to the list.
-  for (const report of await engine.recover()) {
-    log("recovered", {
-      account: accountTag(report.accountId),
-      interrupted: report.interrupted,
-      drifted: report.drift?.drifted,
-      verifyError: report.verifyError,
-    });
-  }
+  // Interrupted syncs from a previous run are repaired in the background: `recover()` closes the interrupted journal rows
+  // before its first await, so a block clicked later queues behind the repair on its lane (one round per lane at a time),
+  // and new mail is announced meanwhile instead of after up to 60 s per wave of stuck lanes.
+  const recovery = engine.recover();
   for (const watcher of watchers.values()) watcher.start();
   gmailWatchers.start();
-  // A rule change that never reached a provider (an unblock that failed, a crash after the list
-  // changed) is applied now. The plan is computed locally, so only accounts with a difference connect.
-  void engine.syncAll();
+  void recovery
+    .then((reports) => {
+      for (const report of reports) {
+        log("recovered", {
+          account: accountTag(report.accountId),
+          interrupted: report.interrupted,
+          drifted: report.drift?.drifted,
+          verifyError: report.verifyError,
+        });
+      }
+    })
+    .catch((error: unknown) => {
+      log("recover-failed", { detail: errorText(error) });
+    })
+    // A rule change that never reached a provider (an unblock that failed, a crash after the list
+    // changed) is applied now. The plan is computed locally, so only accounts with a difference connect.
+    .then(() => engine.syncAll());
 
   powerMonitor.on("resume", () => {
     log("resume", { paused });

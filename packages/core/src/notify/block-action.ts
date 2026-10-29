@@ -56,6 +56,17 @@ export function isOwnMailbox(address: string, own: OwnMail): boolean {
 }
 
 /**
+ * True for a list entry that reaches the person's own mail: one of their mailboxes, or a domain rule over one of their mail
+ * domains. `blockPending` refuses these at the click; the engine also leaves them out of every plan, so an entry stored before
+ * that rule (or written by hand) never files the person's own mail away.
+ */
+export function isOwnEntry(entry: Pick<BlockEntry, "match" | "value">, own: OwnMail): boolean {
+  return entry.match === "exactAddress"
+    ? isOwnMailbox(entry.value, own)
+    : isOwnDomain(entry.value, own);
+}
+
+/**
  * True when "Block at server" may be offered and run for this sender: the blacklist can take the address as a
  * single entry, and it is neither one of the person's own addresses nor on a mail domain they own. A spammer can
  * forge the From of the person's own address or a colleague's; refusing that at the server would bounce their real
