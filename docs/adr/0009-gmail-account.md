@@ -283,6 +283,14 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   is about 131 bytes against about 496: a page of 100 records is about 13 KB against about 50 KB, which is why the default form
   nearly reached the 64 KiB read cap. The answer carries only `history[].messagesAdded[].message.{id,labelIds}`, `historyId`, and (when
   there is one) `nextPageToken`; the typed client read it (3 messages, labels intact, nothing unreadable).
+- **Domain terms in `from:` (2026-10-29, Gmail web search on the person's own mailbox, read only):** the API cannot show what a query
+  matches (`q` is refused under `gmail.metadata`), so the search box, which `criteria.query` shares its format with, was the probe
+  (a proxy: a filter at delivery was not measured). Sender address and display name read from the result rows. `from:(@brand.example)`,
+  `from:(brand.example)`, `from:("@brand.example")` and `from:(+"@brand.example")` gave the same rows: `brand.example`, `news.brand.example` **and**
+  `brand.example.test`, `news.brand.example.test` (stand-ins for a real brand and its country domain). Whole tokens only (`@brand.e` 0 rows, `@rand.example` 0), adjacent tokens only, anywhere in the
+  address, **and in the display name** (`@word` matched a sender whose display name holds that word and whose address does not).
+  So no query form in this format means "this domain and its subdomains": every one also takes `brand.example.<anything>` and display
+  names. Point 3 stands: **no domain terms on Gmail**, the toast keeps "Gmail has no whole-domain option".
 
 ## Not decided / open
 
