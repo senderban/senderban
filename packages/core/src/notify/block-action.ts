@@ -201,14 +201,14 @@ export async function blockPending(
   if (action === "trash") {
     // A Gmail click is the exception for a domain winner: a domain rule never reaches Gmail, so the address entry is
     // still needed there (on Sieve the domain's Junk rule keeps winning).
-    const winner = deps.store
-      .list()
-      .find(
-        (e) =>
-          folderAction(e.action) === "junk" &&
-          covers(e, match, target) &&
-          (!trashOnly || e.match === "exactAddress"),
-      );
+    const winner = deps.store.list().find(
+      (e) =>
+        folderAction(e.action) === "junk" &&
+        // An entry over the person's own mail is never written (SyncEngine `exclude`): it wins nothing.
+        !isOwnEntry(e, deps.own) &&
+        covers(e, match, target) &&
+        (!trashOnly || e.match === "exactAddress"),
+    );
     if (winner !== undefined) {
       return { status: "already-blocked", target: winner.value, action: winner.action };
     }

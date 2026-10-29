@@ -216,6 +216,17 @@ describe("blockPending when a rule already exists", () => {
     expect(add).not.toHaveBeenCalled();
   });
 
+  it("does not count a stored Junk rule over the person's own domain as the winner: it is applied nowhere", async () => {
+    const { deps, add, sync } = setup({
+      existing: [entry("subdomains", "example.com", "junk")],
+      ownDomains: ["example.com"],
+    });
+    const result = await blockPending(deps, ID, "address", "trash");
+    expect(result).not.toMatchObject({ status: "already-blocked" });
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalled();
+  });
+
   it("still adds the address for a Gmail click under a domain on Junk (a domain rule never reaches Gmail)", async () => {
     const { deps, add } = setup({ existing: [entry("subdomains", "example.com", "junk")] });
     const result = await blockPending(

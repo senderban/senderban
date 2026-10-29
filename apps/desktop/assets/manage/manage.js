@@ -26,6 +26,7 @@ const ACTION_LABEL = {
 
 // What a signed-in Gmail account does with the entry (a single address becomes a Trash filter); absent: no Gmail account.
 const GMAIL_LABEL = { trash: "Gmail: Trash", no: "Gmail: not applied" };
+const OWN_LABEL = "Not applied: your own mail";
 
 let entries = [];
 let busy = false;
@@ -48,8 +49,9 @@ function row(entry) {
   const meta = document.createElement("div");
   meta.className = "meta";
   const added = new Date(entry.createdAt).toLocaleDateString();
-  const gmail = GMAIL_LABEL[entry.gmail];
-  meta.textContent = `${MATCH_LABEL[entry.match] ?? entry.match} · ${ACTION_LABEL[entry.action] ?? entry.action} · added ${added}${gmail === undefined ? "" : ` · ${gmail}`}`;
+  // An entry over the person's own mail is applied nowhere: say that instead of a per-provider label.
+  const where = entry.own === true ? OWN_LABEL : GMAIL_LABEL[entry.gmail];
+  meta.textContent = `${MATCH_LABEL[entry.match] ?? entry.match} · ${ACTION_LABEL[entry.action] ?? entry.action} · added ${added}${where === undefined ? "" : ` · ${where}`}`;
   what.append(value, meta);
 
   const button = document.createElement("button");

@@ -863,6 +863,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return (runtime?.store.list() ?? []).map((entry) => ({
           ...entry,
           gmail: gmailLanes.size > 0 ? gmailCover(entry, isOwn) : null,
+          own: own !== undefined && isOwnEntry(entry, own),
         }));
       },
       onError: logIpcError,

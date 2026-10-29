@@ -39,8 +39,14 @@ export interface ManageOutcome {
   readonly text: string;
 }
 
-/** One row of the window: the list entry, and what a signed-in Gmail account does with it (`null`: no Gmail account, say nothing). */
-export type ManageEntry = BlockEntry & { readonly gmail: "trash" | "no" | null };
+/**
+ * One row of the window: the list entry, and what a signed-in Gmail account does with it (`null`: no Gmail account, say nothing).
+ * `own`: the entry reaches the person's own mail, so no account applies it (it can only be unblocked).
+ */
+export type ManageEntry = BlockEntry & {
+  readonly gmail: "trash" | "no" | null;
+  readonly own: boolean;
+};
 
 export interface ManageHandlers {
   /** The device block list, oldest first. */
