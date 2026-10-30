@@ -65,14 +65,25 @@ describe("connectManageSieve", () => {
   });
 
   it("answers at once when the caller gives up during the TLS handshake", async () => {
-    const { port } = await listen('"STARTTLS"\r\nOK\r\n', "OK\r\n");
     const controller = new AbortController();
-    const attempt = connectManageSieve(options(port, controller.signal));
-    const failed = expect(attempt).rejects.toThrow("TLS handshake");
-    setTimeout(() => {
-      controller.abort();
-    }, 50);
-    await failed;
+    const server = createServer((socket: Socket) => {
+      sockets.push(socket);
+      socket.on("error", () => undefined);
+      socket.write('"STARTTLS"\r\nOK\r\n');
+      socket.once("data", () => {
+        socket.write("OK\r\n");
+        // The client's next bytes are its TLS hello: only now is it inside the handshake, on a loaded machine too.
+        socket.once("data", () => {
+          controller.abort();
+        });
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    await expect(connectManageSieve(options(port, controller.signal))).rejects.toThrow(
+      "TLS handshake",
+    );
   });
 
   it("does not open a connection for a signal that already fired", async () => {
