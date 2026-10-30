@@ -72,20 +72,20 @@ Full policy: [senderban.com/privacy](https://senderban.com/privacy/).
 ### Gmail
 
 Senderban signs in through your own Google Cloud project, so nobody else holds access to your mail.
-That takes a one-time setup: [docs/gmail-setup.md](docs/gmail-setup.md). Then open **Blocked senders**
-from the tray, **Gmail accounts**, paste the client, **Add Gmail account**, **Restart now**.
+That takes a one-time setup: [docs/gmail-setup.md](docs/gmail-setup.md). Then open Senderban from the
+tray, **Accounts**, **Add mailbox**, **Gmail**, paste the client, **Add Gmail account**, **Restart now**.
 
 ### MXroute
 
-Open **Blocked senders** from the tray, **MXroute accounts**, enter the mail address, password and
-server (it is in your MXroute welcome mail), **Add account**, **Restart now**. Senderban asks you to
+Open Senderban from the tray, **Accounts**, **Add mailbox**, enter the mail address, password and
+server (it is in your MXroute welcome mail), **Add mailbox**, **Restart now**. Senderban asks you to
 confirm the server, signs in over IMAP and ManageSieve and stores nothing unless both work. The
 password is stored encrypted on this device.
 
 **Remove** next to the account deletes Senderban's rules from the mail server, then the password. If
 the rules cannot be deleted it says so and asks you first. Senders on the MXroute blacklist stay
 there until you delete them in your MXroute panel. Your MXroute API key stays too: it has its own
-**Remove key** under **Advanced**.
+**Remove key** under **Accounts**.
 
 The form uses IMAP over TLS on port 993 and ManageSieve on port 4190, with the mail address as user
 name. For any other setup, quit Senderban from the tray and save this as `account.json` with your
@@ -112,10 +112,9 @@ folder, change the password.
 
 Then start Senderban again.
 
-To offer **Block at server**: under **Advanced** in the **Blocked senders**
-window enter your MXroute server, user name and API key once (it covers every mailbox and domain on
-your MXroute account), tick **Offer "Block at server"** for each mail domain you want, and restart
-Senderban.
+To offer **Block at server**: under **Accounts**, in **MXroute API key**, enter your MXroute server,
+user name and API key once (it covers every mailbox and domain on your MXroute account), switch on
+**Block at server** on each mail domain you want, and restart Senderban.
 
 ## Provider support
 
@@ -135,10 +134,9 @@ Other servers that speak IMAP and ManageSieve may work; none was tried.
 
 Rules live on your mail server, so uninstalling does not lift a block: **Unblock** each sender first.
 Windows removes the program but keeps `%APPDATA%\Senderban` (encrypted account secrets, the block
-list, logs). Before uninstalling, remove each Gmail account under _Gmail accounts_ in the _Blocked
-senders_ window (that also revokes Senderban's access at Google), switch the blacklist off under
-_Advanced_ and then remove the MXroute key, remove each account under _MXroute accounts_; then delete
-the folder yourself.
+list, logs). Before uninstalling, remove each Gmail account under _Accounts_ (that also revokes
+Senderban's access at Google), switch _Block at server_ off and then remove the MXroute key, remove
+each MXroute mailbox; then delete the folder yourself.
 Details and what was measured: [docs/adr/0010-windows-installer.md](docs/adr/0010-windows-installer.md).
 
 ## Development

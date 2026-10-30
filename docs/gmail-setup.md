@@ -29,7 +29,7 @@ Open **Google Auth Platform** in the same project.
 
 ## 4. Connect Senderban
 
-1. Open **Blocked senders** from the tray icon, then **Gmail accounts**.
+1. Open Senderban from the tray icon, then **Accounts**, **Add mailbox**, **Gmail**.
 2. Paste the client ID and secret, and press **Save client**. The secret is stored encrypted on this
    device.
 3. Press **Add Gmail account** and sign in in your browser.
@@ -48,5 +48,5 @@ policy link before it lets you publish.
 
 ## Undo
 
-Removing the account under **Gmail accounts** revokes Senderban's access at Google. You can also
+Removing the account under **Accounts** revokes Senderban's access at Google. You can also
 revoke it at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).

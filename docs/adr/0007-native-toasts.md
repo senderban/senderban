@@ -7,7 +7,9 @@ on.
 
 A new mail is announced with a native Windows toast (`Notification` with `toastXml`, `apps/desktop/src/toasts.ts`), not a window
 of ours. Windows stacks it with other apps' toasts, honours Focus Assist and keeps it in the Action Center. The toast carries a
-selection (what happens to future mail) and the buttons "This sender" and "Whole domain". The click comes back as a string.
+selection (what happens to future mail) and the buttons "This sender" and "All of <domain>" ("Whole domain" past 28 characters,
+because a button label is cut at its end, the part that tells domains apart). The buttons say who, the selection says what: they do not
+say "Block", which would be untrue for Junk and Trash. The click comes back as a string.
 
 - **Untrusted both ways.** The XML is built from mail-controlled text (sender, subject): every text node is escaped and bounded
   (`escapeXml`, `TOAST_TEXT_MAX`). The click is parsed with fixed patterns and a Zod envelope (`parseActivation`) before anything

@@ -12,6 +12,7 @@ import {
   MxrouteEnableSchema,
   MxrouteInputSchema,
   MxrouteKeyRefSchema,
+  WatchPausedSchema,
   isEntryId,
 } from "@senderban/core";
 import type {
@@ -36,6 +37,9 @@ import type { AccountRemoveResult } from "./remove-account.js";
 
 const PAGE = "manage/manage.html";
 
+/** Milliseconds. A wake-up flips every watcher (50 accounts, two states each): the open page hears it about twice a second, not 100 times. */
+const STATUS_PUSH_GAP_MS = 500;
+
 /** What the page shows after an unblock; the same line the person reads in the window. */
 export interface ManageOutcome {
   readonly tone: "ok" | "warn" | "error";
@@ -55,6 +59,13 @@ export type ManageEntry = BlockEntry & {
 export interface AccountAddRequest {
   readonly confirm: () => Promise<boolean>;
   readonly signal: AbortSignal;
+}
+
+/** What the window's side bar and account rows show. `state`: null when no watcher runs for the account yet (added, restart due). */
+export interface WatchStatus {
+  readonly version: string;
+  readonly paused: boolean;
+  readonly accounts: readonly { readonly accountId: string; readonly state: string | null }[];
 }
 
 export interface AccountRemoveRequest {
@@ -99,6 +110,10 @@ export interface ManageHandlers {
   readonly googleRemove: (accountId: string) => Promise<GoogleRemoveReply>;
   /** Quits the way the tray's Quit does, then starts Senderban again (a Gmail sign-in is picked up at start). */
   readonly restart: () => void;
+  /** The mailboxes and what their watchers are doing. Reads no provider. */
+  readonly status: () => Promise<WatchStatus>;
+  /** Pauses or resumes every watcher, as the tray's menu does. */
+  readonly pause: (value: boolean) => Promise<void>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -122,6 +137,10 @@ export class ManageWindow {
   #restartPending = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
   #steps = 0;
+  /** One pause at a time: a Pause waits for every IMAP logout, and a second click must not race it. */
+  #pausing = false;
+  /** Set while a status signal waits to go out. */
+  #statusTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(assetsDir: string, handlers: ManageHandlers) {
     this.#assets = assetsDir;
@@ -152,6 +171,8 @@ export class ManageWindow {
     });
     ipcMain.handle("manage:google-remove", (event, id: unknown) => this.#googleRemove(event, id));
     ipcMain.handle("manage:restart", (event) => this.#restart(event));
+    ipcMain.handle("manage:status", (event) => this.#status(event));
+    ipcMain.handle("manage:pause", (event, value: unknown) => this.#pause(event, value));
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -163,12 +184,12 @@ export class ManageWindow {
       return;
     }
     const win = new BrowserWindow({
-      width: 720,
-      height: 600,
-      minWidth: 520,
-      minHeight: 420,
+      width: 900,
+      height: 640,
+      minWidth: 640,
+      minHeight: 480,
       show: false,
-      title: "Senderban — Blocked senders",
+      title: "Senderban",
       icon: join(this.#assets, "icon.ico"),
       autoHideMenuBar: true,
       backgroundColor: nativeTheme.shouldUseDarkColors ? "#07182b" : "#f4f8fb",
@@ -191,6 +212,8 @@ export class ManageWindow {
     });
     win.on("closed", () => {
       if (this.#win === win) this.#win = null;
+      if (this.#statusTimer !== null) clearTimeout(this.#statusTimer);
+      this.#statusTimer = null;
       // A sign-in waits for the browser with its page open; without the page nobody sees the answer, so stop it.
       this.#handlers.googleCancel();
       // Closing the window during the check is giving up: the account must not be stored behind the person's back.
@@ -204,6 +227,16 @@ export class ManageWindow {
   notifyChanged(): void {
     if (this.#win !== null && !this.#win.isDestroyed())
       this.#win.webContents.send("manage:changed");
+  }
+
+  /** A watcher changed state: the open page asks for the status, at most once per STATUS_PUSH_GAP_MS. No window, no work. */
+  notifyStatus(): void {
+    if (this.#win === null || this.#win.isDestroyed() || this.#statusTimer !== null) return;
+    this.#statusTimer = setTimeout(() => {
+      this.#statusTimer = null;
+      if (this.#win !== null && !this.#win.isDestroyed())
+        this.#win.webContents.send("manage:status-changed");
+    }, STATUS_PUSH_GAP_MS);
   }
 
   closeAll(): void {
@@ -230,6 +263,33 @@ export class ManageWindow {
     } catch (error) {
       this.#handlers.onError("manage:init", error);
       return null;
+    }
+  }
+
+  async #status(event: IpcMainInvokeEvent) {
+    if (!this.#trusted(event)) return null;
+    try {
+      return { ...(await this.#handlers.status()), restartPending: this.#restartPending };
+    } catch (error) {
+      this.#handlers.onError("manage:status", error);
+      return null;
+    }
+  }
+
+  async #pause(event: IpcMainInvokeEvent, value: unknown): Promise<PauseReply> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = WatchPausedSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    if (this.#pausing) return "busy";
+    this.#pausing = true;
+    try {
+      await this.#step(() => this.#handlers.pause(parsed.data));
+      return "done";
+    } catch (error) {
+      this.#handlers.onError("manage:pause", error);
+      return "failed";
+    } finally {
+      this.#pausing = false;
     }
   }
 
@@ -449,11 +509,13 @@ export class ManageWindow {
     const parsed = GoogleSignInRequestSchema.safeParse(value ?? {});
     if (!parsed.success) return { reply: "invalid" };
     try {
-      return await this.#step(() =>
+      const outcome = await this.#step(() =>
         this.#handlers.googleSignIn(
           parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
         ),
       );
+      if (outcome.reply === "signed-in") this.#restartPending = true;
+      return outcome;
     } catch (error) {
       this.#handlers.onError("manage:google-sign-in", error);
       return { reply: "failed" };
@@ -500,6 +562,7 @@ export class ManageWindow {
 }
 
 type RestartReply = "restarting" | "busy" | "denied";
+type PauseReply = "done" | "busy" | "invalid" | "denied" | "failed";
 
 /** Gmail replies are a fixed word (and a day count), never the input and never an error text: the secret must not travel back. */
 type GoogleFailure = { readonly reply: "invalid" | "denied" | "failed" };

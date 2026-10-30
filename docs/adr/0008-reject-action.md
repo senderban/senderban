@@ -24,7 +24,7 @@ address is refused and kept nowhere until the person unblocks it. So:
    refused. It needs the person to pick "Block at server" on that mail; Junk is the default.
 4. Only addresses the blacklist takes as a single entry (`canRefuseAtServer`: its own pattern, no `*`, no leading `@`). One
    predicate is shared by the adapter, the client, the toast and the block action.
-5. Off unless the person added an MXroute API key and switched the option on (Advanced). Switching it off takes back only what
+5. Off unless the person added an MXroute API key and switched the option on (Accounts). Switching it off takes back only what
    Senderban added.
 
 ## Data

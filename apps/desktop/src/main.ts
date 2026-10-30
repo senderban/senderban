@@ -16,6 +16,7 @@ import {
   MxrouteAdapter,
   createMxrouteClient,
   initialMxrouteState,
+  isGmailAccount,
   isImapAccount,
   mxrouteLaneId,
   createOAuthClient,
@@ -209,9 +210,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
         ? "Senderban will try again."
         : outcome.code === "AUTH_REQUIRED"
           ? mxrouteLanes.has(id)
-            ? "MXroute refused the API key: fix it under Advanced in Blocked senders, then restart Senderban."
+            ? "MXroute refused the API key: fix it under Accounts in Senderban, then restart Senderban."
             : gmailLanes.has(id)
-              ? "Google refused the sign-in: sign in again under Gmail accounts in Blocked senders, then restart Senderban."
+              ? "Google refused the sign-in: sign in again under Accounts in Senderban, then restart Senderban."
               : "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
           : outcome.code === "REMOTE_CHANGED"
             ? "Someone else changed Senderban's script on the server, so it stopped instead of overwriting it. It will not try again by itself."
@@ -300,6 +301,7 @@ function describeUnblock(
 }
 
 function updateTray(): void {
+  manage?.notifyStatus();
   if (tray === null) return;
   const lines = [...states].map(([id, state]) => ({ label: `${id}: ${state}`, enabled: false }));
   tray.setContextMenu(
@@ -815,7 +817,7 @@ async function shutdown(): Promise<void> {
 const addAccountArg = process.argv.find((a) => a.startsWith("--add-account="));
 
 if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
-  // The running app rewrites accounts.json too (an Advanced key save): two writers would lose one change.
+  // The running app rewrites accounts.json too (a key save under Accounts): two writers would lose one change.
   process.stderr.write("Senderban is running. Quit it from the tray, then add the account.\n");
   app.exit(1);
 } else if (addAccountArg !== undefined) {
@@ -1112,6 +1114,18 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return outcome;
       },
       googleCancel: cancelGoogleSignIn,
+      status: async () => ({
+        version: app.getVersion(),
+        paused,
+        accounts: (await loadAccounts(accountsPath)).map((a) => ({
+          accountId: a.id,
+          state: states.get(isGmailAccount(a) ? gmailLaneId(a.id) : a.id) ?? null,
+        })),
+      }),
+      pause: async (value) => {
+        await setPaused(value);
+        log("manage-pause", { paused: value });
+      },
       restart: () => {
         restartApp({
           isQuitting: () => quitting,

@@ -63,6 +63,9 @@ export type MxrouteInput = z.infer<typeof MxrouteInputSchema>;
 export const MxrouteKeyRefSchema = z.strictObject({ server: Host, username: MxrouteUser });
 export type MxrouteKeyRef = z.infer<typeof MxrouteKeyRefSchema>;
 
+/** Pause (true) or resume (false) every mail watcher, as the tray's menu does. */
+export const WatchPausedSchema = z.boolean();
+
 /** A mail domain as `mailDomain` returns it, valid by the same check (which also refuses capitals). RFC 1035 length. */
 const MxrouteDomain = z
   .string()

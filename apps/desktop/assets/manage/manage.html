@@ -6,147 +6,231 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'"
     />
-    <title>Blocked senders</title>
+    <title>Senderban</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="manage.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <img class="icon" src="../icon.png" alt="" width="24" height="24" />
-        <h1>Blocked senders</h1>
-        <span id="count" class="muted"></span>
-      </header>
-
-      <section id="list-section">
-        <input
-          id="filter"
-          type="search"
-          placeholder="Filter by address or domain"
-          aria-label="Filter the list"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <ul id="list" aria-label="Blocked senders"></ul>
-        <p id="empty" class="muted" hidden></p>
-        <p id="status" class="status" role="status" hidden></p>
-      </section>
-
-      <details id="accounts">
-        <summary>MXroute accounts</summary>
-        <p class="muted">
-          Senderban signs in once to check the address and password, then stores the password
-          encrypted on this device. The server is in your MXroute welcome mail. The address's mail
-          domain then counts as your own: Senderban will not block that domain, and blocks already
-          on your list for it stop applying. Restart Senderban after adding or removing an account.
-        </p>
-        <ul id="account-list" aria-label="MXroute accounts" hidden></ul>
-        <form id="account-form" autocomplete="off">
-          <div class="field">
-            <label for="account-address">Mail address</label>
-            <input
-              id="account-address"
-              type="text"
-              required
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="you@example.com"
-            />
-          </div>
-          <div class="field">
-            <label for="account-password">Password</label>
-            <input
-              id="account-password"
-              type="password"
-              required
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </div>
-          <div class="field">
-            <label for="account-host">Server</label>
-            <input
-              id="account-host"
-              type="text"
-              required
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="e.g. eagle.mxlogin.com"
-            />
-          </div>
-          <div class="row">
-            <button type="submit" id="account-save">Add account</button>
-            <button type="button" id="account-restart" hidden>Restart now</button>
-          </div>
-          <p id="account-message" class="status" role="status"></p>
-        </form>
-      </details>
-
-      <details id="gmail">
-        <summary>Gmail accounts</summary>
-        <p class="muted">
-          Senderban signs in to Gmail through your own Google Cloud project, so nobody else holds
-          access to your mail. In that project turn on the Gmail API, make an OAuth client of type
-          Desktop app, and paste its ID and secret here. The secret is stored encrypted on this
-          device. Restart Senderban after signing in to start blocking on that account.
-        </p>
-        <h2>Google client</h2>
-        <p id="google-client-state" class="muted"></p>
-        <form id="google-client-form" autocomplete="off">
-          <div class="field">
-            <label for="google-client-id">Client ID</label>
-            <input
-              id="google-client-id"
-              type="text"
-              required
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </div>
-          <div class="field">
-            <label for="google-client-secret">Client secret</label>
-            <input
-              id="google-client-secret"
-              type="password"
-              required
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </div>
-          <div class="row">
-            <button type="submit" id="google-client-save">Save client</button>
-            <button type="button" id="google-client-confirm" hidden>Replace and sign out</button>
-          </div>
-          <p id="google-client-message" class="status" role="status"></p>
-        </form>
-        <h2>Accounts</h2>
-        <ul id="google-accounts" aria-label="Gmail accounts"></ul>
-        <p id="google-empty" class="muted" hidden>No Gmail account yet.</p>
-        <div class="row">
-          <button type="button" id="google-add">Add Gmail account</button>
-          <button type="button" id="google-cancel" hidden>Cancel</button>
-          <button type="button" id="google-restart" hidden>Restart now</button>
+    <div class="app">
+      <aside>
+        <div class="brand">
+          <img class="icon" src="../icon.png" alt="" width="20" height="20" />
+          <span>Senderban</span>
         </div>
-        <p id="google-message" class="status" role="status"></p>
-      </details>
+        <nav aria-label="Main">
+          <button type="button" id="nav-blocked" class="nav">
+            <span>Blocked senders</span>
+            <span id="nav-blocked-count" class="count"></span>
+          </button>
+          <button type="button" id="nav-accounts" class="nav">
+            <span>Accounts</span>
+            <span id="nav-accounts-count" class="count"></span>
+          </button>
+        </nav>
+        <div class="health">
+          <p id="health" class="health-line" role="status">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="health-text"></span>
+          </p>
+          <button type="button" id="pause" class="small" hidden></button>
+          <span id="version" class="meta"></span>
+        </div>
+      </aside>
 
-      <details id="advanced">
-        <summary>Advanced</summary>
-        <h2>MXroute API key</h2>
-        <p class="muted">
-          For MXroute mailboxes only. One key covers every mailbox and domain on your MXroute
-          account. It is stored encrypted on this device and never shown again, and removing a
-          mailbox leaves it here. Senderban checks it with MXroute when you save it, and uses it
-          only for a domain where you switch it on below. Make a key at
-          panel.mxroute.com/api-keys.php, where the server and user name are also shown; if MXroute
-          lets you limit a key, give it the least access that works.
-        </p>
-        <ul id="mxroute-keys" aria-label="MXroute API keys"></ul>
-        <p id="mxroute-empty" class="muted" hidden>No key saved yet.</p>
-        <p id="mxroute-notice" class="status" role="status"></p>
-        <div id="mxroute-new"></div>
-      </details>
-    </main>
+      <main>
+        <header>
+          <h1 id="title" tabindex="-1"></h1>
+          <span id="count" class="muted"></span>
+          <button type="button" id="go-add" class="primary" hidden>Add mailbox</button>
+        </header>
+
+        <div id="restart-bar" class="bar" hidden>
+          <span id="restart-text" data-tone="warn"></span>
+          <button type="button" id="restart" class="small">Restart now</button>
+        </div>
+
+        <div class="notice-row">
+          <p id="notice" class="status" role="status" hidden></p>
+          <button type="button" id="google-cancel" class="small" hidden>Cancel</button>
+        </div>
+
+        <section id="view-blocked" class="view">
+          <div id="first-run" class="first-run" hidden>
+            <p class="lead">
+              Block a sender once, from the notification. Every mail app you use follows, because
+              the rule lives on your mail server.
+            </p>
+            <ol>
+              <li>Add the mailbox you want to protect.</li>
+              <li>
+                Wait for new mail. Senderban reads only the sender and subject, on this device.
+              </li>
+              <li>Pick what happens in the notification. You can unblock anything here.</li>
+            </ol>
+            <button type="button" id="first-add" class="primary">Add mailbox</button>
+          </div>
+          <div id="list-section">
+            <input
+              id="filter"
+              type="search"
+              placeholder="Filter by address or domain"
+              aria-label="Filter the list"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <div id="tabs" class="tabs" role="group" aria-label="Show"></div>
+            <ul id="list" aria-label="Blocked senders"></ul>
+            <p id="empty" class="muted" hidden></p>
+            <p id="list-cap" class="meta" data-tone="warn" hidden></p>
+            <p id="status" class="status" role="status" hidden></p>
+          </div>
+        </section>
+
+        <section id="view-accounts" class="view" hidden>
+          <p id="accounts-empty" class="muted" hidden>No mailbox yet.</p>
+          <div id="account-groups" class="groups"></div>
+
+          <section id="gmail" class="card" hidden>
+            <div class="card-head">
+              <div class="grow">
+                <h2>Gmail</h2>
+                <p class="meta">Moves single senders to Trash. Gmail has no whole-domain option.</p>
+              </div>
+            </div>
+            <ul id="google-accounts" class="rows" aria-label="Gmail accounts"></ul>
+          </section>
+
+          <section id="keys" class="card">
+            <div class="card-body">
+              <h2>MXroute API key</h2>
+              <p class="meta">
+                For MXroute mailboxes only. One key covers every mailbox and domain on your MXroute
+                account. It is stored encrypted on this device and never shown again, and removing a
+                mailbox leaves it here. Make a key at panel.mxroute.com/api-keys.php, where the
+                server and user name are also shown; if MXroute lets you limit a key, give it the
+                least access that works.
+              </p>
+              <ul id="mxroute-keys" class="key-list" aria-label="MXroute API keys"></ul>
+              <p id="mxroute-empty" class="muted" hidden>No key saved yet.</p>
+              <p id="mxroute-notice" class="status" role="status"></p>
+              <details>
+                <summary>Add or replace a key</summary>
+                <div id="mxroute-new"></div>
+              </details>
+              <details>
+                <summary>How Block at server works</summary>
+                <p class="meta">
+                  New-mail notifications then offer “Block at server” for one sender: the server
+                  refuses their mail at the door, so the sender gets an error and the mail does not
+                  reach Junk or Trash. Junk and Trash stay available and never touch MXroute. The
+                  MXroute blacklist covers the whole mail domain, so a refused address is refused
+                  for every mailbox on it. An address already on your blacklist is treated as
+                  Senderban's own and taken off again when you unblock it. A whole domain is never
+                  refused at the server. Whether MXroute drops a sender also depends on the
+                  spam-score limit in your MXroute panel, so try one block and check. Takes effect
+                  when Senderban starts; switching it off takes back what Senderban added.
+                </p>
+              </details>
+            </div>
+          </section>
+        </section>
+
+        <section id="view-add" class="view narrow" hidden>
+          <div class="tabs" role="group" aria-label="Provider">
+            <button type="button" id="provider-mx" class="tab">MXroute</button>
+            <button type="button" id="provider-gmail" class="tab">Gmail</button>
+          </div>
+
+          <div id="panel-mx" class="panel">
+            <p class="muted">
+              Senderban signs in once to check the address and password, then stores the password
+              encrypted on this device. The address's mail domain then counts as your own: Senderban
+              will not block that domain, and blocks already on your list for it stop applying.
+            </p>
+            <form id="account-form" autocomplete="off">
+              <div class="field">
+                <label for="account-address">Mail address</label>
+                <input
+                  id="account-address"
+                  type="text"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div class="field">
+                <label for="account-password">Password</label>
+                <input
+                  id="account-password"
+                  type="password"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="field">
+                <label for="account-host">Server</label>
+                <input
+                  id="account-host"
+                  type="text"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="e.g. eagle.mxlogin.com"
+                />
+                <span class="meta">It is in your MXroute welcome mail.</span>
+              </div>
+              <div class="row">
+                <button type="submit" id="account-save" class="primary">Add mailbox</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="panel-gmail" class="panel" hidden>
+            <p class="muted">
+              Senderban signs in to Gmail through your own Google Cloud project, so nobody else
+              holds access to your mail. In that project turn on the Gmail API, make an OAuth client
+              of type Desktop app, and paste its ID and secret here. The secret is stored encrypted
+              on this device.
+            </p>
+            <p id="google-client-state" class="muted"></p>
+            <form id="google-client-form" autocomplete="off">
+              <div class="field">
+                <label for="google-client-id">Client ID</label>
+                <input
+                  id="google-client-id"
+                  type="text"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="field">
+                <label for="google-client-secret">Client secret</label>
+                <input
+                  id="google-client-secret"
+                  type="password"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="row">
+                <button type="submit" id="google-client-save">Save client</button>
+                <button type="button" id="google-client-confirm" hidden>
+                  Replace and sign out
+                </button>
+              </div>
+              <p id="google-client-message" class="status" role="status"></p>
+            </form>
+            <div class="row">
+              <button type="button" id="google-add" class="primary">Add Gmail account</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
     <script src="manage.js"></script>
     <script src="accounts.js"></script>
     <script src="advanced.js"></script>

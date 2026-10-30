@@ -16,9 +16,17 @@ contextBridge.exposeInMainWorld("senderban", {
   googleCancel: () => ipcRenderer.invoke("manage:google-cancel"),
   googleRemove: (accountId) => ipcRenderer.invoke("manage:google-remove", accountId),
   restart: () => ipcRenderer.invoke("manage:restart"),
+  status: () => ipcRenderer.invoke("manage:status"),
+  pause: (value) => ipcRenderer.invoke("manage:pause", value),
   /** The list changed behind the page's back (a popup blocked something): ask for it again. */
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {
+      callback();
+    });
+  },
+  /** A watcher changed state: ask for the status again. */
+  onStatus: (callback) => {
+    ipcRenderer.on("manage:status-changed", () => {
       callback();
     });
   },

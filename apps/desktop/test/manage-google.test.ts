@@ -92,8 +92,26 @@ beforeEach(() => {
     googleCancel,
     googleRemove,
     restart,
+    status: () => Promise.resolve({ version: "1.2.3", paused: false, accounts: [] }),
     onError,
   } as never).show();
+});
+
+describe("a restart after a sign-in", () => {
+  const due = async () =>
+    ((await call("manage:status", trusted)) as { restartPending: boolean }).restartPending;
+
+  it("is due after a sign-in worked, so the bar survives the window closing", async () => {
+    expect(await due()).toBe(false);
+    await call("manage:google-sign-in", trusted, undefined);
+    expect(await due()).toBe(true);
+  });
+
+  it("is not due after a sign-in that did not finish", async () => {
+    googleSignIn.mockResolvedValueOnce({ reply: "cancelled" });
+    await call("manage:google-sign-in", trusted, undefined);
+    expect(await due()).toBe(false);
+  });
 });
 
 describe("manage:google-save-client", () => {

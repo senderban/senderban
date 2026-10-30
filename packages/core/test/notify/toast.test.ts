@@ -112,7 +112,24 @@ describe("buildMailToastXml", () => {
   it("names the buttons by who they apply to, not by what they do", () => {
     const xml = buildMailToastXml(toast());
     expect(xml).toContain('content="This sender"');
+    expect(xml).toContain('content="All of example.com"');
+    expect(xml).not.toMatch(/<action content="Block/u);
+  });
+
+  it("names a domain of 28 characters on its button and keeps the plain label for a longer one", () => {
+    const fits = `${"a".repeat(20)}.example`;
+    expect(fits).toHaveLength(28);
+    expect(buildMailToastXml(toast({ domain: fits }))).toContain(`content="All of ${fits}"`);
+    const long = `a${fits}`;
+    const xml = buildMailToastXml(toast({ domain: long }));
     expect(xml).toContain('content="Whole domain"');
+    expect(xml).not.toContain(`All of ${long}`);
+  });
+
+  it("cannot be broken out of by a domain on the button", () => {
+    const xml = buildMailToastXml(toast({ domain: 'a"/><x' }));
+    expect(xml).toContain('content="All of a&quot;/&gt;&lt;x"');
+    expect(xml).not.toContain("<x");
   });
 
   it("leaves the domain button out when the domain must not be blocked", () => {

@@ -4,6 +4,23 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Changed
+
+- A new window: **Blocked senders** and **Accounts** in a side bar, one **Restart now** bar, and
+  **Add mailbox** with MXroute and Gmail in one place. The list can be narrowed to what sits at the
+  server, in Junk or Trash, or is not applied, and each address dims its local part so that the
+  domain stands out.
+- **Accounts** groups mailboxes by mail domain, with **Block at server** on the domain and the state
+  of each mailbox's watcher next to it. **Advanced** is gone: the key lives under **Accounts**.
+- The side bar shows what Senderban is watching, and watching can be paused there as well as from
+  the tray.
+- The notification's domain button names the domain: **All of example.org**. A very long domain
+  keeps the label **Whole domain**.
+
+### Fixed
+
+- A Gmail sign-in keeps offering **Restart now** after the window is closed.
+
 ## [0.1.3] - 2026-10-30
 
 ### Changed

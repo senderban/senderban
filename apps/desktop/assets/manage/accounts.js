@@ -1,16 +1,19 @@
-// MXroute accounts section of the sandboxed manage page. The password is typed here, sent once to the main process and then
+/* global setNotice, leaveAddView, stateBadge, offerRestart, mxDraw, mxLoadFailed, mxSwitches */
+/* exported acLoad, acLoaded */
+// MXroute mailboxes of the sandboxed manage page, grouped by mail domain, and the add form. The password is typed here, sent once to the main process and then
 // forgotten: nothing here ever receives it back, and every value shown came from main as plain text (textContent only).
 const acApi = window.senderban;
 const acEls = {
-  details: document.getElementById("accounts"),
-  list: document.getElementById("account-list"),
+  groups: document.getElementById("account-groups"),
   form: document.getElementById("account-form"),
   address: document.getElementById("account-address"),
   password: document.getElementById("account-password"),
   host: document.getElementById("account-host"),
   save: document.getElementById("account-save"),
-  restart: document.getElementById("account-restart"),
-  message: document.getElementById("account-message"),
+  providerMx: document.getElementById("provider-mx"),
+  providerGmail: document.getElementById("provider-gmail"),
+  panelMx: document.getElementById("panel-mx"),
+  panelGmail: document.getElementById("panel-gmail"),
 };
 
 // Replies of the main process, as sentences. The input is never echoed.
@@ -47,7 +50,7 @@ const AC_REMOVE_REPLY = {
   removed: ["ok", "Removed. Restart Senderban to finish."],
   "removed-blacklist-remains": [
     "warn",
-    "Removed. Senders it put on the MXroute blacklist stay there: delete them in your MXroute panel. Your API key stays under Advanced. Restart Senderban to finish.",
+    "Removed. Senders it put on the MXroute blacklist stay there: delete them in your MXroute panel. Your API key stays. Restart Senderban to finish.",
   ],
   "removed-rules-remain": [
     "warn",
@@ -72,11 +75,6 @@ const AC_REMOVE_REPLY = {
 let acBusy = false;
 let acLimits = null;
 
-function acSetMessage(tone, text) {
-  acEls.message.dataset.tone = tone;
-  acEls.message.textContent = text;
-}
-
 /** Marks a value longer than the limit as invalid (the form then refuses to send it) instead of cutting it. */
 function acCheckLength(input, max) {
   input.setCustomValidity(input.value.length > max ? `At most ${String(max)} characters.` : "");
@@ -91,36 +89,107 @@ function acCheckOctets(input, max) {
 function acSetBusy(busy) {
   acBusy = busy;
   acEls.save.disabled = busy;
-  acEls.restart.disabled = busy;
-  for (const button of acEls.list.querySelectorAll("button")) button.disabled = busy;
+  for (const button of acEls.groups.querySelectorAll("button")) button.disabled = busy;
 }
 
 function acRow(account) {
   const li = document.createElement("li");
   const title = document.createElement("div");
-  title.className = "value";
+  title.className = "value grow";
   title.textContent = account.label;
   title.title = account.label;
   const remove = document.createElement("button");
   remove.type = "button";
+  remove.className = "small";
   remove.textContent = "Remove";
   remove.setAttribute("aria-label", `Remove ${account.label}`);
   remove.addEventListener("click", () => {
     if (!acBusy) void acRemove(account);
   });
-  const actions = document.createElement("div");
-  actions.className = "row";
-  actions.append(remove);
-  li.append(title, actions);
+  li.append(title, stateBadge(account.accountId), remove);
   return li;
 }
 
-async function acLoad({ quiet = false } = {}) {
+/** One mail domain: what its notifications offer, its Block at server switch and its mailboxes. */
+function acGroup(domain, accounts, keys) {
+  const holders = keys.filter((k) => k.domains.some((d) => d.domain === domain));
+  const on = holders.some((k) => k.domains.some((d) => d.domain === domain && d.enabled));
+  const section = document.createElement("section");
+  section.className = "card";
+  section.setAttribute("aria-label", domain);
+
+  const head = document.createElement("div");
+  head.className = "card-head";
+  const what = document.createElement("div");
+  what.className = "grow";
+  const title = document.createElement("h2");
+  title.textContent = domain;
+  const hint = document.createElement("p");
+  hint.className = "meta";
+  if (holders.length === 0) {
+    hint.dataset.tone = "warn";
+    hint.textContent = "Block at server needs an API key. Add one below.";
+  } else {
+    hint.textContent = on
+      ? "Notifications offer Block at server here."
+      : "Notifications offer Junk and Trash here.";
+  }
+  what.append(title, hint);
+  head.append(what, ...mxSwitches(domain, holders));
+  section.append(head);
+
+  if (accounts.length > 0) {
+    const rows = document.createElement("ul");
+    rows.className = "rows";
+    rows.setAttribute("aria-label", `Mailboxes on ${domain}`);
+    rows.append(...accounts.map(acRow));
+    section.append(rows);
+  }
+  return section;
+}
+
+function acDraw(result) {
+  const domains = new Map();
+  for (const account of result.accounts) {
+    const domain = account.label.slice(account.label.lastIndexOf("@") + 1);
+    domains.set(domain, [...(domains.get(domain) ?? []), account]);
+  }
+  // A domain whose mailboxes are gone keeps its group while the switch is on: it must stay possible to switch it off.
+  for (const key of result.keys) {
+    for (const entry of key.domains) {
+      if (entry.enabled && !domains.has(entry.domain)) domains.set(entry.domain, []);
+    }
+  }
+  acEls.groups.replaceChildren(
+    ...[...domains].map(([domain, accounts]) => acGroup(domain, accounts, result.keys)),
+  );
+}
+
+// One list request at a time, so that an older answer cannot draw over a newer one.
+let acLoading = false;
+let acLoadAgain = false;
+
+async function acLoad(options) {
+  if (acLoading) {
+    acLoadAgain = true;
+    return;
+  }
+  acLoading = true;
+  try {
+    do {
+      acLoadAgain = false;
+      await acLoadOnce(options);
+    } while (acLoadAgain);
+  } finally {
+    acLoading = false;
+  }
+}
+
+async function acLoadOnce({ quiet = false } = {}) {
   const result = await acApi.mxrouteList();
   if (result === null) {
-    if (!quiet) {
-      acSetMessage("error", "Could not load the accounts. Close and open this section to retry.");
-    }
+    if (!quiet) setNotice("error", "Could not load the accounts. Open Accounts again to retry.");
+    mxLoadFailed();
     acLoaded = false;
     return;
   }
@@ -129,10 +198,8 @@ async function acLoad({ quiet = false } = {}) {
   acEls.password.minLength = acLimits.password.min;
   acEls.host.minLength = acLimits.host.min;
   acEls.host.pattern = "[A-Za-z0-9]([A-Za-z0-9.\\-]*[A-Za-z0-9])?";
-  acEls.list.replaceChildren(...result.accounts.map(acRow));
-  acEls.list.hidden = result.accounts.length === 0;
-  // Main remembers it, so the button comes back after the window was closed.
-  acEls.restart.hidden = result.restartPending !== true;
+  mxDraw(result);
+  acDraw(result);
 }
 
 async function acAdd() {
@@ -146,19 +213,21 @@ async function acAdd() {
   acEls.password.value = "";
   let saved = false;
   try {
-    acSetMessage("working", "Checking the login. This can take up to 45 seconds…");
+    setNotice("working", "Checking the login. This can take up to 45 seconds…");
     const reply = await acApi.accountAdd(input);
     const [tone, text] = AC_REPLY[reply] ?? AC_REPLY.failed;
-    acSetMessage(tone, text);
+    setNotice(tone, text);
     saved = reply === "saved" || reply === "saved-own-entries";
   } catch {
-    acSetMessage("error", "Could not add the account. See the log.");
+    setNotice("error", "Could not add the account. See the log.");
   }
   // Outside the try: a list that cannot be redrawn must not turn "Added" into "Could not add".
   if (saved) {
     acEls.address.value = "";
     acEls.host.value = "";
     await acLoad({ quiet: true }).catch(() => undefined);
+    leaveAddView();
+    offerRestart();
   }
   acSetBusy(false);
 }
@@ -166,14 +235,15 @@ async function acAdd() {
 async function acRemove(account) {
   acSetBusy(true);
   try {
-    acSetMessage("working", "Removing…");
+    setNotice("working", "Removing…");
     const reply = await acApi.accountRemove(account.accountId);
     const [tone, text] = AC_REMOVE_REPLY[reply] ?? AC_REMOVE_REPLY.failed;
-    acSetMessage(tone, text);
+    setNotice(tone, text);
   } catch {
-    acSetMessage("error", "Could not remove the account. See the log.");
+    setNotice("error", "Could not remove the account. See the log.");
   }
   await acLoad({ quiet: true }).catch(() => undefined);
+  offerRestart();
   acSetBusy(false);
 }
 
@@ -194,35 +264,24 @@ acEls.form.addEventListener("submit", (event) => {
   void acAdd();
 });
 
-acEls.restart.addEventListener("click", () => {
-  acEls.restart.disabled = true;
-  void acApi.restart().then(
-    (reply) => {
-      // Main refuses while a step is still running: say so and let the person try again.
-      if (reply === "restarting") return;
-      acSetMessage(
-        "warn",
-        reply === "busy"
-          ? "A step is still running. Wait for it to finish, then restart."
-          : "Could not restart. See the log.",
-      );
-      acEls.restart.disabled = false;
-    },
-    () => {
-      acSetMessage("error", "Could not restart. See the log.");
-      acEls.restart.disabled = false;
-    },
-  );
-});
+function acShowProvider(provider) {
+  acEls.providerMx.setAttribute("aria-pressed", String(provider === "mx"));
+  acEls.providerGmail.setAttribute("aria-pressed", String(provider === "gmail"));
+  acEls.panelMx.hidden = provider !== "mx";
+  acEls.panelGmail.hidden = provider !== "gmail";
+}
 
-// A key saved or removed under Advanced also waits for a restart.
-document.addEventListener("senderban-restart-due", () => {
-  void acLoad({ quiet: true });
+acEls.providerMx.addEventListener("click", () => {
+  acShowProvider("mx");
 });
+acEls.providerGmail.addEventListener("click", () => {
+  acShowProvider("gmail");
+});
+acShowProvider("mx");
 
 let acLoaded = false;
-acEls.details.addEventListener("toggle", () => {
-  if (acEls.details.open && !acLoaded) {
+document.addEventListener("senderban-view", (event) => {
+  if (event.detail !== "blocked" && !acLoaded) {
     acLoaded = true;
     void acLoad();
   }

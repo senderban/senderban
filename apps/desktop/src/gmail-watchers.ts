@@ -189,7 +189,7 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
               laneId,
               "halted-auth",
               "Senderban stopped watching",
-              `${label()}: Google refused the sign-in. Sign in again under Gmail accounts in Blocked senders, then restart Senderban.`,
+              `${label()}: Google refused the sign-in. Sign in again under Accounts in Senderban, then restart it.`,
             );
           } else if (state === "halted-rejected") {
             tell(

@@ -5,36 +5,104 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
+  background: var(--surface);
   color: var(--fg);
   font:
     13px/1.4 "Segoe UI",
     system-ui,
     sans-serif;
 }
-main {
+.app {
+  display: flex;
   height: 100%;
-  padding: 16px 20px;
+}
+aside {
+  flex: 0 0 184px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
+  padding: 16px 12px;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  text-align: left;
+}
+.nav[aria-current="page"] {
+  background: var(--line);
+  font-weight: 600;
+}
+.count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.health {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 8px;
+}
+.health-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: currentColor;
+}
+main {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow-y: auto;
 }
 header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 h1 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
 }
+#go-add {
+  margin-left: auto;
+}
 h2 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
 }
 p {
   margin: 0;
@@ -42,12 +110,62 @@ p {
 .muted {
   color: var(--muted);
 }
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+}
+.notice-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.notice-row:has(> [hidden]:first-child):has(> [hidden]:last-child) {
+  display: none;
+}
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.narrow {
+  max-width: 460px;
+}
 #list-section {
   flex: 1;
   min-height: 160px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tab {
+  padding: 3px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tab[aria-pressed="true"] {
+  background: var(--line);
+  color: var(--fg);
+}
+#view-add .tab {
+  padding: 5px 16px;
+  font-size: 13px;
 }
 #list {
   flex: 1;
@@ -58,7 +176,6 @@ p {
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--surface);
 }
 #list:empty {
   display: none;
@@ -78,22 +195,42 @@ p {
   min-width: 0;
 }
 .value {
-  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.value .local {
+  color: var(--muted);
+}
+.value .domain,
+.value.plain {
+  font-weight: 600;
 }
 .meta {
   color: var(--muted);
   font-size: 12px;
 }
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 12px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+}
 .row {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.row label {
-  font-weight: 600;
 }
 input {
   padding: 5px 8px;
@@ -112,20 +249,38 @@ button {
   font: inherit;
   cursor: pointer;
 }
+button.small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+button.primary {
+  padding: 5px 16px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
 button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--fg));
 }
 button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 .status {
   font-weight: 600;
+}
+.status:empty {
+  display: none;
 }
 [data-tone="ok"] {
   color: var(--ok);
@@ -143,54 +298,127 @@ input:focus-visible {
   display: none !important;
 }
 
-#accounts,
-#advanced,
-#gmail {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-#accounts summary,
-#advanced summary,
-#gmail summary {
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--muted);
-}
-#accounts summary:focus-visible,
-#advanced summary:focus-visible,
-#gmail summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-#advanced h2,
-#gmail h2 {
-  margin-top: 12px;
-}
-#account-list,
-#mxroute-keys,
-#google-accounts {
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
+.first-run {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 460px;
+  padding: 12px 0;
 }
-#account-list li,
-#mxroute-keys li,
-#google-accounts li {
-  padding: 10px 12px;
+.lead {
+  font-size: 14px;
+}
+.first-run ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.card {
+  flex: none;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--surface);
 }
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 12px;
+}
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.rows,
+.key-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rows li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.key-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 0;
+}
+.key-list .status {
+  flex-basis: 100%;
+}
+summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+}
+details > .meta,
+details > div {
+  margin-top: 8px;
+}
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+input[type="checkbox"][role="switch"] {
+  appearance: none;
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="checkbox"][role="switch"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--control-border);
+}
+input[type="checkbox"][role="switch"]:checked {
+  justify-content: flex-end;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+input[type="checkbox"][role="switch"]:checked::before {
+  background: var(--accent-fg);
+}
+
+.panel,
 #account-form,
 #mxroute-new form,
 #google-client-form {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 8px;
+}
+.panel {
+  gap: 12px;
 }
 .field {
   display: flex;
@@ -203,33 +431,4 @@ input:focus-visible {
 }
 .field input {
   width: 100%;
-}
-
-.enable {
-  margin-top: 8px;
-}
-.enable .row label {
-  font-weight: 600;
-}
-.enable p {
-  margin-top: 4px;
-  font-size: 12px;
-}
-input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-}
-
-#accounts > p,
-#account-form,
-#gmail > p,
-#google-client-form,
-#google-accounts,
-#google-message {
-  margin-top: 8px;
-}
-#google-accounts .row,
-#gmail > .row {
-  margin-top: 10px;
 }

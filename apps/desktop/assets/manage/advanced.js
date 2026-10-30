@@ -1,9 +1,10 @@
-// Advanced section of the sandboxed manage page: the MXroute API keys. A key belongs to the MXroute login, not to a
+/* global setNotice, acLoad, acLoaded */
+/* exported mxDraw, mxLoadFailed, mxSwitches, offerRestart */
+// MXroute API keys of the sandboxed manage page, and the per-domain Block at server switches. A key belongs to the MXroute login, not to a
 // mailbox, so it has its own block and its own Remove. A key is typed here, sent once to the main process and then
 // forgotten: nothing here ever receives it back, and every value shown came from main as plain text (textContent only).
 const mxApi = window.senderban;
 const mxEls = {
-  details: document.getElementById("advanced"),
   list: document.getElementById("mxroute-keys"),
   empty: document.getElementById("mxroute-empty"),
   // Outlives a redraw of the list, unlike the message inside a key's block.
@@ -26,6 +27,7 @@ const MX_REPLY = {
 
 let mxLimits = null;
 let mxBusy = false;
+let mxSwitchCount = 0;
 
 function field(id, labelText, input) {
   const wrap = document.createElement("div");
@@ -59,33 +61,41 @@ function setMessage(node, tone, text) {
   node.textContent = text;
 }
 
-// Whether blocked single addresses also go onto this domain's MXroute blacklist. Off until switched on.
-function domainRow(key, entry, id, message) {
-  const row = document.createElement("div");
-  row.className = "row";
-  const box = document.createElement("input");
-  box.type = "checkbox";
-  box.id = id;
-  box.checked = entry.enabled;
-  const label = document.createElement("label");
-  label.htmlFor = id;
-  label.textContent = `Offer “Block at server” on ${entry.domain}`;
-  row.append(box, label);
-  box.addEventListener("change", () => {
-    if (mxBusy) {
-      box.checked = !box.checked;
-      return;
-    }
-    void switchBlacklist(key, entry.domain, box, message);
+// Whether blocked single addresses also go onto this domain's MXroute blacklist. Off until switched on. A domain two keys can
+// hold has a switch per key: which key may hold it is only known by trying it, and the person has to be able to choose.
+function mxSwitches(domain, holders) {
+  return holders.map((key) => {
+    const row = document.createElement("div");
+    row.className = "switch-row";
+    mxSwitchCount += 1;
+    const id = `mx-enable-${String(mxSwitchCount)}`;
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.setAttribute("role", "switch");
+    box.id = id;
+    box.checked = key.domains.some((d) => d.domain === domain && d.enabled);
+    const label = document.createElement("label");
+    label.htmlFor = id;
+    label.textContent =
+      holders.length > 1 ? `Block at server (${key.username})` : "Block at server";
+    box.setAttribute("aria-label", `${label.textContent} on ${domain}`);
+    row.append(label, box);
+    box.addEventListener("change", () => {
+      if (mxBusy) {
+        box.checked = !box.checked;
+        return;
+      }
+      void switchBlacklist(key, domain, box);
+    });
+    return row;
   });
-  return row;
 }
 
-async function switchBlacklist(key, domain, box, message) {
+async function switchBlacklist(key, domain, box) {
   mxBusy = true;
   const wanted = box.checked;
   try {
-    setMessage(message, "working", "Checking…");
+    setNotice("working", "Checking…");
     const reply = await mxApi.mxrouteEnable({
       server: key.server,
       username: key.username,
@@ -93,9 +103,9 @@ async function switchBlacklist(key, domain, box, message) {
       enabled: wanted,
     });
     if (reply === "saved") {
+      await acLoad({ quiet: true });
       offerRestart();
-      setMessage(
-        message,
+      setNotice(
         "ok",
         wanted
           ? "On. It starts the next time Senderban starts."
@@ -104,20 +114,20 @@ async function switchBlacklist(key, domain, box, message) {
     } else {
       box.checked = !wanted;
       const [tone, text] = MX_REPLY[reply] ?? MX_REPLY.failed;
-      setMessage(message, tone, text);
+      setNotice(tone, text);
     }
   } catch {
     box.checked = !wanted;
-    setMessage(message, "error", "Could not save. See the log.");
+    setNotice("error", "Could not save. See the log.");
   } finally {
     mxBusy = false;
   }
 }
 
-function keyBlock(key, index) {
+function keyBlock(key) {
   const li = document.createElement("li");
   const title = document.createElement("div");
-  title.className = "value";
+  title.className = "value grow";
   title.textContent = `${key.username} on ${key.server}`;
   title.title = title.textContent;
 
@@ -127,37 +137,21 @@ function keyBlock(key, index) {
 
   const remove = document.createElement("button");
   remove.type = "button";
+  remove.className = "small";
   remove.textContent = "Remove key";
   remove.setAttribute("aria-label", `Remove key for ${key.username} on ${key.server}`);
   remove.addEventListener("click", () => {
     if (!mxBusy) void removeKey(key, message);
   });
-  const actions = document.createElement("div");
-  actions.className = "row";
-  actions.append(remove);
 
-  li.append(title);
+  li.append(title, remove);
   if (key.domains.length === 0) {
     const none = document.createElement("div");
     none.className = "meta";
     none.textContent = "Add a mailbox to use this key.";
     li.append(none);
-  } else {
-    const wrap = document.createElement("div");
-    wrap.className = "enable";
-    wrap.append(
-      ...key.domains.map((entry, at) =>
-        domainRow(key, entry, `mx-enable-${String(index)}-${String(at)}`, message),
-      ),
-    );
-    const help = document.createElement("p");
-    help.className = "muted";
-    help.textContent =
-      "New-mail notifications then offer “Block at server” for one sender: the server refuses their mail at the door, so the sender gets an error and the mail does not reach Junk or Trash. Junk and Trash stay available and never touch MXroute. The MXroute blacklist covers the whole mail domain, so a refused address is refused for every mailbox on it. An address already on your blacklist is treated as Senderban's own and taken off again when you unblock it. A whole domain is never refused at the server. Whether MXroute drops a sender also depends on the spam-score limit in your MXroute panel, so try one block and check. Takes effect when Senderban starts; switching it off takes back what Senderban added.";
-    wrap.append(help);
-    li.append(wrap);
   }
-  li.append(actions, message);
+  li.append(message);
   return li;
 }
 
@@ -222,7 +216,7 @@ async function saveKey(inputs, message) {
     const [tone, text] = MX_REPLY[reply] ?? MX_REPLY.failed;
     setMessage(message, tone, text);
     if (reply === "saved") {
-      await loadKeys();
+      await acLoad({ quiet: true });
       offerRestart();
     }
   } catch {
@@ -239,7 +233,7 @@ async function removeKey(key, message) {
     setMessage(message, "working", "Removing…");
     const reply = await mxApi.mxrouteRemove({ server: key.server, username: key.username });
     if (reply === "saved") {
-      await loadKeys();
+      await acLoad({ quiet: true });
       offerRestart();
       setMessage(mxEls.form.querySelector(".status"), "", "");
       setMessage(
@@ -259,33 +253,26 @@ async function removeKey(key, message) {
   }
 }
 
-// Drawn when the section is opened and after a change. The list holds no typed text, so a redraw loses nothing.
-async function loadKeys() {
-  const result = await mxApi.mxrouteList();
-  if (result === null) {
-    mxEls.empty.textContent = "Could not load the keys. Close and open this section to retry.";
-    mxEls.empty.hidden = false;
-    mxLoaded = false;
-    return;
-  }
+/** The key part of the Accounts view. The list holds no typed text, so a redraw loses nothing. */
+function mxDraw(result) {
   mxLimits = result.limits;
   mxEls.empty.textContent = result.keysUnreadable
     ? "Could not read the saved keys. Quit Senderban, delete mxroute-keys.json from %APPDATA%\\Senderban and start it again, then save your key here."
     : "No key saved yet.";
   mxEls.list.replaceChildren(...result.keys.map(keyBlock));
   mxEls.empty.hidden = result.keys.length > 0;
-  if (mxEls.form.childElementCount === 0) mxEls.form.append(keyForm());
+  if (mxEls.form.childElementCount === 0) {
+    mxEls.form.append(keyForm());
+    if (result.keys.length === 0) mxEls.form.closest("details").open = true;
+  }
 }
 
-let mxLoaded = false;
-mxEls.details.addEventListener("toggle", () => {
-  if (mxEls.details.open && !mxLoaded) {
-    mxLoaded = true;
-    void loadKeys();
-  }
-});
+function mxLoadFailed() {
+  mxEls.empty.textContent = "Could not load the keys. Open Accounts again to retry.";
+  mxEls.empty.hidden = false;
+}
 
 // A mailbox added or removed elsewhere in the window changes which domains are on offer.
 mxApi.onChanged(() => {
-  if (mxLoaded && !mxBusy) void loadKeys();
+  if (acLoaded && !mxBusy) void acLoad({ quiet: true });
 });

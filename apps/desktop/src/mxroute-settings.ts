@@ -184,7 +184,7 @@ export function mxrouteGroups(
   return groups;
 }
 
-/** Everything the page needs to draw the Advanced section: no ciphertext, no key. */
+/** Everything the page needs to draw the Accounts view: no ciphertext, no key. */
 export async function listMxroute(keysPath: string, accountsPath: string): Promise<MxroutePage> {
   const accounts = (await loadAccounts(accountsPath)).filter(isImapAccount);
   const page = accounts.map((a) => ({ accountId: a.id, label: a.imap.user }));

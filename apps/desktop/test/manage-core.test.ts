@@ -3,6 +3,7 @@ import type { Mock } from "vitest";
 
 type Handler = (event: unknown, payload?: unknown) => unknown;
 const handlers = new Map<string, Handler>();
+const sent = vi.hoisted(() => [] as string[]);
 
 // Just enough of Electron for ManageWindow to build one window and register its IPC handlers.
 vi.mock("electron", () => {
@@ -12,7 +13,9 @@ vi.mock("electron", () => {
       mainFrame: { processId: 1, routingId: 2 },
       setWindowOpenHandler: () => undefined,
       on: () => undefined,
-      send: () => undefined,
+      send: (channel: string) => {
+        sent.push(channel);
+      },
     };
     isDestroyed = () => false;
     isMinimized = () => false;
@@ -53,21 +56,118 @@ const call = (channel: string, event: unknown, payload?: unknown) => {
 let list: Mock<() => unknown>;
 let unblock: Mock<(id: string) => Promise<unknown>>;
 let onError: ReturnType<typeof vi.fn>;
+let status: Mock<() => Promise<unknown>>;
+let pause: Mock<(value: boolean) => Promise<void>>;
+let page: InstanceType<typeof ManageWindow>;
 
 beforeEach(() => {
   handlers.clear();
+  sent.length = 0;
+  status = vi.fn(() =>
+    Promise.resolve({ version: "1.2.3", paused: false, accounts: [] as unknown[] }),
+  );
+  pause = vi.fn(() => Promise.resolve());
   list = vi.fn(() => []);
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "Unblocked." }));
   onError = vi.fn();
-  new ManageWindow("assets", {
+  page = new ManageWindow("assets", {
     list,
     unblock,
+    status,
+    pause,
     mxrouteList: () => Promise.resolve({ accounts: [], keys: [], keysUnreadable: false }),
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
     mxrouteEnable: () => Promise.resolve("saved"),
     onError,
-  } as never).show();
+  } as never);
+  page.show();
+});
+
+describe("manage:status", () => {
+  it("answers the trusted page with the status and whether a restart is due", async () => {
+    expect(await call("manage:status", trusted)).toEqual({
+      version: "1.2.3",
+      paused: false,
+      accounts: [],
+      restartPending: false,
+    });
+  });
+
+  it("answers null to another frame, another window or no frame, without reading anything", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:status", event)).toBeNull();
+    }
+    expect(status).not.toHaveBeenCalled();
+  });
+
+  it("answers null and logs the channel when the accounts cannot be read", async () => {
+    status.mockRejectedValueOnce(new Error("bad file"));
+    expect(await call("manage:status", trusted)).toBeNull();
+    expect(onError).toHaveBeenCalledWith("manage:status", expect.any(Error));
+  });
+});
+
+describe("the status signal", () => {
+  it("sends one signal for a burst of state changes, and another after the gap", () => {
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 100; i += 1) page.notifyStatus();
+      expect(sent).toEqual([]);
+      vi.advanceTimersByTime(499);
+      expect(sent).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(sent).toEqual(["manage:status-changed"]);
+      page.notifyStatus();
+      vi.advanceTimersByTime(500);
+      expect(sent).toEqual(["manage:status-changed", "manage:status-changed"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("manage:pause", () => {
+  it("passes the wish on and answers done", async () => {
+    expect(await call("manage:pause", trusted, true)).toBe("done");
+    expect(pause).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it("refuses an untrusted sender without pausing", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:pause", event, true)).toBe("denied");
+    }
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a string", "true"],
+    ["a number", 1],
+    ["null", null],
+    ["nothing", undefined],
+    ["an object", { paused: true }],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:pause", trusted, payload)).toBe("invalid");
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("answers busy to a second click while a pause runs, and a restart waits for it", async () => {
+    const gate = Promise.withResolvers<undefined>();
+    pause.mockReturnValueOnce(gate.promise);
+    const first = call("manage:pause", trusted, true);
+    expect(await call("manage:pause", trusted, false)).toBe("busy");
+    expect(await call("manage:restart", trusted)).toBe("busy");
+    gate.resolve(undefined);
+    expect(await first).toBe("done");
+    expect(pause).toHaveBeenCalledOnce();
+  });
+
+  it("answers failed, logs the channel and frees the guard", async () => {
+    pause.mockRejectedValueOnce(new Error("logout broke"));
+    expect(await call("manage:pause", trusted, true)).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:pause", expect.any(Error));
+    expect(await call("manage:pause", trusted, true)).toBe("done");
+  });
 });
 
 describe("manage:init", () => {

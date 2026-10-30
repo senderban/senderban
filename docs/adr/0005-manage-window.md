@@ -23,6 +23,17 @@ applied. An entry that is already gone answers `unknown` and touches no provider
 Why the store is the source of truth: the provider rule is derived from `senderban.db`, so the screen
 reads the table and never the provider. Unblock does not need the mail client.
 
+## Layout (2026-10-30)
+
+The one page of three `<details>` became a side bar with two views, **Blocked senders** and **Accounts**, plus **Add mailbox**. Still
+one window, one page and no new `BrowserWindow`. Questions stay in the main process's own dialog, not in the page: the page can neither
+draw that box nor click it, which holds against a page that was taken over. Replies of a step share one line above the views, so a step
+that moves to another view does not lose what it reported. Restart is one bar, driven by `manage:status`.
+
+`manage:status` reads the account file and the watcher states in memory, no provider. `manage:status-changed` is a signal without a
+payload, at most one per 500 ms while the window is open and none when it is closed. `manage:pause` takes a boolean, runs one at a time
+and counts as a step, so a restart waits for it.
+
 ## Security
 
 Same bar as the popup: sandboxed page, context isolation, no Node, CSP `default-src 'none'`,

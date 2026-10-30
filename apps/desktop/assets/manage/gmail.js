@@ -1,10 +1,11 @@
-// Gmail section of the sandboxed manage page: the app-wide Google client and the Gmail accounts. The client secret
+/* global setNotice, leaveAddView, stateBadge, offerRestart */
+// Gmail part of the sandboxed manage page: the app-wide Google client and the Gmail accounts. The client secret
 // is typed here, sent once to the main process and then forgotten; nothing here ever receives it back, and every value
 // shown came from main as plain text (textContent only). Names start with `g`: this file shares one global scope with
 // the other page scripts.
 const gApi = window.senderban;
 const gEls = {
-  details: document.getElementById("gmail"),
+  section: document.getElementById("gmail"),
   clientState: document.getElementById("google-client-state"),
   form: document.getElementById("google-client-form"),
   clientId: document.getElementById("google-client-id"),
@@ -13,11 +14,8 @@ const gEls = {
   confirm: document.getElementById("google-client-confirm"),
   clientMessage: document.getElementById("google-client-message"),
   list: document.getElementById("google-accounts"),
-  empty: document.getElementById("google-empty"),
   add: document.getElementById("google-add"),
   cancel: document.getElementById("google-cancel"),
-  restart: document.getElementById("google-restart"),
-  message: document.getElementById("google-message"),
 };
 
 const G_PERMISSIONS =
@@ -131,8 +129,6 @@ function gSetBusy(busy) {
   gBusy = busy;
   gEls.add.disabled = busy || gState === null || gState.client === null;
   gEls.save.disabled = busy;
-  // Not while a Google step runs: a Remove that is deleting filters must not be cut off by the restart.
-  gEls.restart.disabled = busy;
   for (const button of gEls.list.querySelectorAll("button")) button.disabled = busy;
 }
 
@@ -155,6 +151,8 @@ function gStateText(account) {
 
 function gAccountRow(account) {
   const li = document.createElement("li");
+  const what = document.createElement("div");
+  what.className = "what";
   const title = document.createElement("div");
   title.className = "value";
   title.textContent = account.email;
@@ -162,13 +160,16 @@ function gAccountRow(account) {
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = gStateText(account);
+  what.append(title, meta);
 
   const again = document.createElement("button");
   again.type = "button";
+  again.className = "small";
   again.textContent = "Sign in again";
   again.setAttribute("aria-label", `Sign in again as ${account.email}`);
   const remove = document.createElement("button");
   remove.type = "button";
+  remove.className = "small";
   remove.textContent = "Remove";
   remove.setAttribute("aria-label", `Remove ${account.email}`);
   again.addEventListener("click", () => {
@@ -177,22 +178,22 @@ function gAccountRow(account) {
   remove.addEventListener("click", () => {
     if (!gBusy) void gRemove(account);
   });
-  const actions = document.createElement("div");
-  actions.className = "row";
-  actions.append(again, remove);
-  li.append(title, meta, actions);
+  // A signed-out account has no watcher to speak of: the line under the address already says so.
+  li.append(what);
+  if (account.signedIn && !account.expired) li.append(stateBadge(account.accountId));
+  li.append(again, remove);
   return li;
 }
 
 function gDrawAccounts() {
   gEls.list.replaceChildren(...gState.accounts.map(gAccountRow));
-  gEls.empty.hidden = gState.accounts.length > 0;
+  gEls.section.hidden = gState.accounts.length === 0;
 }
 
 async function gRefresh() {
   const result = await gApi.googleState();
   if (result === null) {
-    gSetMessage(gEls.message, "error", "Could not load the Gmail accounts. See the log.");
+    setNotice("error", "Could not load the Gmail accounts. See the log.");
     return false;
   }
   gState = result;
@@ -249,24 +250,25 @@ async function gSaveClient(confirmSignOut) {
 async function gSignIn(request) {
   gSetBusy(true);
   gEls.cancel.hidden = false;
-  gEls.restart.hidden = true;
   try {
-    gSetMessage(gEls.message, "working", "Waiting for Google in your browser…");
+    setNotice("working", "Waiting for Google in your browser…");
     const outcome = await gApi.googleSignIn(request);
     const [tone, text] = G_SIGN_IN_REPLY[outcome.reply] ?? G_SIGN_IN_REPLY.failed;
     const days = Number.isInteger(outcome.accessEndsInDays) ? outcome.accessEndsInDays : 0;
-    gSetMessage(
-      gEls.message,
+    setNotice(
       tone,
       days > 0
         ? `${text} Google ends this access in ${String(days)} day(s) while your project is in testing; sign in again then.`
         : text,
     );
-    // A sign-in is picked up when Senderban starts: offer the restart right here instead of making the person find the tray.
-    gEls.restart.hidden = outcome.reply !== "signed-in";
     await gRefresh();
+    // A sign-in is picked up when Senderban starts: the restart bar offers it instead of making the person find the tray.
+    if (outcome.reply === "signed-in") {
+      leaveAddView();
+      offerRestart();
+    }
   } catch {
-    gSetMessage(gEls.message, "error", "Could not sign in. See the log.");
+    setNotice("error", "Could not sign in. See the log.");
   } finally {
     gEls.cancel.hidden = true;
     gSetBusy(false);
@@ -276,13 +278,14 @@ async function gSignIn(request) {
 async function gRemove(account) {
   gSetBusy(true);
   try {
-    gSetMessage(gEls.message, "working", "Removing…");
+    setNotice("working", "Removing…");
     const reply = await gApi.googleRemove(account.accountId);
     const [tone, text] = G_REMOVE_REPLY[reply] ?? G_REMOVE_REPLY.failed;
-    gSetMessage(gEls.message, tone, text);
+    setNotice(tone, text);
     await gRefresh();
+    offerRestart();
   } catch {
-    gSetMessage(gEls.message, "error", "Could not remove. See the log.");
+    setNotice("error", "Could not remove. See the log.");
   } finally {
     gSetBusy(false);
   }
@@ -315,30 +318,9 @@ gEls.add.addEventListener("click", () => {
 gEls.cancel.addEventListener("click", () => {
   void gApi.googleCancel();
 });
-gEls.restart.addEventListener("click", () => {
-  gEls.restart.disabled = true;
-  void gApi.restart().then(
-    (reply) => {
-      // Main refuses while a step (an Unblock in the list too) is still running: say so and let the person try again.
-      if (reply === "restarting") return;
-      gSetMessage(
-        gEls.message,
-        "warn",
-        reply === "busy"
-          ? "A step is still running. Wait for it to finish, then restart."
-          : "Could not restart. See the log.",
-      );
-      gEls.restart.disabled = gBusy;
-    },
-    () => {
-      gEls.restart.disabled = gBusy;
-    },
-  );
-});
-
-// Drawn when the section is opened, and again after every step (never while a key is being typed).
-gEls.details.addEventListener("toggle", () => {
-  if (gEls.details.open && !gLoaded) {
+// Drawn when the Accounts or Add view first opens, and again after every step (never while a key is being typed).
+document.addEventListener("senderban-view", (event) => {
+  if (event.detail !== "blocked" && !gLoaded) {
     gLoaded = true;
     void gRefresh().then((ok) => {
       gLoaded = ok;

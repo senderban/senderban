@@ -72,6 +72,17 @@ const GMAIL_NO_DOMAIN_NOTE = "Gmail has no whole-domain option";
 /** Marks the sender line: this is the address the buttons act on. A fixed emoji, so it adds no mail text to the XML. */
 const SENDER_MARK = "🚫";
 
+/**
+ * Characters. A domain up to this long is named on its button, so the target is written where the click lands. A longer one keeps
+ * the plain label: a button label is cut at its end, the part that tells `bank.example.attacker.test` from a bank (not measured on
+ * Windows; the full address stands on the first line either way).
+ */
+const DOMAIN_BUTTON_MAX = 28;
+
+function domainButtonLabel(domain: string): string {
+  return domain.length > DOMAIN_BUTTON_MAX ? "Whole domain" : `All of ${domain}`;
+}
+
 /** `🟢 Spam 1.6 · low`: toasts cannot colour text, a dot is the colour that survives; the word is the other cue. */
 export function spamLabel(score: number): string {
   const [dot, word] =
@@ -124,7 +135,7 @@ export function buildMailToastXml(
   const domainButton =
     toast.domain === null
       ? ""
-      : `<action content="Whole domain" arguments="${args("domain", toast.id)}" activationType="foreground"/>`;
+      : `<action content="${escapeXml(domainButtonLabel(toast.domain))}" arguments="${args("domain", toast.id)}" activationType="foreground"/>`;
   // Junk is first and the default: "Block at server" is the one choice that keeps no copy of later mail, so it
   // is listed last and never pre-selected (ADR 0008).
   const choices: readonly (readonly [BlockAction, string])[] = [
