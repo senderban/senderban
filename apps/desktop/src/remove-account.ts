@@ -2,6 +2,7 @@ import {
   AdapterError,
   SIEVE_SUSPEND_WAIT_MS,
   initialSieveState,
+  isCleanAccount,
   isImapAccount,
   mxrouteLaneId,
   sieveStateForReinstall,
@@ -216,6 +217,62 @@ export function dropImapAccount(accountId: string, rulesRemain: boolean, live: L
   live.watchers.delete(accountId);
   void watcher?.stop().catch(() => undefined);
   live.states.delete(accountId);
+}
+
+/** What removing a cleaning account touches. */
+export type LiveCleanAccounts = Pick<
+  LiveAccounts,
+  "lanes" | "labels" | "pending" | "store" | "settled" | "watchers" | "states"
+> & { readonly cleanLanes: Map<string, { retire(): void }> };
+
+/** Takes a removed cleaning account out of the running app: nothing moves from here on, and it has nothing left on the server. */
+export function dropCleanAccount(accountId: string, live: LiveCleanAccounts): void {
+  live.cleanLanes.get(accountId)?.retire();
+  live.cleanLanes.delete(accountId);
+  const at = live.lanes.indexOf(accountId);
+  if (at >= 0) live.lanes.splice(at, 1);
+  live.labels.delete(accountId);
+  live.pending.dropAccount(accountId);
+  const watcher = live.watchers.get(accountId);
+  live.watchers.delete(accountId);
+  void watcher?.stop().catch(() => undefined);
+  live.states.delete(accountId);
+  // After its last round: a round in flight would write the row back.
+  void live
+    .settled(accountId)
+    .then(() => {
+      live.store.forgetAccount(accountId);
+    })
+    .catch(() => undefined);
+}
+
+export interface CleanRemoveSteps {
+  /** The person's own yes, asked by the main process, naming the account. */
+  readonly confirm: (label: string) => Promise<boolean>;
+  /** Stops the lane and the watcher. Runs once the account left the file; it must not throw. */
+  readonly retire: (accountId: string) => Promise<void>;
+  readonly onRemoved: () => Promise<void>;
+}
+
+/** Removes a cleaning account. Nothing of Senderban's is on its server, so there is no order to keep and nothing to be left behind. */
+export async function removeCleanAccount(
+  path: string,
+  accountId: string,
+  steps: CleanRemoveSteps,
+): Promise<AccountRemoveResult> {
+  const account = (await loadAccounts(path)).filter(isCleanAccount).find((a) => a.id === accountId);
+  if (account === undefined) return "unknown-account";
+  if (!(await steps.confirm(account.clean.address))) return "cancelled";
+  await serialized(async () => {
+    const accounts = await loadAccounts(path);
+    await saveAccounts(
+      path,
+      accounts.filter((a) => a.id !== accountId),
+    );
+  });
+  await steps.retire(accountId);
+  await steps.onRemoved();
+  return "removed";
 }
 
 export interface AccountRemoveSteps {

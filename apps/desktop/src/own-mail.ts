@@ -1,4 +1,10 @@
-import { isCountrySuffix, isFreemail, isImapAccount, mailboxKey } from "@senderban/core";
+import {
+  accountLogins,
+  isCountrySuffix,
+  isFreemail,
+  isImapAccount,
+  mailboxKey,
+} from "@senderban/core";
 import type { AccountConfig, OwnMail } from "@senderban/core";
 import { mailDomain } from "./mxroute-settings.js";
 
@@ -25,8 +31,9 @@ export function collectOwnMail(accounts: readonly AccountConfig[]): OwnMail {
       const domain = mailDomain(a);
       if (domain !== null && !isSharedDomain(domain)) domains.add(domain);
     } else {
-      addresses.add(mailboxKey(a.gmail.email));
-      const domain = a.gmail.email.slice(a.gmail.email.lastIndexOf("@") + 1);
+      const address = accountLogins(a)[0] ?? "";
+      addresses.add(mailboxKey(address));
+      const domain = address.slice(address.lastIndexOf("@") + 1);
       if (!isSharedDomain(domain)) domains.add(domain);
     }
   }

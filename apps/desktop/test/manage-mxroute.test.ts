@@ -186,6 +186,7 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
     expect(Object.keys(reply).sort()).toEqual([
       "accounts",
       "addLimits",
+      "cleanLimits",
       "keys",
       "keysUnreadable",
       "limits",

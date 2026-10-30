@@ -91,6 +91,17 @@
         <section id="view-accounts" class="view" hidden>
           <p id="accounts-empty" class="muted" hidden>No mailbox yet.</p>
           <div id="account-groups" class="groups"></div>
+          <section id="clean-group" class="card" aria-label="Other mailboxes" hidden>
+            <div class="card-head">
+              <div class="grow">
+                <h2>Other (IMAP)</h2>
+                <p class="meta">
+                  Local only: Senderban moves mail itself while it runs. No rule on the server.
+                </p>
+              </div>
+            </div>
+            <ul id="clean-rows" class="rows" aria-label="Other mailboxes"></ul>
+          </section>
 
           <section id="gmail" class="card" hidden>
             <div class="card-head">
@@ -141,6 +152,7 @@
           <div class="tabs" role="group" aria-label="Provider">
             <button type="button" id="provider-mx" class="tab">MXroute</button>
             <button type="button" id="provider-gmail" class="tab">Gmail</button>
+            <button type="button" id="provider-other" class="tab">Other (IMAP)</button>
           </div>
 
           <div id="panel-mx" class="panel">
@@ -185,6 +197,65 @@
               </div>
               <div class="row">
                 <button type="submit" id="account-save" class="primary">Add mailbox</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="panel-other" class="panel" hidden>
+            <p class="muted">
+              For iCloud, Yahoo, AOL, GMX and other mailboxes with no rule Senderban can write. This
+              is no block on the server: Senderban moves mail itself, only while it runs, and a
+              blocked sender's mail stays in the inbox while Senderban is closed. Most of these
+              providers need an app password from their security page, not your normal one.
+            </p>
+            <form id="clean-form" autocomplete="off">
+              <div class="field">
+                <label for="clean-address">Mail address</label>
+                <input
+                  id="clean-address"
+                  type="text"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div class="field">
+                <label for="clean-password">App password</label>
+                <input
+                  id="clean-password"
+                  type="password"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="field">
+                <label for="clean-host">IMAP server</label>
+                <input
+                  id="clean-host"
+                  type="text"
+                  required
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="e.g. imap.example.com"
+                />
+                <span class="meta">It is on your provider's settings page.</span>
+              </div>
+              <div class="field">
+                <label for="clean-port">Port</label>
+                <input id="clean-port" type="number" required value="993" />
+                <span class="meta"
+                  >993 is usual. 143 uses STARTTLS; every port uses encryption.</span
+                >
+              </div>
+              <div class="field">
+                <label for="clean-login">User name (if it is not the address)</label>
+                <input id="clean-login" type="text" autocomplete="off" spellcheck="false" />
+                <span class="meta">iCloud may want only the part before the @.</span>
+              </div>
+              <div class="row">
+                <button type="submit" id="clean-save" class="primary">Add mailbox</button>
               </div>
             </form>
           </div>

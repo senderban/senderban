@@ -10,7 +10,8 @@ const Host = z
   .min(HOST_LENGTH.min)
   .max(HOST_LENGTH.max)
   .regex(/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/u);
-const Port = z.number().int().min(1).max(65_535);
+const PORT_RANGE = { min: 1, max: 65_535 } as const;
+const Port = z.number().int().min(PORT_RANGE.min).max(PORT_RANGE.max);
 // RFC 4616 §2: a SASL authcid is at most 255 octets; ASCII-only here keeps characters = octets.
 const User = z
   .string()
@@ -216,7 +217,28 @@ export const GmailAccountConfigSchema = z.strictObject({
 });
 export type GmailAccountConfig = z.infer<typeof GmailAccountConfigSchema>;
 
-export const AccountConfigSchema = z.union([ImapAccountConfigSchema, GmailAccountConfigSchema]);
+/**
+ * A mailbox with no rule mechanism a program can reach (iCloud, Yahoo, AOL, GMX): Senderban moves mail itself, over IMAP, while it
+ * runs (ADR 0012). `address` is what the person knows it by; `user` is the login, which on iCloud may be only the part before the @.
+ */
+export const CleanAccountConfigSchema = z.strictObject({
+  id: z.string().regex(ACCOUNT_ID),
+  clean: z.strictObject({
+    address: GmailAddress,
+    host: Host,
+    port: Port,
+    secure: z.boolean(),
+    user: User,
+  }),
+  passwordCipher: Ciphertext,
+});
+export type CleanAccountConfig = z.infer<typeof CleanAccountConfigSchema>;
+
+export const AccountConfigSchema = z.union([
+  ImapAccountConfigSchema,
+  GmailAccountConfigSchema,
+  CleanAccountConfigSchema,
+]);
 export type AccountConfig = z.infer<typeof AccountConfigSchema>;
 
 /** Narrows to the IMAP/Sieve kind; every reader of `imap` or `sieve` goes through this. */
@@ -227,6 +249,18 @@ export function isImapAccount(account: AccountConfig): account is ImapAccountCon
 /** Narrows to the Gmail kind. */
 export function isGmailAccount(account: AccountConfig): account is GmailAccountConfig {
   return "gmail" in account;
+}
+
+/** Narrows to the kind that moves mail itself. */
+export function isCleanAccount(account: AccountConfig): account is CleanAccountConfig {
+  return "clean" in account;
+}
+
+/** The addresses this account signs in with or receives on, in the form they were stored. */
+export function accountLogins(account: AccountConfig): readonly string[] {
+  if (isImapAccount(account)) return [account.imap.user, account.sieve.user];
+  if (isGmailAccount(account)) return [account.gmail.email];
+  return [account.clean.address];
 }
 
 export const AccountsFileSchema = z
@@ -244,13 +278,12 @@ export const AccountsFileSchema = z
       const seen = new Set<string>();
       for (const a of file.accounts) {
         if (isImapAccount(a)) {
-          for (const login of [a.imap.user, a.sieve.user])
-            seen.add(mailboxKey(login.toLowerCase()));
+          for (const login of accountLogins(a)) seen.add(mailboxKey(login.toLowerCase()));
         }
       }
       for (const a of file.accounts) {
         if (isImapAccount(a)) continue;
-        const key = mailboxKey(a.gmail.email);
+        const key = mailboxKey(accountLogins(a)[0] ?? a.id);
         if (seen.has(key)) return false;
         seen.add(key);
       }
@@ -306,33 +339,77 @@ const PRIVATE_HOST_ENDING =
 /** A dot and an alphabetic top label: this also turns away an IP address and a single-label name. */
 const PUBLIC_HOST_NAME = /\.(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/iu;
 
-/** The form's three fields. The address comes out in the form `parseAddress` returns; an issue never quotes the input. */
-export const AccountAddSchema = z.strictObject({
-  address: z
-    .string()
-    .min(ACCOUNT_ADD_LIMITS.address.min)
-    .max(ACCOUNT_ADD_LIMITS.address.max)
-    .transform((value, ctx) => {
-      const parsed = parseAddress(value);
-      if (
-        parsed.ok &&
-        ACCOUNT_ID.test(parsed.value.address) &&
-        !LANE_ID_ENDING.test(parsed.value.address)
-      ) {
-        return parsed.value.address;
-      }
-      ctx.addIssue({ code: "custom", message: "not a mail address" });
-      return z.NEVER;
-    }),
-  // Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
-  // process's own confirmation are what protect the password.
-  host: Host.refine((value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value), {
+const AddAddress = z
+  .string()
+  .min(ACCOUNT_ADD_LIMITS.address.min)
+  .max(ACCOUNT_ADD_LIMITS.address.max)
+  .transform((value, ctx) => {
+    const parsed = parseAddress(value);
+    if (
+      parsed.ok &&
+      ACCOUNT_ID.test(parsed.value.address) &&
+      !LANE_ID_ENDING.test(parsed.value.address)
+    ) {
+      return parsed.value.address;
+    }
+    ctx.addIssue({ code: "custom", message: "not a mail address" });
+    return z.NEVER;
+  });
+
+// Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
+// process's own confirmation are what protect the password.
+const AddHost = Host.refine(
+  (value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value),
+  {
     message: "not a public host name",
     // Lower case: DNS does not care, and in a dialog a capital I then shows as an i, not as an l.
-  }).transform((value) => value.toLowerCase()),
+  },
+).transform((value) => value.toLowerCase());
+
+/** The form's three fields. The address comes out in the form `parseAddress` returns; an issue never quotes the input. */
+export const AccountAddSchema = z.strictObject({
+  address: AddAddress,
+  host: AddHost,
   password: Password,
 });
 export type AccountAddInput = z.infer<typeof AccountAddSchema>;
+
+/** Unit: a TCP port, and ASCII characters of a login (RFC 4616 §2, the same bound as `User`). The form's own bounds come from here. */
+export const CLEAN_ADD_LIMITS = { port: PORT_RANGE, login: { min: 1, max: 255 } } as const;
+
+/** A cleaning account as a person types it; the plaintext password exists only until it is encrypted. */
+export const NewCleanAccountSchema = CleanAccountConfigSchema.omit({ passwordCipher: true }).extend(
+  { password: Password },
+);
+export type NewCleanAccount = z.infer<typeof NewCleanAccountSchema>;
+
+/** Port of IMAP with STARTTLS (RFC 9051 §2.1); any other port is implicit TLS. Plain IMAP is never spoken on either. */
+export const IMAP_STARTTLS_PORT = 143;
+
+/** The "Other (IMAP)" form: nothing is discovered, the person gives the server and port from their provider's page. */
+export const CleanAddSchema = z.strictObject({
+  address: AddAddress,
+  host: AddHost,
+  port: Port,
+  /** Absent: the address. iCloud's own page names only the part before the @. */
+  login: User.optional(),
+  password: Password,
+});
+export type CleanAddInput = z.infer<typeof CleanAddSchema>;
+
+export function cleanAccountFromForm(input: CleanAddInput): NewCleanAccount {
+  return NewCleanAccountSchema.parse({
+    id: input.address,
+    clean: {
+      address: input.address,
+      host: input.host,
+      port: input.port,
+      secure: input.port !== IMAP_STARTTLS_PORT,
+      user: input.login ?? input.address,
+    },
+    password: input.password,
+  });
+}
 
 /** The form asks for no ports: MXroute serves IMAP over TLS on 993 and ManageSieve on 4190, and the login is the address. */
 export function accountFromForm(input: AccountAddInput): NewAccount {

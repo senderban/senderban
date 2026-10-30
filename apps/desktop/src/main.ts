@@ -1,22 +1,28 @@
 import { join } from "node:path";
 import {
   AccountWatcher,
+  CleanLink,
+  ImapCleanAdapter,
   MAX_CONCURRENT_GMAIL_POLLS,
   MAX_CONCURRENT_LOGINS,
   PendingBlocks,
   SieveAdapter,
   SyncEngine,
   blockPending,
+  folderAction,
+  RETRO_DAYS,
   createGate,
   willRetry,
   blockableDomain,
   canRejectSender,
+  initialCleanState,
   initialSieveState,
   mxrouteStateValues,
   unblock,
   MxrouteAdapter,
   createMxrouteClient,
   initialMxrouteState,
+  isCleanAccount,
   isGmailAccount,
   isImapAccount,
   mxrouteLaneId,
@@ -31,6 +37,7 @@ import type {
   BlockAction,
   BlockEntry,
   BlockResult,
+  CleanEvent,
   GmailWatcherState,
   ImapAccountConfig,
   IncomingMessage,
@@ -39,16 +46,27 @@ import type {
   OwnMail,
   SyncOutcome,
   UnblockResult,
+  WatcherOptions,
   WatcherState,
 } from "@senderban/core";
-import { connectManageSieve, imapflowConnector, signIn } from "@senderban/core/node";
+import {
+  cleanConnector,
+  connectManageSieve,
+  imapflowConnector,
+  signIn,
+} from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
-import { checkAccount } from "./account-check.js";
+import { checkAccount, checkCleanAccount } from "./account-check.js";
 import type { AccountCheckStage } from "./account-check.js";
 import { appliedFor, laneViewOf } from "./applied.js";
 import type { HeldAddresses } from "./applied.js";
-import { AddAccountError, addAccountFromFile, addAccountFromForm } from "./add-account.js";
+import {
+  AddAccountError,
+  addAccountFromFile,
+  addAccountFromForm,
+  addCleanFromForm,
+} from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import {
   cancelGoogleSignIn,
@@ -74,8 +92,10 @@ import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
 import { SHUTDOWN_CAP_MS, SHUTDOWN_DEADLINE_MS, settleWithin, stopThenClose } from "./deadline.js";
 import {
   createSieveLifecycle,
+  dropCleanAccount,
   dropImapAccount,
   dropMxrouteKey,
+  removeCleanAccount,
   removeImapAccount,
 } from "./remove-account.js";
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
@@ -137,6 +157,8 @@ interface Runtime {
   readonly sieve: SieveRulesLifecycle;
   /** Stops the lanes of a key the person removed. */
   readonly retireMxrouteKey: (ref: MxrouteKeyRef) => void;
+  /** Stops a removed "Other (IMAP)" mailbox. */
+  readonly retireClean: (accountId: string) => void;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
@@ -213,6 +235,10 @@ const heldGmailLanes = createHeldLanes();
 const heldSieveLanes = createHeldLanes();
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
 let gmailSkipped: GmailSkipped[] = [];
+/** Lanes that move mail themselves ("Other (IMAP)"): no rule on a server, so nothing may claim one. */
+const cleanLanes = new Set<string>();
+/** Cleaning lanes the person was told cannot move their mail; cleared by the next move that works. */
+const cleanFailing = new Set<string>();
 /** Accounts whose blocked single addresses are also refused at the MXroute server (live lane, switch on). */
 const rejectingAccounts = new Set<string>();
 
@@ -269,6 +295,21 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
   notice("Senderban", `The block list is not up to date on ${label} (${why}). ${next}`);
 }
 
+/** A server that refuses the move leaves blocked mail in the Inbox: said once, not per mail. */
+function noticeCleanFailure(id: string, label: string, event: CleanEvent): void {
+  if (event.kind !== "arrival") return;
+  if (event.failed === 0) {
+    cleanFailing.delete(id);
+    return;
+  }
+  if (cleanFailing.has(id)) return;
+  cleanFailing.add(id);
+  notice(
+    "Senderban",
+    `${label} refused to move mail from a blocked sender, so it is still in the inbox. Check that the mailbox has a Junk folder.`,
+  );
+}
+
 /** What the result toast says once a choice has run. */
 function describe(result: BlockResult, labels: ReadonlyMap<string, string>): ToastResult {
   switch (result.status) {
@@ -285,6 +326,12 @@ function describe(result: BlockResult, labels: ReadonlyMap<string, string>): Toa
         result.otherAccounts === 0
           ? ""
           : ` ${String(result.otherAccounts)} other place(s) are updating in the background.`;
+      if (cleanLanes.has(result.accountId)) {
+        return {
+          tone: "ok",
+          text: `✓ ${result.target}: Senderban moves its mail in ${where} to ${destination(folderAction(result.action))} while it runs, and is clearing the last ${String(RETRO_DAYS)} days. This is no rule on the server.${others}`,
+        };
+      }
       // A toast outlives the choice it offered: the key may have been removed while it was on screen.
       if (result.action === "reject" && !rejectingAccounts.has(result.accountId)) {
         return {
@@ -333,9 +380,12 @@ function describeUnblock(
     return { tone: "ok", text: `${value} removed from the list. No account is set up to update.` };
   }
   if (unconfirmed.length === 0) {
+    const read = result.accounts.some((a) => !cleanLanes.has(a.accountId))
+      ? " and was read back from the provider"
+      : "";
     return {
       tone: "ok",
-      text: `✓ ${value} unblocked. The rule is gone from ${String(result.accounts.length)} place(s) and was read back from the provider.`,
+      text: `✓ ${value} unblocked. The rule is gone from ${String(result.accounts.length)} place(s)${read}.`,
     };
   }
   const first = unconfirmed
@@ -426,6 +476,7 @@ async function start(): Promise<Runtime> {
   const store = new Store(openDatabase(join(dir, "senderban.db")));
   log("start", {
     accounts: accounts.length,
+    clean: configured.filter(isCleanAccount).length,
     skipped: configured.length - accounts.length,
     electron: process.versions.electron,
   });
@@ -473,6 +524,68 @@ async function start(): Promise<Runtime> {
   const sieveLanes = new Map<string, SieveLane>();
   const mxrouteAdapters = new Map<string, MxrouteAdapter>();
   const skippedAccounts = new Set<string>();
+
+  // What a new mail, a burst or a state change means is the same for every kind of IMAP watcher.
+  const announce: Pick<WatcherOptions, "onMessage" | "onOverflow" | "onUnreadable" | "onState"> = {
+    onMessage: (accountId: string, message: IncomingMessage) => {
+      // The same rule as the Gmail watcher: an own address is never blocked (blockPending refuses it), so no button.
+      if (isOwnMailbox(message.from, own.get())) {
+        log("announce", {
+          account: accountTag(accountId),
+          uid: message.uid,
+          sender: "own-address",
+        });
+        notice(
+          "Senderban",
+          `New mail in ${labels.get(accountId) ?? accountId} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
+        );
+        return;
+      }
+      const id = pending.add({ accountId, sender: message.from });
+      log("announce", {
+        account: accountTag(accountId),
+        uid: message.uid,
+        domain: domainOf(message.from),
+      });
+      toasts?.show({
+        id,
+        sender: message.from,
+        subject: message.subject,
+        account: labels.get(accountId) ?? accountId,
+        spamScore: message.spamScore,
+        domain: blockableDomain(message.from, own.get()),
+        // A wildcard address is never written to the blacklist (it would refuse a whole provider).
+        rejectsAtServer:
+          rejectingAccounts.has(accountId) && canRejectSender(message.from, own.get()),
+      });
+    },
+    onOverflow: (accountId, skipped) => {
+      log("overflow", { account: accountTag(accountId), skipped });
+      notice(
+        "Senderban",
+        `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced.`,
+      );
+    },
+    onUnreadable: (accountId, skipped) => {
+      log("unreadable-mail", { account: accountTag(accountId), skipped });
+      notice(
+        "Senderban",
+        `A mail in ${labels.get(accountId) ?? accountId} was too large to read, so up to ${String(skipped)} new messages were not announced. Check that inbox.`,
+      );
+    },
+    onState: (accountId, state, detail) => {
+      const previous = states.get(accountId);
+      states.set(accountId, state);
+      updateTray();
+      log("watcher", { account: accountTag(accountId), state, detail });
+      if (state === "halted" && previous !== "halted") {
+        notice(
+          "Senderban stopped watching",
+          `${labels.get(accountId) ?? accountId}: ${detail ?? "sign-in failed"}`,
+        );
+      }
+    },
+  };
 
   for (const account of accounts) {
     const sieveAdapter = new SieveAdapter({
@@ -557,64 +670,61 @@ async function start(): Promise<Runtime> {
           ...account.imap,
           password: () => decryptPassword(account.passwordCipher),
         }),
-        onMessage: (accountId: string, message: IncomingMessage) => {
-          // The same rule as the Gmail watcher: an own address is never blocked (blockPending refuses it), so no button.
-          if (isOwnMailbox(message.from, own.get())) {
-            log("announce", {
-              account: accountTag(accountId),
-              uid: message.uid,
-              sender: "own-address",
-            });
-            notice(
-              "Senderban",
-              `New mail in ${labels.get(accountId) ?? accountId} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
-            );
-            return;
-          }
-          const id = pending.add({ accountId, sender: message.from });
-          log("announce", {
-            account: accountTag(accountId),
-            uid: message.uid,
-            domain: domainOf(message.from),
-          });
-          toasts?.show({
-            id,
-            sender: message.from,
-            subject: message.subject,
-            account: labels.get(accountId) ?? accountId,
-            spamScore: message.spamScore,
-            domain: blockableDomain(message.from, own.get()),
-            // A wildcard address is never written to the blacklist (it would refuse a whole provider).
-            rejectsAtServer:
-              rejectingAccounts.has(accountId) && canRejectSender(message.from, own.get()),
-          });
+        ...announce,
+      }),
+    );
+    states.set(account.id, "stopped");
+  }
+
+  // "Other (IMAP)" mailboxes: no rule on any server, so the lane's rules act on the watcher's own connection (ADR 0012).
+  const cleanAdapters = new Map<string, ImapCleanAdapter>();
+  for (const account of configured.filter(isCleanAccount)) {
+    const link = new CleanLink();
+    let adapter: ImapCleanAdapter;
+    try {
+      adapter = new ImapCleanAdapter({
+        accountId: account.id,
+        link,
+        initialState: store.getState(account.id) ?? initialCleanState(),
+        onClean: (event) => {
+          log("clean", { account: accountTag(account.id), ...event });
+          noticeCleanFailure(account.id, account.clean.address, event);
         },
-        onOverflow: (accountId, skipped) => {
-          log("overflow", { account: accountTag(accountId), skipped });
-          notice(
-            "Senderban",
-            `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced.`,
-          );
+      });
+      engine.addAccount({ id: account.id, initialState: initialCleanState(), adapter });
+    } catch {
+      log("account-skipped", { account: accountTag(account.id) });
+      notice(
+        "Senderban",
+        `${account.clean.address} could not start: its id clashes with another account. Remove it under Accounts and add it again.`,
+      );
+      continue;
+    }
+    cleanAdapters.set(account.id, adapter);
+    lanes.push(account.id);
+    cleanLanes.add(account.id);
+    labels.set(account.id, account.clean.address);
+    // A queue left by a round that found the mailbox away goes on as soon as there is one.
+    link.onOpen(() => {
+      engine.requestSync(account.id);
+    });
+    const { host, port, secure, user } = account.clean;
+    watchers.set(
+      account.id,
+      new AccountWatcher({
+        accountId: account.id,
+        cursors: store.cursors,
+        gate: loginGate,
+        connect: cleanConnector(
+          { host, port, secure, user, password: () => decryptPassword(account.passwordCipher) },
+          link,
+        ),
+        screen: (fresh) => adapter.screen(fresh),
+        onGap: () => {
+          adapter.sweepAll();
+          engine.requestSync(account.id);
         },
-        onUnreadable: (accountId, skipped) => {
-          log("unreadable-mail", { account: accountTag(accountId), skipped });
-          notice(
-            "Senderban",
-            `A mail in ${labels.get(accountId) ?? accountId} was too large to read, so up to ${String(skipped)} new messages were not announced. Check that inbox.`,
-          );
-        },
-        onState: (accountId, state, detail) => {
-          const previous = states.get(accountId);
-          states.set(accountId, state);
-          updateTray();
-          log("watcher", { account: accountTag(accountId), state, detail });
-          if (state === "halted" && previous !== "halted") {
-            notice(
-              "Senderban stopped watching",
-              `${labels.get(accountId) ?? accountId}: ${detail ?? "sign-in failed"}`,
-            );
-          }
-        },
+        ...announce,
       }),
     );
     states.set(account.id, "stopped");
@@ -834,6 +944,21 @@ async function start(): Promise<Runtime> {
         rejectingAccounts,
         pending,
       });
+    },
+    retireClean: (accountId) => {
+      cleanLanes.delete(accountId);
+      cleanFailing.delete(accountId);
+      dropCleanAccount(accountId, {
+        cleanLanes: cleanAdapters,
+        lanes,
+        labels,
+        pending,
+        store,
+        settled: (id) => engine.settled(id),
+        watchers,
+        states,
+      });
+      updateTray();
     },
   };
 }
@@ -1067,6 +1192,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
             gmail,
             own: isOwnSender,
             ...appliedFor(entry, isOwnSender, gmail, view),
+            local: cleanLanes.size > 0,
           };
         });
       },
@@ -1074,7 +1200,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       mxrouteList: async () => {
         const page = await listMxroute(keysPath, accountsPath);
         if (page.keysUnreadable) log("mxroute-keys-failed", {});
-        return page;
+        const clean = (await loadAccounts(accountsPath))
+          .filter(isCleanAccount)
+          .map((a) => ({ accountId: a.id, label: a.clean.address }));
+        return { ...page, clean };
       },
       mxrouteSave: async (input) => {
         const onCall = (call: MxrouteCall) => {
@@ -1141,17 +1270,50 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         });
         return result;
       },
-      accountRemove: async (accountId, request) => {
+      cleanAdd: async (input, request) => {
         const started = Date.now();
-        const result = await removeImapAccount(accountsPath, accountId, {
-          ...request,
-          rules: async () => (await ready.promise).sieve,
-          onRemoved: async () => {
+        const result = await addCleanFromForm(accountsPath, input, {
+          confirm: request.confirm,
+          check: (account, signal) => checkCleanAccount(account, undefined, { signal }),
+          signal: request.signal,
+          onSaved: async () => {
+            const before = await ownEntryCount();
             await googleDeps.onAccountsChanged?.();
             manage?.notifyChanged();
+            const stopped = (await ownEntryCount()) > before;
+            if (stopped) runtime?.engine.requestSync();
+            return stopped;
           },
-          blacklistOutlives: (account) => blacklistOutlives(keysPath, accountsPath, account),
         });
+        log("account-added", {
+          account: accountTag(input.address),
+          kind: "clean",
+          result,
+          ms: Date.now() - started,
+        });
+        return result;
+      },
+      accountRemove: async (accountId, request) => {
+        const started = Date.now();
+        const onRemoved = async (): Promise<void> => {
+          await googleDeps.onAccountsChanged?.();
+          manage?.notifyChanged();
+        };
+        const known = await loadAccounts(accountsPath);
+        const result = known.some((a) => a.id === accountId && isCleanAccount(a))
+          ? await removeCleanAccount(accountsPath, accountId, {
+              confirm: request.confirmClean,
+              retire: async (id) => {
+                (await ready.promise).retireClean(id);
+              },
+              onRemoved,
+            })
+          : await removeImapAccount(accountsPath, accountId, {
+              ...request,
+              rules: async () => (await ready.promise).sieve,
+              onRemoved,
+              blacklistOutlives: (account) => blacklistOutlives(keysPath, accountsPath, account),
+            });
         log("account-removed", {
           account: accountTag(accountId),
           result,

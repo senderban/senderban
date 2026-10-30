@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   MAX_ACCOUNTS,
   createGate,
+  accountLogins,
   isGmailAccount,
-  isImapAccount,
   mailboxKey,
 } from "@senderban/core";
 import type {
@@ -289,9 +289,7 @@ async function storeSignIn(
   if (accounts.length >= MAX_ACCOUNTS) return "full";
   const key = mailboxKey(email);
   const taken = accounts.some((a) =>
-    isImapAccount(a)
-      ? [a.imap.user, a.sieve.user].some((login) => mailboxKey(login.toLowerCase()) === key)
-      : mailboxKey(a.gmail.email) === key,
+    accountLogins(a).some((login) => mailboxKey(login.toLowerCase()) === key),
   );
   if (taken) return "duplicate";
   const ids = new Set(accounts.map((a) => a.id));

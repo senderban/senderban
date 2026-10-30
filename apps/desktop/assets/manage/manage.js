@@ -52,6 +52,7 @@ const UNCONFIRMED_PILL = ["warn", "Not confirmed"];
 // What a signed-in Gmail account does with the entry (a single address becomes a Trash filter); absent: no Gmail account.
 const GMAIL_PILL = { trash: ["", "Gmail: Trash"], no: ["warn", "Gmail: not applied"] };
 const OWN_PILL = ["warn", "Not applied: your own mail"];
+const LOCAL_PILL = ["", "Other (IMAP): while Senderban runs"];
 
 const TABS = [
   { id: "all", label: "All", holds: () => true },
@@ -173,6 +174,7 @@ function row(entry) {
     if (action !== undefined) meta.append(pill(...action));
     const gmail = GMAIL_PILL[entry.gmail];
     if (gmail !== undefined) meta.append(pill(...gmail));
+    if (entry.local === true) meta.append(pill(...LOCAL_PILL));
     if (entry.applied === "unknown") meta.append(pill(...UNCONFIRMED_PILL));
   }
   what.append(senderValue(entry.value), meta);

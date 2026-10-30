@@ -4,6 +4,13 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- **Other (IMAP)** under **Add mailbox**, for mailboxes with no rule Senderban can write (iCloud, Yahoo,
+  AOL, GMX, Web.de). This is cleaning, not a server rule: while Senderban runs it moves a blocked
+  sender's new mail to Junk or Trash, and clears the last 30 days of the Inbox when you block someone.
+  With Senderban closed the mail stays in the Inbox. Measured on a local Dovecot server only.
+
 ## [0.1.4] - 2026-10-31
 
 ### Changed

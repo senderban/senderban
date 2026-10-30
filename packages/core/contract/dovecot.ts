@@ -12,9 +12,12 @@ const PASSWORD = "contract-pw";
 const MANAGESIEVE_PORT = 34190;
 const DOVEADM = "/dovecot/bin/doveadm";
 const LMTPS_PORT = 31024;
+const IMAPS_PORT = 31993;
 
 export interface Dovecot {
   readonly password: string;
+  /** Where IMAP over TLS answers, and what to trust there. */
+  readonly imap: { readonly host: string; readonly port: number; readonly ca: Buffer };
   connect(user: string, password?: string): Promise<SieveSession>;
   /** Delivers over LMTPS, the path a real MX uses, so the user's active Sieve script runs. */
   deliver(
@@ -50,6 +53,7 @@ export async function startDovecot(): Promise<Dovecot> {
     ...["-e", `USER_PASSWORD={PLAIN}${PASSWORD}`],
     ...["-p", `127.0.0.1::${String(MANAGESIEVE_PORT)}`],
     ...["-p", `127.0.0.1::${String(LMTPS_PORT)}`],
+    ...["-p", `127.0.0.1::${String(IMAPS_PORT)}`],
     ...["-v", `${dir}:/etc/dovecot/ssl:ro`],
     DOVECOT_IMAGE,
   ]);
@@ -67,6 +71,7 @@ export async function startDovecot(): Promise<Dovecot> {
     };
     const port = hostPort(MANAGESIEVE_PORT);
     const lmtpPort = hostPort(LMTPS_PORT);
+    const imapPort = hostPort(IMAPS_PORT);
     const connect = (user: string, password = PASSWORD): Promise<SieveSession> =>
       connectManageSieve({
         host: "127.0.0.1",
@@ -90,6 +95,7 @@ export async function startDovecot(): Promise<Dovecot> {
 
     return {
       password: PASSWORD,
+      imap: { host: "127.0.0.1", port: imapPort, ca },
       connect,
       deliver(user, mail) {
         const raw = `From: ${mail.from}\r\nTo: ${user}\r\nSubject: ${mail.subject}\r\n\r\nbody\r\n`;

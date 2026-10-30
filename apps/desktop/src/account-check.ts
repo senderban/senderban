@@ -1,13 +1,25 @@
-import { AdapterError, FatalWatchError, isCertificateRefusal } from "@senderban/core";
-import type { NewAccount } from "@senderban/core";
-import { connectManageSieve, imapflowConnector, isAuthFailure } from "@senderban/core/node";
+import { AdapterError, CleanLink, FatalWatchError, isCertificateRefusal } from "@senderban/core";
+import type { NewAccount, NewCleanAccount } from "@senderban/core";
+import {
+  cleanConnector,
+  connectManageSieve,
+  imapflowConnector,
+  isAuthFailure,
+} from "@senderban/core/node";
 
 /** Deadlines of the two logins in the form, as a whole: a click waits 45 s at most, and the socket closes with it. */
 export const ACCOUNT_CHECK_IMAP_MS = 30_000;
 export const ACCOUNT_CHECK_SIEVE_MS = 15_000;
 
 export type AccountCheckResult =
-  "ok" | "login-refused" | "sieve-missing" | "unreachable" | "tls-refused" | "cancelled";
+  | "ok"
+  | "login-refused"
+  | "sieve-missing"
+  /** The login worked, but this server cannot take mail out of the Inbox safely. */
+  | "cannot-move"
+  | "unreachable"
+  | "tls-refused"
+  | "cancelled";
 
 /** One login each; both close again. `signal` ends at the step's deadline or when the person gives up. Only a fake in a test replaces them. */
 export interface AccountProbes {
@@ -80,6 +92,53 @@ async function withDeadline(
   }
 }
 
+/** The fixed word for a failed IMAP login. */
+function imapFailure(error: unknown, options: AccountCheckOptions): AccountCheckResult {
+  if (options.signal?.aborted === true) return "cancelled";
+  if (isCertificateRefusal(error)) return "tls-refused";
+  return error instanceof FatalWatchError && isAuthFailure(error.cause)
+    ? "login-refused"
+    : "unreachable";
+}
+
+/** One read-write login that closes again; the answer is whether the server can move mail. Only a fake in a test replaces it. */
+export type CleanProbe = (account: NewCleanAccount, signal: AbortSignal) => Promise<boolean>;
+
+const liveCleanProbe: CleanProbe = async (account, signal) => {
+  const link = new CleanLink();
+  const { host, port, secure, user } = account.clean;
+  const connect = cleanConnector({ host, port, secure, user, password: account.password }, link);
+  const session = await connect(signal);
+  const movable = link.current?.canMove() === true;
+  void session.close().catch(() => undefined);
+  return movable;
+};
+
+/**
+ * Signs in once before anything is stored: cleaning needs IMAP only, but it needs the mailbox writable and a server that can move
+ * by UID, which a wrong answer here would only show as mail that never moves.
+ */
+export async function checkCleanAccount(
+  account: NewCleanAccount,
+  probe: CleanProbe = liveCleanProbe,
+  options: AccountCheckOptions = {},
+): Promise<AccountCheckResult> {
+  const answer = { movable: false };
+  try {
+    await withDeadline(
+      "imap",
+      async (signal) => {
+        answer.movable = await probe(account, signal);
+      },
+      ACCOUNT_CHECK_IMAP_MS,
+      options,
+    );
+  } catch (error) {
+    return imapFailure(error, options);
+  }
+  return answer.movable ? "ok" : "cannot-move";
+}
+
 /**
  * Signs in once over IMAP and once over ManageSieve before anything is stored: the watcher and the rules need both, and a
  * wrong password saved here would only show up as a halted watcher after a restart. The answer is a fixed word: an error may
@@ -98,11 +157,7 @@ export async function checkAccount(
       options,
     );
   } catch (error) {
-    if (options.signal?.aborted === true) return "cancelled";
-    if (isCertificateRefusal(error)) return "tls-refused";
-    return error instanceof FatalWatchError && isAuthFailure(error.cause)
-      ? "login-refused"
-      : "unreachable";
+    return imapFailure(error, options);
   }
   try {
     await withDeadline(

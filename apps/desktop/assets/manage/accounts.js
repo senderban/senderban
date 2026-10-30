@@ -12,8 +12,19 @@ const acEls = {
   save: document.getElementById("account-save"),
   providerMx: document.getElementById("provider-mx"),
   providerGmail: document.getElementById("provider-gmail"),
+  providerOther: document.getElementById("provider-other"),
   panelMx: document.getElementById("panel-mx"),
   panelGmail: document.getElementById("panel-gmail"),
+  panelOther: document.getElementById("panel-other"),
+  cleanForm: document.getElementById("clean-form"),
+  cleanAddress: document.getElementById("clean-address"),
+  cleanPassword: document.getElementById("clean-password"),
+  cleanHost: document.getElementById("clean-host"),
+  cleanPort: document.getElementById("clean-port"),
+  cleanLogin: document.getElementById("clean-login"),
+  cleanSave: document.getElementById("clean-save"),
+  cleanGroup: document.getElementById("clean-group"),
+  cleanRows: document.getElementById("clean-rows"),
 };
 
 // Replies of the main process, as sentences. The input is never echoed.
@@ -29,6 +40,10 @@ const AC_REPLY = {
   "sieve-missing": [
     "error",
     "The login worked, but Senderban could not reach ManageSieve on port 4190, which it needs to write rules. Nothing was saved.",
+  ],
+  "cannot-move": [
+    "error",
+    "The login worked, but this server cannot move mail safely, so Senderban cannot clean this inbox. Nothing was saved.",
   ],
   unreachable: ["error", "Could not reach this server. Check its name and try again."],
   "tls-refused": [
@@ -74,6 +89,7 @@ const AC_REMOVE_REPLY = {
 
 let acBusy = false;
 let acLimits = null;
+let acCleanLimits = null;
 
 /** Marks a value longer than the limit as invalid (the form then refuses to send it) instead of cutting it. */
 function acCheckLength(input, max) {
@@ -89,7 +105,9 @@ function acCheckOctets(input, max) {
 function acSetBusy(busy) {
   acBusy = busy;
   acEls.save.disabled = busy;
+  acEls.cleanSave.disabled = busy;
   for (const button of acEls.groups.querySelectorAll("button")) button.disabled = busy;
+  for (const button of acEls.cleanRows.querySelectorAll("button")) button.disabled = busy;
 }
 
 function acRow(account) {
@@ -165,6 +183,12 @@ function acDraw(result) {
   );
 }
 
+/** The mailboxes that move mail themselves: no domain card, no API key, and nothing about a server. */
+function acDrawClean(accounts) {
+  acEls.cleanGroup.hidden = accounts.length === 0;
+  acEls.cleanRows.replaceChildren(...accounts.map(acRow));
+}
+
 // One list request at a time, so that an older answer cannot draw over a newer one.
 let acLoading = false;
 let acLoadAgain = false;
@@ -194,12 +218,20 @@ async function acLoadOnce({ quiet = false } = {}) {
     return;
   }
   acLimits = result.addLimits;
+  acCleanLimits = result.cleanLimits;
+  acEls.cleanPort.min = String(acCleanLimits.port.min);
+  acEls.cleanPort.max = String(acCleanLimits.port.max);
+  acEls.cleanAddress.minLength = acLimits.address.min;
+  acEls.cleanPassword.minLength = acLimits.password.min;
+  acEls.cleanHost.minLength = acLimits.host.min;
+  acEls.cleanHost.pattern = "[A-Za-z0-9]([A-Za-z0-9.\\-]*[A-Za-z0-9])?";
   acEls.address.minLength = acLimits.address.min;
   acEls.password.minLength = acLimits.password.min;
   acEls.host.minLength = acLimits.host.min;
   acEls.host.pattern = "[A-Za-z0-9]([A-Za-z0-9.\\-]*[A-Za-z0-9])?";
   mxDraw(result);
   acDraw(result);
+  acDrawClean(result.clean ?? []);
 }
 
 async function acAdd() {
@@ -225,6 +257,39 @@ async function acAdd() {
   if (saved) {
     acEls.address.value = "";
     acEls.host.value = "";
+    await acLoad({ quiet: true }).catch(() => undefined);
+    leaveAddView();
+    offerRestart();
+  }
+  acSetBusy(false);
+}
+
+async function acAddClean() {
+  acSetBusy(true);
+  const login = acEls.cleanLogin.value;
+  const input = {
+    address: acEls.cleanAddress.value,
+    host: acEls.cleanHost.value,
+    port: Number(acEls.cleanPort.value),
+    password: acEls.cleanPassword.value,
+    ...(login === "" ? {} : { login }),
+  };
+  // The password leaves the page as soon as it is sent, whatever the answer.
+  acEls.cleanPassword.value = "";
+  let saved = false;
+  try {
+    setNotice("working", "Checking the login. This can take up to 30 seconds…");
+    const reply = await acApi.cleanAdd(input);
+    const [tone, text] = AC_REPLY[reply] ?? AC_REPLY.failed;
+    setNotice(tone, text);
+    saved = reply === "saved" || reply === "saved-own-entries";
+  } catch {
+    setNotice("error", "Could not add the account. See the log.");
+  }
+  if (saved) {
+    acEls.cleanAddress.value = "";
+    acEls.cleanHost.value = "";
+    acEls.cleanLogin.value = "";
     await acLoad({ quiet: true }).catch(() => undefined);
     leaveAddView();
     offerRestart();
@@ -258,17 +323,40 @@ for (const [key, input] of [
   });
 }
 
+for (const [key, input] of [
+  ["address", acEls.cleanAddress],
+  ["password", acEls.cleanPassword],
+  ["host", acEls.cleanHost],
+]) {
+  input.addEventListener("input", () => {
+    if (acLimits === null) return;
+    (key === "password" ? acCheckOctets : acCheckLength)(input, acLimits[key].max);
+  });
+}
+
+acEls.cleanLogin.addEventListener("input", () => {
+  if (acCleanLimits !== null) acCheckLength(acEls.cleanLogin, acCleanLimits.login.max);
+});
+
 acEls.form.addEventListener("submit", (event) => {
   event.preventDefault();
   if (acBusy || !acEls.form.reportValidity()) return;
   void acAdd();
 });
 
+acEls.cleanForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (acBusy || !acEls.cleanForm.reportValidity()) return;
+  void acAddClean();
+});
+
 function acShowProvider(provider) {
   acEls.providerMx.setAttribute("aria-pressed", String(provider === "mx"));
   acEls.providerGmail.setAttribute("aria-pressed", String(provider === "gmail"));
+  acEls.providerOther.setAttribute("aria-pressed", String(provider === "other"));
   acEls.panelMx.hidden = provider !== "mx";
   acEls.panelGmail.hidden = provider !== "gmail";
+  acEls.panelOther.hidden = provider !== "other";
 }
 
 acEls.providerMx.addEventListener("click", () => {
@@ -276,6 +364,9 @@ acEls.providerMx.addEventListener("click", () => {
 });
 acEls.providerGmail.addEventListener("click", () => {
   acShowProvider("gmail");
+});
+acEls.providerOther.addEventListener("click", () => {
+  acShowProvider("other");
 });
 acShowProvider("mx");
 
