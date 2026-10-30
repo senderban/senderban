@@ -63,7 +63,8 @@
             <ol>
               <li>Add the mailbox you want to protect.</li>
               <li>
-                Wait for new mail. Senderban reads only the sender and subject, on this device.
+                Wait for new mail. Senderban reads only the sender, the subject and the spam score,
+                on this device.
               </li>
               <li>Pick what happens in the notification. You can unblock anything here.</li>
             </ol>
@@ -79,6 +80,7 @@
               spellcheck="false"
             />
             <div id="tabs" class="tabs" role="group" aria-label="Show"></div>
+            <p id="behind" class="status" data-tone="warn" role="status" hidden></p>
             <ul id="list" aria-label="Blocked senders"></ul>
             <p id="empty" class="muted" hidden></p>
             <p id="list-cap" class="meta" data-tone="warn" hidden></p>

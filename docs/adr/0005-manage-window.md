@@ -32,7 +32,12 @@ that moves to another view does not lose what it reported. Restart is one bar, d
 
 `manage:status` reads the account file and the watcher states in memory, no provider. `manage:status-changed` is a signal without a
 payload, at most one per 500 ms while the window is open and none when it is closed. `manage:pause` takes a boolean, runs one at a time
-and counts as a step, so a restart waits for it.
+in the window and counts as a step, so a restart waits for it. The tray has no such guard and needs none: `applyPause` changes every
+watcher in one synchronous step, so the later click decides, and only logouts are waited for, together (at most 5 s, `LOGOUT_TIMEOUT_MS`).
+A halted account stays halted through Pause and Resume (ADR 0003); only a sign-in or a restart sends the password again.
+
+The list says what the last sync reported, not what was asked: `applied` is "unknown" while a lane that carries the entry is behind, and
+`atServer` is true only when a running MXroute lane holds the address. `manage:status` names the mailboxes that are behind.
 
 ## Security
 
@@ -46,7 +51,15 @@ only, never an account, password or provider state.
 ## Scale budget
 
 - Per user (device): a person opens the window a few times a day; one list read = one `SELECT` on at
-  most `MAX_ENTRIES` (5000) rows, sent once per open and after each unblock. Not polled.
+  most `MAX_ENTRIES` (5000) rows, sent once per open and after each unblock. Not polled. The status is
+  pushed: at most 2 signals a second while the window is open, 177 B at 1 account, 1,140 B at 10 and
+  5,420 B at 50 (measured 2026-10-30), 0 provider requests. A list with a `reject` entry also needs each
+  running MXroute lane's addresses: one read costs 9-26 ms at 5,000 entries (0.5 s at 50 lanes, measured
+  2026-10-30), so they are kept per lane until the lane's next round, at most `MAX_ACCOUNTS` sets.
+- Pause and Resume: a click, never a timer. Resume costs one IMAP login per running account (1 / 10 / 50)
+  through the gate of 5, about 20 s at 50 and 150 logins a minute at most, and 0 for a halted account.
+  Pause costs one logout per account, together, 5 s at most. One `pause` line a click, about 150
+  `watcher` lines a cycle at 50 accounts.
 - Unblock: 1 store write + N syncs + N verifies, N = accounts (at most `MAX_ACCOUNTS` = 50). At 10x
   (500 entries, 10 accounts) and 100x (5000 entries, 50 accounts) this is the same shape: the sync
   writes one whole rules script per account, which the Sieve measurement already bounds; no work
@@ -55,7 +68,8 @@ only, never an account, password or provider state.
   One account that hangs is cut by the engine's 60 s apply limit and does not delay the others.
 - One unblock runs at a time (the button is disabled while it runs; main refuses a second while one is
   in flight), so a double click cannot start two sync rounds.
-- No new timers, no background work, no network call to a paid service.
+- One one-shot 500 ms timer for the status signal, cleared when the window closes. No other background
+  work, no network call to a paid service.
 
 ## Icon
 

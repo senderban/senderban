@@ -14,6 +14,7 @@ const els = {
   listSection: $("list-section"),
   filter: $("filter"),
   tabs: $("tabs"),
+  behind: $("behind"),
   list: $("list"),
   empty: $("empty"),
   listCap: $("list-cap"),
@@ -43,8 +44,10 @@ const MATCH_LABEL = {
 const ACTION_PILL = {
   junk: ["", "Junk"],
   trash: ["", "Trash"],
-  reject: ["ok", "Server block, Junk backup"],
+  reject: ["warn", "Junk. Not refused at the server"],
 };
+const AT_SERVER_PILL = ["ok", "Server block, Junk backup"];
+const UNCONFIRMED_PILL = ["warn", "Not confirmed"];
 
 // What a signed-in Gmail account does with the entry (a single address becomes a Trash filter); absent: no Gmail account.
 const GMAIL_PILL = { trash: ["", "Gmail: Trash"], no: ["warn", "Gmail: not applied"] };
@@ -52,10 +55,14 @@ const OWN_PILL = ["warn", "Not applied: your own mail"];
 
 const TABS = [
   { id: "all", label: "All", holds: () => true },
-  { id: "server", label: "At server", holds: (e) => e.action === "reject" && e.own !== true },
-  { id: "junk", label: "Junk", holds: (e) => e.action === "junk" && e.own !== true },
+  { id: "server", label: "At server", holds: (e) => e.atServer },
+  {
+    id: "junk",
+    label: "Junk",
+    holds: (e) => e.action !== "trash" && !e.atServer && e.own !== true,
+  },
   { id: "trash", label: "Trash", holds: (e) => e.action === "trash" },
-  { id: "not", label: "Not applied", holds: (e) => e.own === true || e.gmail === "no" },
+  { id: "not", label: "Needs a look", holds: (e) => e.applied !== "yes" || e.gmail === "no" },
 ];
 
 // A watcher's state as the row says it: in words, never by colour alone.
@@ -126,7 +133,7 @@ function drawStates() {
   for (const span of document.querySelectorAll(".state")) fillBadge(span);
 }
 
-/** The local part is dimmed and the domain is not: the domain is the part a forged address cannot copy. */
+/** The local part is dimmed and the domain is not: the domain is what a look-alike address has to change. */
 function senderValue(value) {
   const node = document.createElement("div");
   node.className = "value";
@@ -162,10 +169,11 @@ function row(entry) {
   if (entry.own === true) {
     meta.append(pill(...OWN_PILL));
   } else {
-    const action = ACTION_PILL[entry.action];
+    const action = entry.atServer ? AT_SERVER_PILL : ACTION_PILL[entry.action];
     if (action !== undefined) meta.append(pill(...action));
     const gmail = GMAIL_PILL[entry.gmail];
     if (gmail !== undefined) meta.append(pill(...gmail));
+    if (entry.applied === "unknown") meta.append(pill(...UNCONFIRMED_PILL));
   }
   what.append(senderValue(entry.value), meta);
 
@@ -286,6 +294,10 @@ function drawWatch() {
   els.pause.textContent = watch.paused ? "Resume" : "Pause";
   els.restartBar.hidden = watch.restartPending !== true;
   els.restartText.textContent = "Restart Senderban to apply your changes.";
+  els.behind.hidden = watch.behind.length === 0;
+  const behind = `Blocks may be missing from ${watch.behind.join(", ")}: the last update failed.`;
+  // A live region: written only when the text changes, so a reconnect elsewhere does not read it out again.
+  if (els.behind.textContent !== behind) els.behind.textContent = behind;
   drawStates();
   // Not the whole list: this runs on every status signal, and a rebuild would take focus off the row being used.
   drawFirstRun();
@@ -332,7 +344,11 @@ async function refresh() {
     do {
       refreshAgain = false;
       const init = await api.init();
-      if (init === null) return;
+      if (init === null) {
+        // Not the empty text: "Nothing is blocked yet" would be a claim about a list that was not read.
+        setNotice("error", "Could not read the block list. See the log.");
+        return;
+      }
       entries = init.entries;
       render();
     } while (refreshAgain);
@@ -376,7 +392,10 @@ els.pause.addEventListener("click", () => {
     .pause(!watch.paused)
     .then(
       (reply) => {
-        if (reply !== "done") setNotice("error", "Could not change watching. See the log.");
+        // "busy" is the step already under way: refreshStatus below shows where it ended.
+        if (reply !== "done" && reply !== "busy") {
+          setNotice("error", "Could not change watching. See the log.");
+        }
       },
       () => {
         setNotice("error", "Could not change watching. See the log.");

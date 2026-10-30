@@ -201,8 +201,14 @@ export class AccountWatcher {
     this.clearTimers();
     const session = this.session;
     this.session = null;
-    this.setState("stopped");
+    // A halt outlives a stop: only `start()`, asked for by the person, may send the refused password again (ADR 0003).
+    if (this.state !== "halted") this.setState("stopped");
     if (session !== null) await closeQuietly(session);
+  }
+
+  /** The end of a pause: picks up what the pause stopped, and leaves a halted account alone. */
+  resume(): void {
+    if (this.state === "stopped") this.start();
   }
 
   /** After system resume (a sleeping socket is dead but not yet reported) or when settings change. */

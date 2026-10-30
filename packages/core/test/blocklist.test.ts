@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_ENTRIES, BlocklistSchema, checkEntry } from "../src/blocklist.js";
-import { isFreemail } from "../src/freemail.js";
+import { isFreemail, isNotOffered, isPublicSuffix } from "../src/freemail.js";
 
 const base = {
   id: "0b5f5f58-8f2c-4b9e-9a45-2f0a5c6d9d11",
@@ -52,6 +52,38 @@ describe("freemail guard", () => {
   it("does not flag lookalike domains", () => {
     expect(isFreemail("gmail.com.evil.test")).toBe(false);
     expect(isFreemail("notgmail.com")).toBe(false);
+  });
+});
+
+describe("domains that are not offered", () => {
+  it.each(["yahoo.fr", "qq.com", "gmail.com", "mail.gmail.com", "co.uk", "sch.ng", "github.io"])(
+    "%s is shared: never offered",
+    (domain) => {
+      expect(isNotOffered(domain)).toBe(true);
+    },
+  );
+
+  it.each(["example.com", "news.example.com", "shop.co.uk", "gmail.com.evil.test"])(
+    "%s is one owner's",
+    (domain) => {
+      expect(isNotOffered(domain)).toBe(false);
+    },
+  );
+
+  it("covers the subdomains of a mail provider found after 0.1.3", () => {
+    const provider = "yahoo.fr";
+    expect(isNotOffered(`mail.${provider}`)).toBe(true);
+  });
+
+  it("takes a wildcard rule and its exception from the list", () => {
+    expect(isPublicSuffix("foo.ck")).toBe(true);
+    expect(isPublicSuffix("www.ck")).toBe(false);
+  });
+
+  it("keeps an entry stored by 0.1.3: a refused entry would stop its whole lane", () => {
+    for (const value of ["yahoo.fr", "sch.ng", "github.io"]) {
+      expect(checkEntry({ ...base, match: "subdomains", value }).ok).toBe(true);
+    }
   });
 });
 

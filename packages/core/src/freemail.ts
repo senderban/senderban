@@ -1,7 +1,8 @@
+import { getPublicSuffix } from "tldts";
+
 // Blocking a whole freemail domain would block millions of unrelated senders, so domain-level
-// blocks are refused for these. SEED LIST: incomplete by design. The Public Suffix List check
-// from the architecture notes (K7) is not implemented yet, so shared hosting suffixes are not
-// covered; tracked as a Phase 4 item.
+// blocks are refused for these. SEED LIST: incomplete by design; `isNotOffered` adds the Public
+// Suffix List (K7) where a domain is offered.
 const FREEMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "gmail.com",
   "googlemail.com",
@@ -39,15 +40,37 @@ const FREEMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "yahoo.com.tr",
 ]);
 
-/** True for a freemail domain or any subdomain of one (`mail.gmail.com`). Input must be lowercase ASCII. */
-export function isFreemail(domain: string): boolean {
+/**
+ * Mail providers found after 0.1.3. They stop the offer and nothing else: `checkEntry` runs over stored entries, and a refused entry
+ * stops the whole lane (`REJECTED`), so one `yahoo.fr` blocked in 0.1.3 would otherwise end every rule of that account after an update.
+ */
+const FREEMAIL_NOT_OFFERED: ReadonlySet<string> = new Set([
+  "yahoo.fr",
+  "yahoo.de",
+  "hotmail.fr",
+  "outlook.de",
+  "qq.com",
+  "163.com",
+  "naver.com",
+  "pm.me",
+  "hey.com",
+  "orange.fr",
+  "t-online.de",
+]);
+
+function isListed(list: ReadonlySet<string>, domain: string): boolean {
   let candidate = domain;
   for (;;) {
-    if (FREEMAIL_DOMAINS.has(candidate)) return true;
+    if (list.has(candidate)) return true;
     const dot = candidate.indexOf(".");
     if (dot === -1) return false;
     candidate = candidate.slice(dot + 1);
   }
+}
+
+/** True for a freemail domain or any subdomain of one (`mail.gmail.com`). Input must be lowercase ASCII. */
+export function isFreemail(domain: string): boolean {
+  return isListed(FREEMAIL_DOMAINS, domain);
 }
 
 const SECOND_LEVEL_SUFFIX_LABELS: ReadonlySet<string> = new Set([
@@ -65,8 +88,8 @@ const SECOND_LEVEL_SUFFIX_LABELS: ReadonlySet<string> = new Set([
 
 /**
  * True for a country-code public suffix such as `co.uk` or `com.tr`: blocking it would junk every
- * sender of a country. INTERIM shape check until the Public Suffix List is vendored (K7), so
- * private suffixes like `github.io` are still not covered. Input must be lowercase ASCII.
+ * sender of a country. A shape check, kept because `checkEntry` depends on it; `isNotOffered`
+ * covers the rest. Input must be lowercase ASCII.
  */
 export function isCountrySuffix(domain: string): boolean {
   const labels = domain.split(".");
@@ -77,5 +100,26 @@ export function isCountrySuffix(domain: string): boolean {
     top !== undefined &&
     top.length === 2 &&
     SECOND_LEVEL_SUFFIX_LABELS.has(second)
+  );
+}
+
+const SUFFIX_OPTIONS = {
+  allowPrivateDomains: true,
+  extractHostname: false,
+  validateHostname: false,
+} as const;
+
+/** True for a domain that is itself on the Public Suffix List, ICANN or private section (`co.uk`, `github.io`). */
+export function isPublicSuffix(domain: string): boolean {
+  return getPublicSuffix(domain, SUFFIX_OPTIONS) === domain;
+}
+
+/** True for a domain that other people's mail lives under, so it is never offered as a whole-domain block (K7). Input must be lowercase ASCII. */
+export function isNotOffered(domain: string): boolean {
+  return (
+    isFreemail(domain) ||
+    isListed(FREEMAIL_NOT_OFFERED, domain) ||
+    isCountrySuffix(domain) ||
+    isPublicSuffix(domain)
   );
 }

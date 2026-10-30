@@ -297,6 +297,27 @@ describe("createGmailWatchers: lifecycle", () => {
     expect(t.trayStates.filter(([id]) => id === one).at(-1)?.[1]).not.toBe("stopped");
   });
 
+  it("resume leaves a lane that is held for a removal alone, and picks up the others", async () => {
+    const held = new Set<string>();
+    const t = setup(
+      ["g1", "g2"],
+      () => 0,
+      (id) => held.has(id),
+    );
+    const [one, two] = t.built.lanes.map((l) => l.laneId);
+    await started(t);
+    t.watchers.stop();
+    held.add(one ?? "");
+    t.watchers.resume();
+    await tick(0);
+    await tick(0);
+    const last = (id: string | undefined) =>
+      t.trayStates.filter(([laneId]) => laneId === id).at(-1)?.[1];
+    expect(last(one)).toBe("stopped");
+    expect(last(two)).not.toBe("stopped");
+    t.watchers.stop();
+  });
+
   it("writes a poll line only when something happened, not for a quiet minute", async () => {
     const t = setup();
     await started(t);

@@ -64,7 +64,7 @@ beforeEach(() => {
   handlers.clear();
   sent.length = 0;
   status = vi.fn(() =>
-    Promise.resolve({ version: "1.2.3", paused: false, accounts: [] as unknown[] }),
+    Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] as unknown[] }),
   );
   pause = vi.fn(() => Promise.resolve());
   list = vi.fn(() => []);
@@ -89,6 +89,7 @@ describe("manage:status", () => {
     expect(await call("manage:status", trusted)).toEqual({
       version: "1.2.3",
       paused: false,
+      behind: [],
       accounts: [],
       restartPending: false,
     });

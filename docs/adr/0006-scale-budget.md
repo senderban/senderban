@@ -81,7 +81,7 @@ server does at the limit beyond the status code. Next measurement: 70 requests w
 
 ## Not done here (tracked in `.task/performance-review-baseline-2026-10-25.md`)
 
-Auth-throttle replies treated as a wrong password (W2), `halted` accounts retried on every resume (W3), `list()` read per account
+Auth-throttle replies treated as a wrong password (W2), `list()` read per account
 per block (W4), duplicate remote read in apply + verify (W5), no cancellation of timed-out rounds (W6), unpruned failed-sync
 journal rows (W7), per-message cursor write (W9), popup/pending flood share per account (W10).
 

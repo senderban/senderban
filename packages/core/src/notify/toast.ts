@@ -73,14 +73,19 @@ const GMAIL_NO_DOMAIN_NOTE = "Gmail has no whole-domain option";
 const SENDER_MARK = "🚫";
 
 /**
- * Characters. A domain up to this long is named on its button, so the target is written where the click lands. A longer one keeps
- * the plain label: a button label is cut at its end, the part that tells `bank.example.attacker.test` from a bank (not measured on
- * Windows; the full address stands on the first line either way).
+ * Characters of a domain on its button. Measured on Windows 11 at 125% (2026-10-30): a toast button shows "All of" and one more line
+ * of about 21 characters, and cuts the rest with no ellipsis, so `All of bank.example.attacker.test` read `All of bank.example.attacker`.
+ * 16 leaves room for wide letters.
  */
-const DOMAIN_BUTTON_MAX = 28;
+export const DOMAIN_BUTTON_MAX = 16;
 
+/** A long domain keeps its end, with a mark of its own: the end is what tells `paypal.com.attacker.test` from PayPal. */
 function domainButtonLabel(domain: string): string {
-  return domain.length > DOMAIN_BUTTON_MAX ? "Whole domain" : `All of ${domain}`;
+  if (domain.length <= DOMAIN_BUTTON_MAX) return `All of ${domain}`;
+  const tail = domain.slice(-DOMAIN_BUTTON_MAX);
+  // From a label's start where two labels stay, so the button never reads a bare `…test`.
+  const whole = tail.slice(tail.indexOf(".") + 1);
+  return `All of …${whole.includes(".") ? whole : tail}`;
 }
 
 /** `🟢 Spam 1.6 · low`: toasts cannot colour text, a dot is the colour that survives; the word is the other cue. */

@@ -53,6 +53,8 @@ export interface ManageOutcome {
 export type ManageEntry = BlockEntry & {
   readonly gmail: "trash" | "no" | null;
   readonly own: boolean;
+  readonly applied: "yes" | "no" | "unknown";
+  readonly atServer: boolean;
 };
 
 /** What the window lends an add: the question only the main process can ask, and the end of the window as a signal. */
@@ -65,6 +67,8 @@ export interface AccountAddRequest {
 export interface WatchStatus {
   readonly version: string;
   readonly paused: boolean;
+  /** Mailboxes whose last sync failed: a block may be missing there until a sync works. */
+  readonly behind: readonly string[];
   readonly accounts: readonly { readonly accountId: string; readonly state: string | null }[];
 }
 

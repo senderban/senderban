@@ -452,6 +452,41 @@ describe("AccountWatcher reconnecting", () => {
     await watcher.stop();
   });
 
+  it("a pause keeps a halt: resume() sends no refused password, only start() does", async () => {
+    const good = new FakeSession([msg(1)]);
+    const { watcher, connects } = setup([
+      () => Promise.reject(new FatalWatchError("authentication failed")),
+      good,
+    ]);
+    watcher.start();
+    await flush();
+
+    await watcher.stop();
+    expect(watcher.current).toBe("halted");
+    watcher.resume();
+    await flush();
+    expect(connects()).toBe(1);
+    expect(watcher.current).toBe("halted");
+
+    watcher.start();
+    await flush();
+    expect(connects()).toBe(2);
+    await watcher.stop();
+    expect(watcher.current).toBe("stopped");
+  });
+
+  it("resume() picks up a paused watcher", async () => {
+    const { watcher, connects } = setup([new FakeSession([msg(1)]), new FakeSession([msg(1)])]);
+    watcher.start();
+    await flush();
+    await watcher.stop();
+    watcher.resume();
+    await flush();
+    expect(connects()).toBe(2);
+    expect(watcher.current).toBe("watching");
+    await watcher.stop();
+  });
+
   it("reconnectNow replaces a live connection immediately (system resume)", async () => {
     const first = new FakeSession([msg(1)]);
     const second = new FakeSession([msg(1)]);

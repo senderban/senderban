@@ -8,18 +8,27 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 - A new window: **Blocked senders** and **Accounts** in a side bar, one **Restart now** bar, and
   **Add mailbox** with MXroute and Gmail in one place. The list can be narrowed to what sits at the
-  server, in Junk or Trash, or is not applied, and each address dims its local part so that the
+  server, in Junk or Trash, or needs a look, and each address dims its local part so that the
   domain stands out.
 - **Accounts** groups mailboxes by mail domain, with **Block at server** on the domain and the state
   of each mailbox's watcher next to it. **Advanced** is gone: the key lives under **Accounts**.
 - The side bar shows what Senderban is watching, and watching can be paused there as well as from
   the tray.
-- The notification's domain button names the domain: **All of example.org**. A very long domain
-  keeps the label **Whole domain**.
+- The notification's domain button names the domain: **All of example.org**. A long domain keeps
+  its end, **All of …attacker.example**, because Windows cuts a button with no ellipsis.
+- The domain button is no longer offered for a public suffix or a shared host (Public Suffix List,
+  through `tldts`), or for more mail providers. A domain already on your list keeps working.
 
 ### Fixed
 
 - A Gmail sign-in keeps offering **Restart now** after the window is closed.
+- **Blocked senders** no longer says more than it knows: while a mailbox's last update failed, its
+  entries read **Not confirmed**, count under **Needs a look** and a line names the mailbox. **At
+  server** holds only what a running server blacklist holds.
+- Pause and Resume no longer leave a mailbox unwatched when the tray and the window are used
+  together, and Pause waits for every mailbox at once.
+- Pause and Resume no longer send a refused password again: a stopped account stays stopped until
+  you sign in again or restart.
 
 ## [0.1.3] - 2026-10-30
 

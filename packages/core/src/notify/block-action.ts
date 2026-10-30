@@ -3,7 +3,7 @@ import { mailboxKey, validateDomain } from "../address.js";
 import { folderAction } from "../blocklist.js";
 import { canRefuseAtServer } from "../mxroute/client.js";
 import type { BlockAction, BlockEntry } from "../blocklist.js";
-import { isCountrySuffix, isFreemail } from "../freemail.js";
+import { isNotOffered } from "../freemail.js";
 import type { Store } from "../store/store.js";
 import type { SyncEngine, SyncOutcome } from "../sync/engine.js";
 import type { PendingBlocks } from "./pending.js";
@@ -13,13 +13,13 @@ export const BLOCK_SCOPES = ["address", "domain"] as const;
 export type BlockScope = (typeof BLOCK_SCOPES)[number];
 
 /**
- * The domain a popup may offer to block for this sender, or null when it must not (a freemail
- * provider, a shape the block list would refuse, or a mail domain the person owns). Hiding the button is only a
- * courtesy: the list enforces the shape rule and `blockPending` the own-domain rule.
+ * The domain a popup may offer to block for this sender, or null when it must not (a domain other people's mail lives under, a
+ * shape the block list would refuse, or a mail domain the person owns). The click goes through this too (`blockPending`), so a
+ * toast left open across an update cannot add what is no longer offered.
  */
 export function blockableDomain(sender: string, own: OwnMail): string | null {
   const domain = sender.slice(sender.lastIndexOf("@") + 1);
-  if (validateDomain(domain) !== null || isFreemail(domain) || isCountrySuffix(domain)) return null;
+  if (validateDomain(domain) !== null || isNotOffered(domain)) return null;
   if (isOwnDomain(domain, own)) return null;
   return domain;
 }

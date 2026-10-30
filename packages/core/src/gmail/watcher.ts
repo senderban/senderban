@@ -224,7 +224,15 @@ export class GmailWatcher {
     this.#flight?.controller.abort();
     this.#soon = false;
     this.#attempts.clear();
-    this.#setState("stopped");
+    // A halt outlives a stop: only `start()`, after a new sign-in or a restart, may ask Google again.
+    if (this.#state !== "halted-auth" && this.#state !== "halted-rejected") {
+      this.#setState("stopped");
+    }
+  }
+
+  /** The end of a pause: picks up what the pause stopped, and leaves a halted account alone. */
+  resume(): void {
+    if (this.#state === "stopped") this.start();
   }
 
   /** After system resume (a sleeping poll may have died unreported): look soon, spread like a start so 50 accounts do not tick together. */

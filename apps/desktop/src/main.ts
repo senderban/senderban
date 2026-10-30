@@ -12,6 +12,7 @@ import {
   blockableDomain,
   canRejectSender,
   initialSieveState,
+  mxrouteStateValues,
   unblock,
   MxrouteAdapter,
   createMxrouteClient,
@@ -45,6 +46,7 @@ import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
 import { checkAccount } from "./account-check.js";
 import type { AccountCheckStage } from "./account-check.js";
+import { appliedFor, laneViewOf } from "./applied.js";
 import { AddAccountError, addAccountFromFile, addAccountFromForm } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import {
@@ -81,6 +83,7 @@ import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
 import type { OwnMailSet } from "./own-mail.js";
+import { applyPause } from "./pause.js";
 import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
@@ -153,6 +156,34 @@ function notice(title: string, body: string): void {
 
 /** Accounts whose last sync failed and whose person was told; cleared by the next sync that did not fail. */
 const unsynced = new Set<string>();
+
+/**
+ * Each running MXroute lane's addresses, kept until the lane's next round. Reading them on every list read would cost the main
+ * process 0.5 s at 50 lanes of 5,000 (measured 2026-10-30). At most MAX_ACCOUNTS sets, one per lane.
+ */
+const refusedByLane = new Map<string, ReadonlySet<string>>();
+
+/** Every address a running MXroute lane holds, or null when a lane's state cannot be read. */
+function refusedAddresses(): ReadonlySet<string> | null {
+  const held = new Set<string>();
+  try {
+    for (const laneId of mxrouteLanes) {
+      let values = refusedByLane.get(laneId) ?? null;
+      if (values === null) {
+        const state = runtime?.store.getState(laneId);
+        if (state === undefined) continue;
+        values = mxrouteStateValues(state);
+        if (values === null) return null;
+        refusedByLane.set(laneId, values);
+      }
+      for (const value of values) held.add(value);
+    }
+  } catch (error) {
+    log("list-state-failed", { detail: errorText(error) });
+    return null;
+  }
+  return held;
+}
 /**
  * Lanes whose last round left nothing to send (`unchanged`, or `applied` with no `deferred` backlog). A Gmail toast says "goes to Trash"
  * only for a lane in here: the signal is positive, so a start-up pass, a queued sync or a backlog read as "not confirmed yet".
@@ -185,6 +216,7 @@ const destination = (action: BlockAction): string =>
 function noticeIfUnsynced(outcome: SyncOutcome): void {
   const id = outcome.accountId;
   const ok = outcome.status === "applied" || outcome.status === "unchanged";
+  refusedByLane.delete(id);
   if (
     outcome.status === "unchanged" ||
     (outcome.status === "applied" && (outcome.deferred ?? 0) === 0)
@@ -194,13 +226,17 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
     gmailSettled.delete(id);
   }
   if (ok) {
-    unsynced.delete(id);
+    // An MXroute round is what makes a fresh "Block at server" true, and it ends after the list was last drawn.
+    if (unsynced.delete(id) || (mxrouteLanes.has(id) && outcome.status === "applied")) {
+      manage?.notifyChanged();
+    }
     return;
   }
   if (clicking.has(id) || heldGmailLanes.has(id) || heldSieveLanes.has(id) || unsynced.has(id)) {
     return;
   }
   unsynced.add(id);
+  manage?.notifyChanged();
   const label = runtime?.labels.get(id) ?? id;
   const why = outcome.status === "failed" ? outcome.code : "some changes failed";
   const next =
@@ -318,7 +354,7 @@ function updateTray(): void {
         label: paused ? "Resume watching" : "Pause watching",
         enabled: lines.length > 0,
         click: () => {
-          void setPaused(!paused);
+          void setPaused(!paused, "tray");
         },
       },
       {
@@ -332,17 +368,12 @@ function updateTray(): void {
   tray.setToolTip(paused ? "Senderban (paused)" : "Senderban");
 }
 
-async function setPaused(value: boolean): Promise<void> {
+async function setPaused(value: boolean, by: "tray" | "window"): Promise<void> {
   paused = value;
+  const started = Date.now();
   const { watchers, gmailWatchers } = await ready.promise;
-  // Gmail first and in one synchronous step: no poll announces mail after Pause, and a Pause that is still awaiting an IMAP logout
-  // below cannot undo a later Resume (nothing of Gmail's runs after an await).
-  if (value) gmailWatchers.stop();
-  else gmailWatchers.start();
-  for (const watcher of watchers.values()) {
-    if (value) await watcher.stop();
-    else watcher.start();
-  }
+  const result = await applyPause(value, [...watchers.values()], gmailWatchers);
+  log("pause", { paused: value, by, ...result, ms: Date.now() - started });
   updateTray();
 }
 
@@ -455,7 +486,7 @@ async function start(): Promise<Runtime> {
       if (at >= 0) lanes.splice(at, 1);
       notice(
         "Senderban",
-        `${account.imap.user} could not start: its id clashes with another account. Remove it under MXroute accounts and add it again.`,
+        `${account.imap.user} could not start: its id clashes with another account. Remove it under Accounts and add it again.`,
       );
       continue;
     }
@@ -1000,11 +1031,25 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       list: () => {
         const own = runtime?.own.get();
         const isOwn = (a: string) => own !== undefined && isOwnMailbox(a, own);
-        return (runtime?.store.list() ?? []).map((entry) => ({
-          ...entry,
-          gmail: gmailLanes.size > 0 ? gmailCover(entry, isOwn) : null,
-          own: own !== undefined && isOwnEntry(entry, own),
-        }));
+        const entries = runtime?.store.list() ?? [];
+        const view = laneViewOf({
+          entries,
+          running: runtime?.lanes ?? [],
+          failed: unsynced,
+          mxroute: mxrouteLanes,
+          gmail: gmailLanes,
+          refused: refusedAddresses,
+        });
+        return entries.map((entry) => {
+          const gmail = gmailLanes.size > 0 ? gmailCover(entry, isOwn) : null;
+          const isOwnSender = own !== undefined && isOwnEntry(entry, own);
+          return {
+            ...entry,
+            gmail,
+            own: isOwnSender,
+            ...appliedFor(entry, isOwnSender, gmail, view),
+          };
+        });
       },
       onError: logIpcError,
       mxrouteList: async () => {
@@ -1117,15 +1162,15 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       status: async () => ({
         version: app.getVersion(),
         paused,
+        behind: [...unsynced]
+          .filter((id) => runtime?.lanes.includes(id))
+          .map((id) => runtime?.labels.get(id) ?? id),
         accounts: (await loadAccounts(accountsPath)).map((a) => ({
           accountId: a.id,
           state: states.get(isGmailAccount(a) ? gmailLaneId(a.id) : a.id) ?? null,
         })),
       }),
-      pause: async (value) => {
-        await setPaused(value);
-        log("manage-pause", { paused: value });
-      },
+      pause: (value) => setPaused(value, "window"),
       restart: () => {
         restartApp({
           isQuitting: () => quitting,

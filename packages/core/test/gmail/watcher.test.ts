@@ -616,6 +616,35 @@ describe("GmailWatcher: timing, one flight, stop and resume", () => {
     expect(t.fake.calls).toHaveLength(0);
   });
 
+  it("a pause keeps a halt: resume() asks nothing, only start() does", async () => {
+    const t = setup();
+    await started(t);
+    t.fake.forcedFor.set("GET", [401]);
+    await tick(GMAIL_POLL.baseMs);
+    t.watcher.stop();
+    expect(t.watcher.current).toBe("halted-auth");
+    const calls = t.fake.calls.length;
+    t.watcher.resume();
+    await tick(HOUR);
+    expect(t.watcher.current).toBe("halted-auth");
+    expect(t.fake.calls).toHaveLength(calls);
+    t.watcher.start();
+    await tick(GMAIL_START_SPREAD_MS);
+    expect(t.watcher.current).toBe("watching");
+    t.watcher.stop();
+  });
+
+  it("resume() picks up a paused watcher", async () => {
+    const t = setup();
+    await started(t);
+    t.watcher.stop();
+    expect(t.watcher.current).toBe("stopped");
+    t.watcher.resume();
+    await tick(GMAIL_START_SPREAD_MS);
+    expect(t.watcher.current).toBe("watching");
+    t.watcher.stop();
+  });
+
   it("start() twice is one watcher", async () => {
     const t = setup();
     t.watcher.start();

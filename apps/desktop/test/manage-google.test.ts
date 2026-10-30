@@ -92,7 +92,7 @@ beforeEach(() => {
     googleCancel,
     googleRemove,
     restart,
-    status: () => Promise.resolve({ version: "1.2.3", paused: false, accounts: [] }),
+    status: () => Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
     onError,
   } as never).show();
 });

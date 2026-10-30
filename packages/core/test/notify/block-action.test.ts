@@ -63,6 +63,13 @@ describe("blockableDomain", () => {
     expect(blockableDomain("someone@mail.gmail.com", NOBODY)).toBeNull();
   });
 
+  it.each(["x@co.uk", "x@github.io", "x@yahoo.fr"])(
+    "offers nothing for %s, a domain many owners share",
+    (sender) => {
+      expect(blockableDomain(sender, NOBODY)).toBeNull();
+    },
+  );
+
   it("offers nothing for a mail domain the person owns, its subdomains or its parents, and a lookalike as usual", () => {
     const own = { domains: new Set(["mail.example.com"]), addresses: new Set<string>() };
     expect(blockableDomain("colleague@mail.example.com", own)).toBeNull();

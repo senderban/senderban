@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACTIVATION_ARGUMENTS_MAX,
+  DOMAIN_BUTTON_MAX,
   TOAST_TEXT_MAX,
   SPAM_HIGH,
   SPAM_MEDIUM,
@@ -116,14 +117,21 @@ describe("buildMailToastXml", () => {
     expect(xml).not.toMatch(/<action content="Block/u);
   });
 
-  it("names a domain of 28 characters on its button and keeps the plain label for a longer one", () => {
-    const fits = `${"a".repeat(20)}.example`;
-    expect(fits).toHaveLength(28);
+  it("names a short domain in full", () => {
+    const fits = `${"a".repeat(DOMAIN_BUTTON_MAX - 8)}.example`;
+    expect(fits).toHaveLength(DOMAIN_BUTTON_MAX);
     expect(buildMailToastXml(toast({ domain: fits }))).toContain(`content="All of ${fits}"`);
-    const long = `a${fits}`;
-    const xml = buildMailToastXml(toast({ domain: long }));
-    expect(xml).toContain('content="Whole domain"');
-    expect(xml).not.toContain(`All of ${long}`);
+  });
+
+  it.each([
+    ["bank.example.attacker.test", "…attacker.test"],
+    ["paypal.com.attacker.test", "…attacker.test"],
+    [`${"a".repeat(30)}.test`, `…${"a".repeat(11)}.test`],
+    [`mail.${"b".repeat(30)}`, `…${"b".repeat(16)}`],
+  ])("keeps the end of the long domain %s, which Windows would cut", (domain, shown) => {
+    const xml = buildMailToastXml(toast({ domain }));
+    expect(xml).toContain(`content="All of ${shown}"`);
+    expect(shown.length).toBeLessThanOrEqual(DOMAIN_BUTTON_MAX + 1);
   });
 
   it("cannot be broken out of by a domain on the button", () => {

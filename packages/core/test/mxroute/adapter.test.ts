@@ -6,6 +6,7 @@ import {
   MXROUTE_MAX_CHANGES_PER_ROUND,
   MxrouteAdapter,
   initialMxrouteState,
+  mxrouteStateValues,
   mxrouteLaneId,
 } from "../../src/mxroute/adapter.js";
 import { ACCOUNT_ID } from "../../src/sync/engine.js";
@@ -30,6 +31,21 @@ const entry = (
   value,
   action,
   createdAt: new Date(Date.UTC(2026, 9, 25, 12, 0, n++)).toISOString(),
+});
+
+describe("mxrouteStateValues", () => {
+  it("gives the addresses of a readable state, and null for one that cannot be read", () => {
+    const state = initialMxrouteState("example.com");
+    expect(mxrouteStateValues(state)).toEqual(new Set());
+    const held = entry("exactAddress", "spam@attacker.example");
+    expect(
+      mxrouteStateValues({
+        ...state,
+        data: { domain: "example.com", applied: [held], rejected: [] },
+      }),
+    ).toEqual(new Set(["spam@attacker.example"]));
+    expect(mxrouteStateValues({ ...state, data: { applied: "nothing" } })).toBeNull();
+  });
 });
 
 function setup() {

@@ -7,8 +7,11 @@ on.
 
 A new mail is announced with a native Windows toast (`Notification` with `toastXml`, `apps/desktop/src/toasts.ts`), not a window
 of ours. Windows stacks it with other apps' toasts, honours Focus Assist and keeps it in the Action Center. The toast carries a
-selection (what happens to future mail) and the buttons "This sender" and "All of <domain>" ("Whole domain" past 28 characters,
-because a button label is cut at its end, the part that tells domains apart). The buttons say who, the selection says what: they do not
+selection (what happens to future mail) and the buttons "This sender" and "All of <domain>". Windows 11 at 125% shows "All of" and one
+more line of about 21 characters and cuts the rest with no ellipsis (measured 2026-10-30: `All of bank.example.attacker.test` read
+`All of bank.example.attacker`), so past 16 characters the button keeps the end of the domain behind its own mark: `All of …attacker.test`.
+Only an all-`w` domain of 16 still loses a few letters. The domain is offered only when it is nobody's shared space: not a mail provider,
+not on the Public Suffix List (ICANN or private section, `tldts`). The buttons say who, the selection says what: they do not
 say "Block", which would be untrue for Junk and Trash. The click comes back as a string.
 
 - **Untrusted both ways.** The XML is built from mail-controlled text (sender, subject): every text node is escaped and bounded

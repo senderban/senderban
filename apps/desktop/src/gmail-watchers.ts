@@ -86,6 +86,8 @@ export interface GmailWatchers {
   start(): void;
   /** Stops every watcher (pause, quit). */
   stop(): void;
+  /** The end of a pause: a halted watcher stays halted. */
+  resume(): void;
   /** After system resume. */
   resumeNow(): void;
   /** One lane, held still for a removal or sign-out (`stop`), or free again (`start`). Unknown lane: nothing. */
@@ -258,6 +260,11 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
     },
     stop() {
       for (const watcher of watchers.values()) watcher.stop();
+    },
+    resume() {
+      for (const [laneId, watcher] of watchers) {
+        if (deps.isHeld?.(laneId) !== true) watcher.resume();
+      }
     },
     resumeNow() {
       for (const watcher of watchers.values()) watcher.resumeNow();
