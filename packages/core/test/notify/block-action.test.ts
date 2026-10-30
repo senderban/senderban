@@ -56,6 +56,26 @@ function setup(
 
 const NOBODY = { domains: new Set<string>(), addresses: new Set<string>() };
 
+describe("onListed", () => {
+  it("comes before the round, so a round that ends early is not wiped afterwards", async () => {
+    const t = setup();
+    const onListed = vi.fn();
+    await blockPending({ ...t.deps, onListed }, ID, "address", "junk");
+    expect(onListed).toHaveBeenCalledTimes(1);
+    expect(onListed.mock.invocationCallOrder[0]).toBeLessThan(
+      t.sync.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("stays silent when nothing was added", async () => {
+    const t = setup({ sender: "own@example.com", ownAddresses: ["own@example.com"] });
+    const onListed = vi.fn();
+    await blockPending({ ...t.deps, onListed }, ID, "address", "reject");
+    expect(t.sync).not.toHaveBeenCalled();
+    expect(onListed).not.toHaveBeenCalled();
+  });
+});
+
 describe("blockableDomain", () => {
   it("offers the sender's own domain, and nothing for a freemail provider", () => {
     expect(blockableDomain("spam@news.example.com", NOBODY)).toBe("news.example.com");

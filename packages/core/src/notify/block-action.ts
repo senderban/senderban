@@ -95,6 +95,8 @@ export interface BlockActionDeps {
   readonly newId?: () => string;
   /** Called as soon as the click is matched to its account, before any sync runs. */
   readonly onClaimed?: (accountId: string) => void;
+  /** The list holds the entry and the rounds are about to start: no lane is settled until its round reports. */
+  readonly onListed?: () => void;
   /**
    * True for an account whose rules can only be single addresses moved to Trash (Gmail filters). A click that came from such an
    * account is held to that whatever the OS reported (a click does not have to match the toast): the action becomes Trash, a
@@ -226,6 +228,7 @@ export async function blockPending(
     return { status: "already-blocked", target, action: added.entry.action };
   }
 
+  deps.onListed?.();
   const outcome = await deps.engine.sync(accountId);
   let otherAccounts = 0;
   for (const other of deps.accountIds) {

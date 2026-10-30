@@ -44,7 +44,7 @@ const MATCH_LABEL = {
 const ACTION_PILL = {
   junk: ["", "Junk"],
   trash: ["", "Trash"],
-  reject: ["warn", "Junk. Not refused at the server"],
+  reject: ["warn", "Junk. Server block not confirmed"],
 };
 const AT_SERVER_PILL = ["ok", "Server block, Junk backup"];
 const UNCONFIRMED_PILL = ["warn", "Not confirmed"];
@@ -295,7 +295,7 @@ function drawWatch() {
   els.restartBar.hidden = watch.restartPending !== true;
   els.restartText.textContent = "Restart Senderban to apply your changes.";
   els.behind.hidden = watch.behind.length === 0;
-  const behind = `Blocks may be missing from ${watch.behind.join(", ")}: the last update failed.`;
+  const behind = `Blocks may be missing from ${watch.behind.join(", ")}. See Accounts.`;
   // A live region: written only when the text changes, so a reconnect elsewhere does not read it out again.
   if (els.behind.textContent !== behind) els.behind.textContent = behind;
   drawStates();

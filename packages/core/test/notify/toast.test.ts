@@ -128,6 +128,7 @@ describe("buildMailToastXml", () => {
     ["paypal.com.attacker.test", "…attacker.test"],
     [`${"a".repeat(30)}.test`, `…${"a".repeat(11)}.test`],
     [`mail.${"b".repeat(30)}`, `…${"b".repeat(16)}`],
+    [`${"b".repeat(20)}.github.io`, `…${"b".repeat(6)}.github.io`],
   ])("keeps the end of the long domain %s, which Windows would cut", (domain, shown) => {
     const xml = buildMailToastXml(toast({ domain }));
     expect(xml).toContain(`content="All of ${shown}"`);

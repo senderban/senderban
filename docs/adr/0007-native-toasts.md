@@ -11,7 +11,8 @@ selection (what happens to future mail) and the buttons "This sender" and "All o
 more line of about 21 characters and cuts the rest with no ellipsis (measured 2026-10-30: `All of bank.example.attacker.test` read
 `All of bank.example.attacker`), so past 16 characters the button keeps the end of the domain behind its own mark: `All of …attacker.test`.
 Only an all-`w` domain of 16 still loses a few letters. The domain is offered only when it is nobody's shared space: not a mail provider,
-not on the Public Suffix List (ICANN or private section, `tldts`). The buttons say who, the selection says what: they do not
+not on the Public Suffix List (ICANN or private section, `tldts`: 19 ms at start-up, about 1.5 µs a check, one check per announced
+IMAP mail or domain click, measured 2026-10-31). The buttons say who, the selection says what: they do not
 say "Block", which would be untrue for Junk and Trash. The click comes back as a string.
 
 - **Untrusted both ways.** The XML is built from mail-controlled text (sender, subject): every text node is escaped and bounded

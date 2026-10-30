@@ -55,7 +55,9 @@ only, never an account, password or provider state.
   pushed: at most 2 signals a second while the window is open, 177 B at 1 account, 1,140 B at 10 and
   5,420 B at 50 (measured 2026-10-30), 0 provider requests. A list with a `reject` entry also needs each
   running MXroute lane's addresses: one read costs 9-26 ms at 5,000 entries (0.5 s at 50 lanes, measured
-  2026-10-30), so they are kept per lane until the lane's next round, at most `MAX_ACCOUNTS` sets.
+  2026-10-30), so they are kept per lane until the lane's next round: one set per running lane, 22 MB at
+  most at that size, 15 ms or less for a warm read. Background rounds redraw the open list at most once
+  per 5 s (41 ms and 1.1 MB at that size, measured 2026-10-31); nothing runs with the window closed.
 - Pause and Resume: a click, never a timer. Resume costs one IMAP login per running account (1 / 10 / 50)
   through the gate of 5, about 20 s at 50 and 150 logins a minute at most, and 0 for a halted account.
   Pause costs one logout per account, together, 5 s at most. One `pause` line a click, about 150

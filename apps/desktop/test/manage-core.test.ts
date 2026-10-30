@@ -109,6 +109,25 @@ describe("manage:status", () => {
   });
 });
 
+describe("the list signal", () => {
+  it("sends one signal for a run of background rounds, and another after the gap", () => {
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 100; i += 1) page.notifyListSoon();
+      expect(sent).toEqual([]);
+      vi.advanceTimersByTime(4_999);
+      expect(sent).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(sent).toEqual(["manage:changed"]);
+      page.notifyListSoon();
+      vi.advanceTimersByTime(5_000);
+      expect(sent).toEqual(["manage:changed", "manage:changed"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("the status signal", () => {
   it("sends one signal for a burst of state changes, and another after the gap", () => {
     vi.useFakeTimers();

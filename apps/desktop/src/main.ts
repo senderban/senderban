@@ -47,6 +47,7 @@ import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
 import { checkAccount } from "./account-check.js";
 import type { AccountCheckStage } from "./account-check.js";
 import { appliedFor, laneViewOf } from "./applied.js";
+import type { HeldAddresses } from "./applied.js";
 import { AddAccountError, addAccountFromFile, addAccountFromForm } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import {
@@ -148,6 +149,7 @@ let toasts: Toasts | null = null;
 let manage: ManageWindow | null = null;
 /** Set once start() has finished; the manage window reads the list from it. */
 let runtime: Runtime | null = null;
+let startFailed = false;
 
 /** A toast without buttons: a state change the person should know about. */
 function notice(title: string, body: string): void {
@@ -156,16 +158,24 @@ function notice(title: string, body: string): void {
 
 /** Accounts whose last sync failed and whose person was told; cleared by the next sync that did not fail. */
 const unsynced = new Set<string>();
+/**
+ * Lanes whose block was written but not read back. Apart from `unsynced`, whose job is one notice per failure: this one must not
+ * silence a later real failure. Cleared by the next round that wrote something.
+ */
+const unconfirmed = new Set<string>();
 
 /**
  * Each running MXroute lane's addresses, kept until the lane's next round. Reading them on every list read would cost the main
- * process 0.5 s at 50 lanes of 5,000 (measured 2026-10-30). At most MAX_ACCOUNTS sets, one per lane.
+ * process 0.5 s at 50 lanes of 5,000 (measured 2026-10-30). One set per running lane, 22 MB at most at that size.
  */
 const refusedByLane = new Map<string, ReadonlySet<string>>();
 
-/** Every address a running MXroute lane holds, or null when a lane's state cannot be read. */
-function refusedAddresses(): ReadonlySet<string> | null {
-  const held = new Set<string>();
+/** Asks whether a running MXroute lane holds an address, or null when a lane's state cannot be read. */
+function refusedAddresses(): HeldAddresses | null {
+  for (const laneId of refusedByLane.keys()) {
+    if (!mxrouteLanes.has(laneId)) refusedByLane.delete(laneId);
+  }
+  const held: ReadonlySet<string>[] = [];
   try {
     for (const laneId of mxrouteLanes) {
       let values = refusedByLane.get(laneId) ?? null;
@@ -176,13 +186,14 @@ function refusedAddresses(): ReadonlySet<string> | null {
         if (values === null) return null;
         refusedByLane.set(laneId, values);
       }
-      for (const value of values) held.add(value);
+      held.push(values);
     }
-  } catch (error) {
-    log("list-state-failed", { detail: errorText(error) });
+  } catch {
+    // No detail: a parse error quotes the row, and the row holds addresses.
+    log("list-state-failed", {});
     return null;
   }
-  return held;
+  return { has: (value) => held.some((set) => set.has(value)) };
 }
 /**
  * Lanes whose last round left nothing to send (`unchanged`, or `applied` with no `deferred` backlog). A Gmail toast says "goes to Trash"
@@ -217,19 +228,21 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
   const id = outcome.accountId;
   const ok = outcome.status === "applied" || outcome.status === "unchanged";
   refusedByLane.delete(id);
+  if (outcome.status === "applied" && unconfirmed.delete(id)) manage?.notifyListSoon();
   if (
     outcome.status === "unchanged" ||
     (outcome.status === "applied" && (outcome.deferred ?? 0) === 0)
   ) {
+    // Their entries stop reading "Not confirmed" now.
+    if (gmailLanes.has(id) && !gmailSettled.has(id)) manage?.notifyListSoon();
     gmailSettled.add(id);
   } else {
     gmailSettled.delete(id);
   }
   if (ok) {
     // An MXroute round is what makes a fresh "Block at server" true, and it ends after the list was last drawn.
-    if (unsynced.delete(id) || (mxrouteLanes.has(id) && outcome.status === "applied")) {
-      manage?.notifyChanged();
-    }
+    if (unsynced.delete(id)) manage?.notifyChanged();
+    else if (mxrouteLanes.has(id) && outcome.status === "applied") manage?.notifyListSoon();
     return;
   }
   if (clicking.has(id) || heldGmailLanes.has(id) || heldSieveLanes.has(id) || unsynced.has(id)) {
@@ -962,6 +975,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
                 clicked = accountId;
                 clicking.add(accountId);
               },
+              // Before the round, not after it: a Gmail round that ends during the read-back is news, and no second one comes.
+              onListed: () => {
+                gmailSettled.clear();
+              },
             },
             id,
             scope,
@@ -975,12 +992,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           unsynced.add(result.accountId);
           gmailSettled.delete(result.accountId);
         }
-        if (result.status === "blocked") {
-          // The other lanes got a queued sync (2 s debounce): none of them is settled until its round reports.
-          // The clicked lane keeps what its own round reported (a `deferred` backlog is not settled, whatever `verified` says).
-          const keep = gmailSettled.has(result.accountId);
-          gmailSettled.clear();
-          if (keep && result.verified) gmailSettled.add(result.accountId);
+        // Written but not read back: the toast says so once, and the list keeps saying it until a round confirms.
+        if (result.status === "blocked" && !result.verified) {
+          unconfirmed.add(result.accountId);
+          gmailSettled.delete(result.accountId);
         }
         log("choice", {
           scope,
@@ -1031,13 +1046,17 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       list: () => {
         const own = runtime?.own.get();
         const isOwn = (a: string) => own !== undefined && isOwnMailbox(a, own);
+        // Not an empty list: "Nothing is blocked yet" would be a claim about a store that never opened.
+        if (startFailed) throw new Error("start failed");
         const entries = runtime?.store.list() ?? [];
         const view = laneViewOf({
           entries,
           running: runtime?.lanes ?? [],
-          failed: unsynced,
+          failed: [...unsynced, ...unconfirmed],
           mxroute: mxrouteLanes,
           gmail: gmailLanes,
+          settled: gmailSettled,
+          skipped: gmailSkipped.length > 0,
           refused: refusedAddresses,
         });
         return entries.map((entry) => {
@@ -1162,9 +1181,12 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       status: async () => ({
         version: app.getVersion(),
         paused,
-        behind: [...unsynced]
-          .filter((id) => runtime?.lanes.includes(id))
-          .map((id) => runtime?.labels.get(id) ?? id),
+        behind: [
+          ...[...new Set([...unsynced, ...unconfirmed])]
+            .filter((id) => runtime?.lanes.includes(id))
+            .map((id) => runtime?.labels.get(id) ?? id),
+          ...gmailSkipped.map((s) => s.email),
+        ],
         accounts: (await loadAccounts(accountsPath)).map((a) => ({
           accountId: a.id,
           state: states.get(isGmailAccount(a) ? gmailLaneId(a.id) : a.id) ?? null,
@@ -1249,6 +1271,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     });
     ready.promise.catch((error: unknown) => {
       log("start-failed", { detail: errorText(error) });
+      startFailed = true;
+      manage?.notifyChanged();
       notice("Senderban could not start", "See the log for details.");
     });
   });

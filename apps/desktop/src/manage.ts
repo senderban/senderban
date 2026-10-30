@@ -39,6 +39,11 @@ const PAGE = "manage/manage.html";
 
 /** Milliseconds. A wake-up flips every watcher (50 accounts, two states each): the open page hears it about twice a second, not 100 times. */
 const STATUS_PUSH_GAP_MS = 500;
+/**
+ * Unit: milliseconds. A long MXroute backlog ends a round every few seconds, and a list read at 50 lanes of 5,000 costs 41 ms of the
+ * main process and 1.1 MB of IPC (measured 2026-10-31), so rounds redraw the open list at most this often.
+ */
+const LIST_PUSH_GAP_MS = 5_000;
 
 /** What the page shows after an unblock; the same line the person reads in the window. */
 export interface ManageOutcome {
@@ -145,6 +150,7 @@ export class ManageWindow {
   #pausing = false;
   /** Set while a status signal waits to go out. */
   #statusTimer: ReturnType<typeof setTimeout> | null = null;
+  #listTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(assetsDir: string, handlers: ManageHandlers) {
     this.#assets = assetsDir;
@@ -218,6 +224,8 @@ export class ManageWindow {
       if (this.#win === win) this.#win = null;
       if (this.#statusTimer !== null) clearTimeout(this.#statusTimer);
       this.#statusTimer = null;
+      if (this.#listTimer !== null) clearTimeout(this.#listTimer);
+      this.#listTimer = null;
       // A sign-in waits for the browser with its page open; without the page nobody sees the answer, so stop it.
       this.#handlers.googleCancel();
       // Closing the window during the check is giving up: the account must not be stored behind the person's back.
@@ -231,6 +239,15 @@ export class ManageWindow {
   notifyChanged(): void {
     if (this.#win !== null && !this.#win.isDestroyed())
       this.#win.webContents.send("manage:changed");
+  }
+
+  /** Background rounds changed what the list can say: the open page asks again, at most once per LIST_PUSH_GAP_MS. No window, no work. */
+  notifyListSoon(): void {
+    if (this.#win === null || this.#win.isDestroyed() || this.#listTimer !== null) return;
+    this.#listTimer = setTimeout(() => {
+      this.#listTimer = null;
+      this.notifyChanged();
+    }, LIST_PUSH_GAP_MS);
   }
 
   /** A watcher changed state: the open page asks for the status, at most once per STATUS_PUSH_GAP_MS. No window, no work. */

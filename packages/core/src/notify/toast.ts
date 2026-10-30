@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ACTIONS } from "../blocklist.js";
 import type { BlockAction } from "../blocklist.js";
+import { isPublicSuffix } from "../freemail.js";
 import { BLOCK_SCOPES } from "./block-action.js";
 import type { BlockScope } from "./block-action.js";
 import { isNotificationId } from "./pending.js";
@@ -83,9 +84,9 @@ export const DOMAIN_BUTTON_MAX = 16;
 function domainButtonLabel(domain: string): string {
   if (domain.length <= DOMAIN_BUTTON_MAX) return `All of ${domain}`;
   const tail = domain.slice(-DOMAIN_BUTTON_MAX);
-  // From a label's start where two labels stay, so the button never reads a bare `…test`.
+  // From a label's start where two labels stay, so the button never reads a bare `…test` or a suffix like `…co.uk`.
   const whole = tail.slice(tail.indexOf(".") + 1);
-  return `All of …${whole.includes(".") ? whole : tail}`;
+  return `All of …${whole.includes(".") && !isPublicSuffix(whole) ? whole : tail}`;
 }
 
 /** `🟢 Spam 1.6 · low`: toasts cannot colour text, a dot is the colour that survives; the word is the other cue. */

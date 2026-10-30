@@ -8,11 +8,12 @@ const view = (over: Partial<LaneView> = {}): LaneView => ({
   folderBehind: false,
   mxrouteBehind: false,
   gmailBehind: false,
+  missing: false,
   refused: new Set(),
   ...over,
 });
-const junk = { value: VALUE, action: "junk" } as const;
-const reject = { value: VALUE, action: "reject" } as const;
+const junk = { value: VALUE, action: "junk", match: "exactAddress" } as const;
+const reject = { value: VALUE, action: "reject", match: "exactAddress" } as const;
 
 describe("laneViewOf", () => {
   const input = {
@@ -21,6 +22,8 @@ describe("laneViewOf", () => {
     failed: [] as string[],
     mxroute: new Set(["a.mxroute"]),
     gmail: new Set(["g.gmail"]),
+    settled: new Set(["g.gmail"]),
+    skipped: false,
     refused: () => new Set([VALUE]),
   };
 
@@ -30,10 +33,16 @@ describe("laneViewOf", () => {
       folderBehind: false,
       mxrouteBehind: true,
     });
-    expect(laneViewOf({ ...input, failed: ["g.gmail"] })).toMatchObject({
-      folderBehind: false,
-      gmailBehind: true,
-    });
+  });
+
+  it("holds a Gmail lane behind until its round says nothing is left to send", () => {
+    expect(laneViewOf(input).gmailBehind).toBe(false);
+    expect(laneViewOf({ ...input, settled: new Set() }).gmailBehind).toBe(true);
+    expect(laneViewOf({ ...input, failed: ["g.gmail"] }).folderBehind).toBe(false);
+  });
+
+  it("carries a Gmail account that has no lane this session", () => {
+    expect(laneViewOf({ ...input, skipped: true }).missing).toBe(true);
   });
 
   it("forgets a lane that failed and was removed", () => {
@@ -82,6 +91,13 @@ describe("appliedFor", () => {
     });
     // A Junk entry never reaches MXroute, so that lane has nothing to say about it.
     expect(appliedFor(junk, false, null, view({ mxrouteBehind: true })).applied).toBe("yes");
+  });
+
+  it("never says yes for a single address while a Gmail account has no lane", () => {
+    const missing = view({ missing: true });
+    expect(appliedFor(junk, false, null, missing).applied).toBe("unknown");
+    const domain = { ...junk, value: "attacker.example", match: "subdomains" } as const;
+    expect(appliedFor(domain, false, null, missing).applied).toBe("yes");
   });
 
   it("says no when no lane carries the entry", () => {
