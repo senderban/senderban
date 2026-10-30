@@ -77,10 +77,16 @@ from the tray, **Gmail accounts**, paste the client, **Add Gmail account**, **Re
 
 ### MXroute
 
-There is no account form in v0.1. Quit Senderban from the tray and save this as `account.json` with
-your own values, directly in your user folder (`%USERPROFILE%`). Not on the Desktop or in Documents:
-they may sync to OneDrive. Not in a new folder under `C:\`: other users of the PC can read it. Then
-run the command below it.
+Open **Blocked senders** from the tray, **MXroute accounts**, enter the mail address, password and
+server (it is in your MXroute welcome mail), **Add account**, **Restart now**. Senderban signs in
+over IMAP and ManageSieve first and stores nothing unless both work. The password is stored
+encrypted on this device.
+
+The form uses IMAP over TLS on port 993 and ManageSieve on port 4190, with the mail address as user
+name. For any other setup, quit Senderban from the tray and save this as `account.json` with your
+own values, directly in your user folder (`%USERPROFILE%`). Not on the Desktop or in Documents: they
+may sync to OneDrive. Not in a new folder under `C:\`: other users of the PC can read it. Then run
+the command below it.
 
 When it works the password is stored encrypted and the file is gone. If the file is still there it
 failed: delete it with Shift+Delete, which skips the Recycle Bin. If the file ever reached a synced
@@ -99,7 +105,9 @@ folder, change the password.
 & "$env:LOCALAPPDATA\Programs\senderban\Senderban.exe" "--add-account=$env:USERPROFILE\account.json"
 ```
 
-Start Senderban again. To offer **Block at server**: under **Advanced** in the **Blocked senders**
+Then start Senderban again.
+
+To offer **Block at server**: under **Advanced** in the **Blocked senders**
 window enter your MXroute server, user name and API key, tick **Offer "Block at server" for single
 addresses**, and restart Senderban.
 
