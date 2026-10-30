@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-31
+
 ### Changed
 
 - A new window: **Blocked senders** and **Accounts** in a side bar, one **Restart now** bar, and
