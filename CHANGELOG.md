@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-30
+
 ### Added
 
 - Add an MXroute mailbox in the **Blocked senders** window with its address, password and server.
@@ -13,6 +15,10 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 - ManageSieve now checks the certificate of a server reached by IP address against that address.
 - Passwords with control characters or over 255 bytes are refused when an account is added.
+
+### Known limits
+
+- An MXroute account cannot be removed in the app yet.
 
 ## [0.1.0] - 2026-10-30
 
