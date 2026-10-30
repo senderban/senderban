@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCOUNT_ADD_LIMITS,
+  AccountAddSchema,
   AccountsFileSchema,
   GOOGLE_CLIENT_LIMITS,
   GoogleClientFileSchema,
@@ -8,6 +10,7 @@ import {
   MXROUTE_LIMITS,
   MxrouteInputSchema,
   NewAccountSchema,
+  accountFromForm,
   isImapAccount,
 } from "../src/accounts.js";
 import { MAX_ACCOUNTS } from "../src/sync/engine.js";
@@ -313,5 +316,59 @@ describe("Google client (ADR 0009, Data)", () => {
       { accountId: "a", email: "x@y.com" },
     ])
       expect(GoogleSignInRequestSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe("AccountAddSchema", () => {
+  const form = { address: "You@Example.com", host: "mail.example.com", password: "p" };
+
+  it("gives the address in canonical form", () => {
+    expect(AccountAddSchema.parse(form).address).toBe("you@example.com");
+  });
+
+  it("builds the account on the MXroute ports, with the address as login and id", () => {
+    expect(accountFromForm(AccountAddSchema.parse(form))).toEqual({
+      id: "you@example.com",
+      imap: { host: form.host, port: 993, secure: true, user: "you@example.com" },
+      sieve: { host: form.host, port: 4190, user: "you@example.com" },
+      password: "p",
+    });
+  });
+
+  it("holds each field to its limit", () => {
+    const { address, host, password } = ACCOUNT_ADD_LIMITS;
+    const local = "a".repeat(address.max - "@b.example".length);
+    const accepted = (change: object) => AccountAddSchema.safeParse({ ...form, ...change }).success;
+    expect(accepted({ address: `${local}@b.example` })).toBe(true);
+    expect(accepted({ address: `a${local}@b.example` })).toBe(false);
+    expect(accepted({ host: "a".repeat(host.max + 1) })).toBe(false);
+    expect(accepted({ password: "" })).toBe(false);
+    expect(accepted({ password: "p".repeat(password.max) })).toBe(true);
+    expect(accepted({ password: "p".repeat(password.max + 1) })).toBe(false);
+    expect(accepted({ password: "şifre" })).toBe(true);
+  });
+
+  it.each([
+    ["no domain", { ...form, address: "you" }],
+    ["a character an account id cannot hold", { ...form, address: "a+b@example.com" }],
+    ["two addresses", { ...form, address: "a@example.com b@example.com" }],
+    ["a line break", { ...form, address: "you@example.com\r\nA" }],
+    ["an unknown key", { ...form, port: 993 }],
+    ["a host with a scheme", { ...form, host: "https://mail.example.com" }],
+    ["an IP address as the host", { ...form, host: "192.0.2.1" }],
+    ["a name without a dot", { ...form, host: "mailserver" }],
+    ["a name on this network", { ...form, host: "mail.local" }],
+    ["localhost", { ...form, host: "localhost" }],
+    ["an address that ends like a lane id", { ...form, address: "you@example.mxroute" }],
+    ["a line break in the password", { ...form, password: "a\r\nb" }],
+    ["a NUL in the password", { ...form, password: "a\u0000b" }],
+    ["a password over 255 octets", { ...form, password: "ş".repeat(128) }],
+  ])("refuses %s", (_name, value) => {
+    expect(AccountAddSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("never quotes the input in an issue", () => {
+    const result = AccountAddSchema.safeParse({ ...form, address: "secret-ish", password: "" });
+    expect(JSON.stringify(result.error?.issues)).not.toContain("secret-ish");
   });
 });

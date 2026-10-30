@@ -215,6 +215,8 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
 
     const tlsSocket = tlsConnect({
       socket: plain.detach(),
+      // Without it an IP address is checked against the certificate as `localhost`.
+      host: options.host,
       minVersion: "TLSv1.2",
       ...(isIP(options.tls?.servername ?? options.host) === 0
         ? { servername: options.tls?.servername ?? options.host }

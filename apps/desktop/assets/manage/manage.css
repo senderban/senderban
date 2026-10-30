@@ -143,17 +143,20 @@ input:focus-visible {
   display: none !important;
 }
 
+#accounts,
 #advanced,
 #gmail {
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
+#accounts summary,
 #advanced summary,
 #gmail summary {
   cursor: pointer;
   font-weight: 600;
   color: var(--muted);
 }
+#accounts summary:focus-visible,
 #advanced summary:focus-visible,
 #gmail summary:focus-visible {
   outline: 2px solid var(--accent);
@@ -163,6 +166,7 @@ input:focus-visible {
 #gmail h2 {
   margin-top: 12px;
 }
+#account-list,
 #mxroute-accounts,
 #google-accounts {
   margin: 10px 0 0;
@@ -172,6 +176,7 @@ input:focus-visible {
   flex-direction: column;
   gap: 10px;
 }
+#account-list li,
 #mxroute-accounts li,
 #google-accounts li {
   padding: 10px 12px;
@@ -179,6 +184,7 @@ input:focus-visible {
   border-radius: var(--radius-md);
   background: var(--surface);
 }
+#account-form,
 #mxroute-accounts form,
 #google-client-form {
   display: flex;
@@ -215,6 +221,8 @@ input[type="checkbox"] {
   accent-color: var(--accent);
 }
 
+#accounts > p,
+#account-form,
 #gmail > p,
 #google-client-form,
 #google-accounts,

@@ -1,6 +1,15 @@
 import { readFile, stat, unlink } from "node:fs/promises";
-import { ImapAccountConfigSchema, NewAccountSchema } from "@senderban/core";
-import { encryptPassword, loadAccounts, saveAccounts } from "./accounts-file.js";
+import {
+  ImapAccountConfigSchema,
+  MAX_ACCOUNTS,
+  NewAccountSchema,
+  accountFromForm,
+  isImapAccount,
+  mailboxKey,
+} from "@senderban/core";
+import type { AccountAddInput, AccountConfig, NewAccount } from "@senderban/core";
+import type { AccountCheckResult } from "./account-check.js";
+import { encryptPassword, loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
 import { accountTag } from "./log.js";
 
 /** A file with one account in it is a few hundred bytes; anything past this is not one. */
@@ -38,4 +47,46 @@ export async function addAccountFromFile(inputPath: string, accountsPath: string
   await saveAccounts(accountsPath, [...existing, account]);
   await unlink(inputPath);
   return rest.id;
+}
+
+export type AccountAddResult = "saved" | "exists" | "limit" | Exclude<AccountCheckResult, "ok">;
+
+/** Why this account cannot join the list, compared by mailbox as AccountsFileSchema does; null when it can. */
+function refusal(accounts: readonly AccountConfig[], account: NewAccount): AccountAddResult | null {
+  const mailbox = mailboxKey(account.imap.user);
+  const taken = accounts.some(
+    (a) =>
+      a.id === account.id ||
+      (isImapAccount(a) ? [a.imap.user, a.sieve.user] : [a.gmail.email]).some(
+        (login) => mailboxKey(login.toLowerCase()) === mailbox,
+      ),
+  );
+  if (taken) return "exists";
+  return accounts.length >= MAX_ACCOUNTS ? "limit" : null;
+}
+
+/**
+ * The form's way in: nothing is stored until both logins worked. The network step stays outside `serialized`, so a slow server
+ * never holds up another writer of accounts.json; the list is read again inside, because it may have changed meanwhile.
+ */
+export async function addAccountFromForm(
+  path: string,
+  input: AccountAddInput,
+  check: (account: NewAccount) => Promise<AccountCheckResult>,
+): Promise<AccountAddResult> {
+  const account = accountFromForm(input);
+  const early = refusal(await loadAccounts(path), account);
+  if (early !== null) return early;
+  const checked = await check(account);
+  if (checked !== "ok") return checked;
+  const { password, ...rest } = account;
+  const passwordCipher = await encryptPassword(password);
+  return serialized(async () => {
+    const accounts = await loadAccounts(path);
+    const late = refusal(accounts, account);
+    if (late !== null) return late;
+    const stored = ImapAccountConfigSchema.parse({ ...rest, passwordCipher });
+    await saveAccounts(path, [...accounts, stored]);
+    return "saved";
+  });
 }

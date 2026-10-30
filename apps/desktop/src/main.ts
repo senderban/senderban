@@ -40,7 +40,8 @@ import type {
 import { connectManageSieve, imapflowConnector, signIn } from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
-import { AddAccountError, addAccountFromFile } from "./add-account.js";
+import { checkAccount } from "./account-check.js";
+import { AddAccountError, addAccountFromFile, addAccountFromForm } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import {
   cancelGoogleSignIn,
@@ -882,6 +883,19 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       mxrouteEnable: async (accountId, enabled) => {
         const result = await setMxrouteEnabled(accountsPath, accountId, enabled);
         log("mxroute-enabled", { account: accountTag(accountId), enabled, result });
+        return result;
+      },
+      accountAdd: async (input) => {
+        const started = Date.now();
+        const result = await addAccountFromForm(accountsPath, input, checkAccount);
+        // The never-refuse set must hold the new address now, not after the restart.
+        if (result === "saved") await googleDeps.onAccountsChanged?.();
+        // Account tag and outcome only: never the address, the server or the password.
+        log("account-added", {
+          account: accountTag(input.address),
+          result,
+          ms: Date.now() - started,
+        });
         return result;
       },
       googleState: () => googleState(googleDeps),

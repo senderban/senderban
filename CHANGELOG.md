@@ -2,6 +2,18 @@
 
 All notable changes are listed here, newest first. Versions follow Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- Add an MXroute mailbox in the **Blocked senders** window with its address, password and server.
+  Senderban signs in over IMAP and ManageSieve first and stores nothing unless both work.
+
+### Fixed
+
+- ManageSieve now checks the certificate of a server reached by IP address against that address.
+- Passwords with control characters or over 255 bytes are refused when an account is added.
+
 ## [0.1.0] - 2026-10-30
 
 First release. Windows only.

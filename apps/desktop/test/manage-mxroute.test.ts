@@ -58,6 +58,7 @@ let mxrouteSave: ReturnType<typeof vi.fn>;
 let mxrouteRemove: ReturnType<typeof vi.fn>;
 let mxrouteEnable: ReturnType<typeof vi.fn>;
 let mxrouteList: ReturnType<typeof vi.fn>;
+let accountAdd: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -77,6 +78,7 @@ beforeEach(() => {
       },
     ]),
   );
+  accountAdd = vi.fn(() => Promise.resolve("saved"));
   onError = vi.fn();
   new ManageWindow("assets", {
     list: () => [],
@@ -85,6 +87,8 @@ beforeEach(() => {
     mxrouteSave,
     mxrouteRemove,
     mxrouteEnable,
+    accountAdd,
+    restart: () => undefined,
     onError,
   } as never).show();
 });
@@ -150,7 +154,7 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
       accounts: Record<string, unknown>[];
       limits: Record<string, unknown>;
     };
-    expect(Object.keys(reply).sort()).toEqual(["accounts", "limits"]);
+    expect(Object.keys(reply).sort()).toEqual(["accounts", "addLimits", "limits"]);
     expect(Object.keys(reply.accounts[0] ?? {}).sort()).toEqual([
       "accountId",
       "enabled",
@@ -194,5 +198,76 @@ describe("manage:mxroute-enable", () => {
   it("passes on what the main process said about a refused key", async () => {
     mxrouteSave.mockResolvedValueOnce("key-refused");
     expect(await call("manage:mxroute-save", trusted, good)).toBe("key-refused");
+  });
+});
+
+describe("manage:account-add", () => {
+  const PASSWORD = "not-a-real-password";
+  const form = { address: "You@Example.com", host: "mail.example.com", password: PASSWORD };
+
+  it("hands the checked input over once, with the address in canonical form, and answers a fixed word", async () => {
+    const reply = await call("manage:account-add", trusted, form);
+    expect(reply).toBe("saved");
+    expect(accountAdd).toHaveBeenCalledTimes(1);
+    expect(accountAdd).toHaveBeenCalledWith({ ...form, address: "you@example.com" });
+    expect(JSON.stringify(reply)).not.toContain(PASSWORD);
+  });
+
+  it("ignores a message from another frame or another window", async () => {
+    expect(await call("manage:account-add", otherFrame, form)).toBe("denied");
+    expect(await call("manage:account-add", otherWindow, form)).toBe("denied");
+    expect(accountAdd).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no payload", undefined],
+    ["an IP address as the server", { ...form, host: "192.0.2.1" }],
+    ["an unknown key", { ...form, port: 993 }],
+    ["a missing password", { address: form.address, host: form.host }],
+    ["a host with a path", { ...form, host: "mail.example.com/x" }],
+    ["a line break in the host", { ...form, host: "mail.example.com\r\nA" }],
+    ["two addresses", { ...form, address: "a@example.com,b@example.com" }],
+  ])("refuses %s without reaching the handler", async (_name, payload) => {
+    expect(await call("manage:account-add", trusted, payload)).toBe("invalid");
+    expect(accountAdd).not.toHaveBeenCalled();
+  });
+
+  it("runs one add at a time: a second click answers busy and never signs in again", async () => {
+    let finish: (value: string) => void = () => undefined;
+    accountAdd.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const first = call("manage:account-add", trusted, form);
+    await Promise.resolve();
+    expect(await call("manage:account-add", trusted, form)).toBe("busy");
+    finish("saved");
+    expect(await first).toBe("saved");
+    expect(await call("manage:account-add", trusted, form)).toBe("saved");
+    expect(accountAdd).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a restart while an add is running", async () => {
+    let finish: (value: string) => void = () => undefined;
+    accountAdd.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const first = call("manage:account-add", trusted, form);
+    await Promise.resolve();
+    expect(await call("manage:restart", trusted)).toBe("busy");
+    finish("saved");
+    await first;
+  });
+
+  it("gives the page a generic word when the handler throws, and logs nothing of the input", async () => {
+    accountAdd.mockRejectedValueOnce(new Error("boom"));
+    expect(await call("manage:account-add", trusted, form)).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:account-add", expect.any(Error));
+    expect(JSON.stringify(onError.mock.calls)).not.toContain(PASSWORD);
+    expect(await call("manage:restart", trusted)).not.toBe("busy");
+    expect(await call("manage:account-add", trusted, form)).toBe("saved");
   });
 });

@@ -1,6 +1,8 @@
 import { join } from "node:path";
 import {
+  ACCOUNT_ADD_LIMITS,
   ACCOUNT_ID,
+  AccountAddSchema,
   GOOGLE_CLIENT_ID_PATTERN,
   GOOGLE_CLIENT_LIMITS,
   GOOGLE_CLIENT_SECRET_PATTERN,
@@ -11,9 +13,10 @@ import {
   MxrouteInputSchema,
   isEntryId,
 } from "@senderban/core";
-import type { BlockEntry, GoogleClientInput } from "@senderban/core";
+import type { AccountAddInput, BlockEntry, GoogleClientInput } from "@senderban/core";
 import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
+import type { AccountAddResult } from "./add-account.js";
 import type {
   GoogleClientReply,
   GooglePageState,
@@ -62,6 +65,8 @@ export interface ManageHandlers {
   readonly mxrouteRemove: (accountId: string) => Promise<MxrouteOutcome>;
   /** Switches the account's MXroute blacklist on or off (takes effect when Senderban starts). */
   readonly mxrouteEnable: (accountId: string, enabled: boolean) => Promise<MxrouteOutcome>;
+  /** Tries the logins, then stores the account. The input has already passed the core schema. */
+  readonly accountAdd: (input: AccountAddInput) => Promise<AccountAddResult>;
   /** Gmail: the app-wide client's ID and the Gmail accounts (never a token, never the secret). */
   readonly googleState: () => Promise<GooglePageState>;
   /** Stores the client; the input has already passed the core schema. */
@@ -88,6 +93,8 @@ export class ManageWindow {
   #win: BrowserWindow | null = null;
   /** One unblock at a time: a second click while one runs must not start another sync round. */
   #unblocking = false;
+  /** One add at a time: each one signs in to a mail server twice with a password. */
+  #adding = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
   #steps = 0;
 
@@ -104,6 +111,7 @@ export class ManageWindow {
     ipcMain.handle("manage:mxroute-enable", (event, value: unknown) =>
       this.#mxrouteEnable(event, value),
     );
+    ipcMain.handle("manage:account-add", (event, value: unknown) => this.#accountAdd(event, value));
     ipcMain.handle("manage:google-state", (event) => this.#googleState(event));
     ipcMain.handle("manage:google-save-client", (event, value: unknown) =>
       this.#googleSaveClient(event, value),
@@ -213,7 +221,11 @@ export class ManageWindow {
     if (!this.#trusted(event)) return null;
     try {
       // The limits come from here so the page never invents its own numbers.
-      return { accounts: await this.#handlers.mxrouteList(), limits: MXROUTE_LIMITS };
+      return {
+        accounts: await this.#handlers.mxrouteList(),
+        limits: MXROUTE_LIMITS,
+        addLimits: ACCOUNT_ADD_LIMITS,
+      };
     } catch (error) {
       this.#handlers.onError("manage:mxroute-list", error);
       return null;
@@ -255,6 +267,23 @@ export class ManageWindow {
     } catch (error) {
       this.#handlers.onError("manage:mxroute-remove", error);
       return "failed";
+    }
+  }
+
+  /** The reply is a fixed word, never the input and never an error text: the password must not travel back. */
+  async #accountAdd(event: IpcMainInvokeEvent, value: unknown): Promise<AccountAddReply> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = AccountAddSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    if (this.#adding) return "busy";
+    this.#adding = true;
+    try {
+      return await this.#step(() => this.#handlers.accountAdd(parsed.data));
+    } catch (error) {
+      this.#handlers.onError("manage:account-add", error);
+      return "failed";
+    } finally {
+      this.#adding = false;
     }
   }
 
@@ -357,3 +386,4 @@ type GoogleFailure = { readonly reply: "invalid" | "denied" | "failed" };
 export type MxrouteOutcome =
   "saved" | "unknown-account" | "no-key" | "no-domain" | "key-refused" | "unreachable";
 type MxrouteReply = MxrouteOutcome | "invalid" | "denied" | "failed";
+type AccountAddReply = AccountAddResult | "busy" | "invalid" | "denied" | "failed";

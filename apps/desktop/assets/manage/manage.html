@@ -32,6 +32,56 @@
         <p id="status" class="status" role="status" hidden></p>
       </section>
 
+      <details id="accounts">
+        <summary>MXroute accounts</summary>
+        <p class="muted">
+          Senderban signs in once to check the address and password, then stores the password
+          encrypted on this device. The server is in your MXroute welcome mail. Its mail domain then
+          counts as your own, so Senderban will not block that domain. Restart Senderban after
+          adding an account to start blocking on it.
+        </p>
+        <ul id="account-list" aria-label="MXroute accounts" hidden></ul>
+        <form id="account-form" autocomplete="off">
+          <div class="field">
+            <label for="account-address">Mail address</label>
+            <input
+              id="account-address"
+              type="text"
+              required
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="you@example.com"
+            />
+          </div>
+          <div class="field">
+            <label for="account-password">Password</label>
+            <input
+              id="account-password"
+              type="password"
+              required
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div class="field">
+            <label for="account-host">Server</label>
+            <input
+              id="account-host"
+              type="text"
+              required
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="e.g. eagle.mxlogin.com"
+            />
+          </div>
+          <div class="row">
+            <button type="submit" id="account-save">Add account</button>
+            <button type="button" id="account-restart" hidden>Restart now</button>
+          </div>
+          <p id="account-message" class="status" role="status"></p>
+        </form>
+      </details>
+
       <details id="gmail">
         <summary>Gmail accounts</summary>
         <p class="muted">
@@ -95,6 +145,7 @@
       </details>
     </main>
     <script src="manage.js"></script>
+    <script src="accounts.js"></script>
     <script src="advanced.js"></script>
     <script src="gmail.js"></script>
   </body>

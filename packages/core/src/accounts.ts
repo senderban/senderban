@@ -202,10 +202,74 @@ export const AccountsFileSchema = z
   );
 export type AccountsFile = z.infer<typeof AccountsFileSchema>;
 
+/**
+ * The add-account form. The address becomes the account id, so ACCOUNT_ID caps it at 64 characters; a mail address is at least
+ * `a@b`. The host is RFC 1035. The password is at most 255 octets (RFC 4616 §2); ManageSieve refuses more, and the schema
+ * below counts them, because a multi-byte password has fewer characters than octets.
+ */
+export const ACCOUNT_ADD_LIMITS = {
+  address: { min: 3, max: 64 },
+  host: HOST_LENGTH,
+  password: { min: 1, max: 255 },
+} as const;
+
+/** No control characters: a NUL or a line break cannot be sent in a SASL or quoted login, and no real password holds one. */
+const Password = z
+  .string()
+  .min(ACCOUNT_ADD_LIMITS.password.min)
+  .refine(
+    (value) =>
+      !/\p{Cc}/u.test(value) &&
+      new TextEncoder().encode(value).length <= ACCOUNT_ADD_LIMITS.password.max,
+    { message: "password cannot be used" },
+  );
+
 /** What a person types when adding an account: the plaintext password exists only until it is encrypted. */
 export const NewAccountSchema = ImapAccountConfigSchema.omit({
   passwordCipher: true,
   mxroute: true,
-}).extend({
-  password: z.string().min(1).max(255),
+}).extend({ password: Password });
+export type NewAccount = z.infer<typeof NewAccountSchema>;
+
+/** Lane ids end in these (`<account id>.mxroute`, `.gmail`): an account id ending in one could take another lane's id. */
+const LANE_ID_ENDING = /\.(?:mxroute|gmail)$/u;
+/** Names that never lead to a public mail server (RFC 6762, RFC 6761, ICANN's .internal and the usual private ones). */
+const PRIVATE_HOST_ENDING = /\.(?:local|localhost|internal|intranet|lan|home|corp)$/iu;
+/** A dot and an alphabetic top label: this also turns away an IP address and a single-label name. */
+const PUBLIC_HOST_NAME = /\.(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/iu;
+
+/** The form's three fields. The address comes out in the form `parseAddress` returns; an issue never quotes the input. */
+export const AccountAddSchema = z.strictObject({
+  address: z
+    .string()
+    .min(ACCOUNT_ADD_LIMITS.address.min)
+    .max(ACCOUNT_ADD_LIMITS.address.max)
+    .transform((value, ctx) => {
+      const parsed = parseAddress(value);
+      if (
+        parsed.ok &&
+        ACCOUNT_ID.test(parsed.value.address) &&
+        !LANE_ID_ENDING.test(parsed.value.address)
+      ) {
+        return parsed.value.address;
+      }
+      ctx.addIssue({ code: "custom", message: "not a mail address" });
+      return z.NEVER;
+    }),
+  // The password goes to this host, so it has to be one a mail provider could be: not an address or a name on this network.
+  host: Host.refine((value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value), {
+    message: "not a public host name",
+  }),
+  password: Password,
 });
+export type AccountAddInput = z.infer<typeof AccountAddSchema>;
+
+/** The form asks for no ports: MXroute serves IMAP over TLS on 993 and ManageSieve on 4190, and the login is the address. */
+export function accountFromForm(input: AccountAddInput): NewAccount {
+  return NewAccountSchema.parse({
+    id: input.address,
+    imap: { host: input.host, port: 993, secure: true, user: input.address },
+    sieve: { host: input.host, port: 4190, user: input.address },
+    password: input.password,
+  });
+}
