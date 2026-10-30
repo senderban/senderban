@@ -6,7 +6,8 @@ name: Release build
 #
 # Two jobs on purpose (security review 2026-10-27, FLAG-1): `build` runs every third-party install script, test and build step and holds
 # no signing authority; `attest` holds `id-token: write` and runs only the download and the attestation, so code from a dependency
-# cannot ask for a signature on a file of its own choosing. A manual run builds (to look at the result) but is never attested.
+# cannot get the signing identity. A compromised `build` step still decides which file `attest` signs (SLSA Build Level 2, accepted for
+# v0.1). A manual run builds (to look at the result) but is never attested.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]

@@ -13,13 +13,17 @@ Block a sender once, from the Windows notification, on every mail account you ow
 It installs for your user only, no administrator rights.
 
 The installer is **unsigned** for v0.1, so Windows SmartScreen warns on first run (**More info**,
-then **Run anyway**). Check the download first, against `SHA256SUMS` on the release or against the
-workflow and the tag it came from:
+then **Run anyway**). Check the download first. This prints a hash to compare with `SHA256SUMS` on
+the release, which catches a broken download:
 
-```sh
-gh attestation verify Senderban-Setup-X.Y.Z.exe --repo senderban/senderban \
-  --signer-workflow senderban/senderban/.github/workflows/release.yml \
-  --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners
+```powershell
+Get-FileHash .\Senderban-Setup-X.Y.Z.exe -Algorithm SHA256
+```
+
+This proves the file came from the tag's release workflow. It needs the GitHub CLI (`gh`):
+
+```powershell
+gh attestation verify .\Senderban-Setup-X.Y.Z.exe --repo senderban/senderban --signer-workflow senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners
 ```
 
 ## What it does
@@ -53,8 +57,9 @@ It is not an email client. It does not send, sync, search or download message bo
 - **Reads:** only the `From` and `Subject` of a newly arrived message, plus the server's
   `X-Spam-Score` header on IMAP accounts, on your device, to build the notification. No message
   body. Nothing is sent to a Senderban server (there is none).
-- **Writes:** rules on your mail provider, tagged as Senderban's own. It never touches rules you
-  created.
+- **Writes:** rules on your mail provider, tagged as Senderban's own, and it leaves rules you created
+  alone. The exception is the MXroute blacklist, which has no tag: Unblock removes an address there
+  even if you had listed it yourself.
 - **The default action is reversible** (Junk or Trash). There is no permanent delete. **Block at
   server** is the one choice that can leave no copy, and you have to switch it on and pick it.
 - **Secrets** are stored encrypted with Windows DPAPI, for your Windows user, in
@@ -72,10 +77,14 @@ from the tray, **Gmail accounts**, paste the client, **Add Gmail account**, **Re
 
 ### MXroute
 
-There is no account form in v0.1. Quit Senderban from the tray, save this as `account.json` with
-your own values, then run the command below it. Use a path without spaces. The command shows no
-message: when it works the password is stored encrypted and the file is gone. If the file is still
-there it failed: delete it yourself, it holds your password.
+There is no account form in v0.1. Quit Senderban from the tray and save this as `account.json` with
+your own values, directly in your user folder (`%USERPROFILE%`). Not on the Desktop or in Documents:
+they may sync to OneDrive. Not in a new folder under `C:\`: other users of the PC can read it. Then
+run the command below it.
+
+When it works the password is stored encrypted and the file is gone. If the file is still there it
+failed: delete it with Shift+Delete, which skips the Recycle Bin. If the file ever reached a synced
+folder, change the password.
 
 ```json
 {
@@ -87,7 +96,7 @@ there it failed: delete it yourself, it holds your password.
 ```
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\senderban\Senderban.exe" --add-account=C:\full\path\account.json
+& "$env:LOCALAPPDATA\Programs\senderban\Senderban.exe" "--add-account=$env:USERPROFILE\account.json"
 ```
 
 Start Senderban again. To offer **Block at server**: under **Advanced** in the **Blocked senders**

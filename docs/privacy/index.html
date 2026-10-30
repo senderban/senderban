@@ -6,7 +6,7 @@
     <title>Privacy policy - Senderban</title>
     <meta
       name="description"
-      content="What Senderban reads, stores and sends, including how it uses Google user data. Short version: everything stays on your device."
+      content="What Senderban reads, stores and sends, including how it uses Google user data. Short version: we receive nothing; it stays between your device and your own mail providers."
     />
     <meta name="color-scheme" content="light dark" />
     <style>
@@ -81,7 +81,7 @@
   <body>
     <main>
       <h1>Privacy policy</h1>
-      <p class="lead">Senderban runs on your device. Your mail data does not leave it.</p>
+      <p class="lead">Senderban runs on your device. We never receive your mail data.</p>
       <p class="status">
         <strong>Effective 30 October 2026.</strong> Senderban is an early-release, open-source
         Windows app (<a href="/">senderban.com</a>). This policy describes the code in
@@ -92,9 +92,9 @@
       <h2>No Senderban server</h2>
       <p>
         This version of Senderban has no server and no account with us. The app talks directly from
-        your device to your mail provider (for Gmail, to Google). We do not receive, collect, store
-        or see any of the data described below, and there is no analytics, telemetry, advertising or
-        tracking in the app.
+        your device to your mail provider (for Gmail, to Google; for MXroute's blacklist, to the
+        MXroute API). We do not receive, collect, store or see any of the data described below, and
+        there is no analytics, telemetry, advertising or tracking in the app.
       </p>
 
       <h2>What the app handles, and where it stays</h2>
@@ -108,12 +108,18 @@
         <li>
           <strong>Sender and subject of new mail.</strong> Only the From address and the Subject of
           a newly arrived message, read on your device to show the notification, plus the server's
-          X-Spam-Score header on IMAP accounts. Senderban never reads or downloads message bodies or
-          attachments.
+          X-Spam-Score header on IMAP accounts. An IMAP server's message envelope also carries the
+          recipients; Senderban does not use or keep them. Senderban never reads or downloads
+          message bodies or attachments.
+        </li>
+        <li>
+          <strong>MXroute API key (optional).</strong> Encrypted the same way, on your device only,
+          and sent only to the MXroute API.
         </li>
         <li>
           <strong>Your block list.</strong> The senders you chose to block, in a local database on
-          your device.
+          your device, and written as rules to every mail account you added: a block applies to all
+          of them.
         </li>
         <li>
           <strong>A diagnostic log.</strong> A local file on your device with events, states, error
@@ -158,7 +164,12 @@
         In particular:
       </p>
       <ul>
-        <li>Google user data is not transferred to anyone, because it never leaves your device.</li>
+        <li>
+          Google user data is never sent to us or to any third party, with one exception that you
+          trigger yourself: when you block a sender from a Gmail notification, that sender's address
+          is also written as a rule to the other mail accounts you added to Senderban, because a
+          block applies to all your accounts.
+        </li>
         <li>It is not used for advertising, and it is not sold.</li>
         <li>
           It is not used to train or improve any machine-learning or AI model, and no AI service is
@@ -170,8 +181,13 @@
       <h2>Keeping and deleting your data</h2>
       <ul>
         <li>
-          Everything above is stored in Senderban's folder on your device (under
-          <code>%APPDATA%</code>, in a folder named Senderban). Deleting that folder removes it all.
+          What is stored on your device is in Senderban's folder (under <code>%APPDATA%</code>, in a
+          folder named Senderban). Deleting that folder removes it from your device.
+        </li>
+        <li>
+          Block rules live on your mail servers, not in that folder: unblock a sender in Senderban
+          to remove them, before you remove the MXroute key if you used Block at server. Rules left
+          behind stay until you delete them at your provider.
         </li>
         <li>
           Removing a Gmail account in Senderban revokes Senderban's access at Google and deletes the

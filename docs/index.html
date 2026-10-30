@@ -92,30 +92,44 @@
         <a href="https://github.com/senderban/senderban/releases/latest"
           >Download the latest release</a
         >
+        ·
+        <a href="https://github.com/senderban/senderban#download">How to verify the download</a>
       </p>
 
       <h2>How it works</h2>
       <p>
         A new mail arrives and a Windows notification offers to block the sender. One click writes a
         rule on the mail provider's own server, so the block also applies on your phone, in webmail
-        and in whichever mail client you use. Every block can be undone.
+        and in whichever mail client you use. The block list is shared by the accounts you added
+        (Gmail takes single addresses, no whole domains), and you can lift a block at any time.
       </p>
 
       <h2>What it reads and writes</h2>
       <ul>
-        <li>Reads only the From and Subject of a newly arrived message, on your device.</li>
+        <li>
+          Uses only the From and Subject of a newly arrived message, plus the server's spam score on
+          IMAP accounts, on your device.
+        </li>
         <li>Never reads message bodies. There is no Senderban server in this version.</li>
-        <li>Writes one rule per provider, marked as its own. Your other rules are untouched.</li>
-        <li>The default action is reversible (Junk or Trash), never permanent delete.</li>
+        <li>
+          Writes rules on your mail provider, marked as its own, and leaves your other rules alone.
+          The exception is the MXroute blacklist, which has no marker: Unblock removes an address
+          there even if you had listed it yourself.
+        </li>
+        <li>
+          The default action is reversible (Junk or Trash). Block at server, on MXroute, is off
+          until you switch it on: it refuses mail for every mailbox on that domain and can leave no
+          copy.
+        </li>
       </ul>
 
       <h2>Gmail</h2>
       <p>
         Senderban signs in to Gmail through your own Google Cloud project and asks for two
         permissions only: message metadata, to show the sender and subject in the notification, and
-        basic mail settings, to create the filters that block a sender. Nothing leaves your device.
-        Senderban's use and transfer to any other app of information received from Google APIs will
-        adhere to the
+        basic mail settings, to create the filters that block a sender. We receive nothing: a
+        blocked address goes only from your device to the mail accounts you added. Senderban's use
+        and transfer to any other app of information received from Google APIs will adhere to the
         <a href="https://developers.google.com/terms/api-services-user-data-policy"
           >Google API Services User Data Policy</a
         >, including the Limited Use requirements. Details in the
