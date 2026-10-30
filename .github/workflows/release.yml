@@ -37,8 +37,8 @@ jobs:
           node -e "const v=require('./apps/desktop/package.json').version; if ('v'+v!==process.env.TAG) { console.error('tag '+process.env.TAG+' does not match app version '+v); process.exit(1) }"
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
+      - run: npm test
       - name: Build the installer
         run: npm run dist -w apps/desktop
       - name: SHA256SUMS
