@@ -1,20 +1,27 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { connect as tlsConnect } from "node:tls";
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectManageSieve } from "../src/sieve/managesieve.js";
+import type { ManageSieveEndpoint } from "../src/sieve/managesieve.js";
 import type { SieveSession } from "../src/sieve/session.js";
 
 // Exact tag, measured on Docker Hub on 2026-10-24 (published 2026-10-05).
 export const DOVECOT_IMAGE = "dovecot/dovecot:2.4.5";
 const PASSWORD = "contract-pw";
 const MANAGESIEVE_PORT = 34190;
+const IMAPS_PORT = 31993;
 const DOVEADM = "/dovecot/bin/doveadm";
 const LMTPS_PORT = 31024;
 
 export interface Dovecot {
   readonly password: string;
+  /** Host ports, and the certificate the container serves: its name is `localhost`. */
+  readonly port: number;
+  readonly imapPort: number;
+  readonly ca: Buffer;
+  readonly endpoint: ManageSieveEndpoint;
   connect(user: string, password?: string): Promise<SieveSession>;
   /** Delivers over LMTPS, the path a real MX uses, so the user's active Sieve script runs. */
   deliver(
@@ -33,7 +40,15 @@ function docker(args: string[], input?: string): string {
   return result.stdout;
 }
 
-export async function startDovecot(): Promise<Dovecot> {
+export interface DovecotOptions {
+  /** Switches the Sieve `include` extension off, as a server that does not advertise it. */
+  readonly noInclude?: boolean;
+}
+
+/** Dovecot 2.4 boolean list: `sieve_extensions` keeps its defaults, minus this one. */
+const NO_INCLUDE_CONF = "sieve_extensions {\n  include = no\n}\n";
+
+export async function startDovecot(options: DovecotOptions = {}): Promise<Dovecot> {
   const dir = mkdtempSync(join(tmpdir(), "senderban-dovecot-"));
   execFileSync("openssl", [
     ...["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"],
@@ -43,14 +58,21 @@ export async function startDovecot(): Promise<Dovecot> {
   for (const file of ["tls.key", "tls.crt"]) chmodSync(join(dir, file), 0o644);
   chmodSync(dir, 0o755);
   const ca = readFileSync(join(dir, "tls.crt"));
+  const conf = join(dir, "sieve-test.conf");
+  if (options.noInclude === true) {
+    writeFileSync(conf, NO_INCLUDE_CONF);
+    chmodSync(conf, 0o644);
+  }
 
-  const name = `senderban-contract-${String(process.pid)}`;
+  const name = `senderban-contract-${String(process.pid)}-${options.noInclude === true ? "bare" : "full"}`;
   docker([
     ...["run", "-d", "--name", name],
     ...["-e", `USER_PASSWORD={PLAIN}${PASSWORD}`],
     ...["-p", `127.0.0.1::${String(MANAGESIEVE_PORT)}`],
     ...["-p", `127.0.0.1::${String(LMTPS_PORT)}`],
+    ...["-p", `127.0.0.1::${String(IMAPS_PORT)}`],
     ...["-v", `${dir}:/etc/dovecot/ssl:ro`],
+    ...(options.noInclude === true ? ["-v", `${conf}:/etc/dovecot/conf.d/sieve-test.conf:ro`] : []),
     DOVECOT_IMAGE,
   ]);
   const stop = (): void => {
@@ -67,15 +89,15 @@ export async function startDovecot(): Promise<Dovecot> {
     };
     const port = hostPort(MANAGESIEVE_PORT);
     const lmtpPort = hostPort(LMTPS_PORT);
+    const imapPort = hostPort(IMAPS_PORT);
+    const endpoint = {
+      host: "127.0.0.1",
+      port,
+      timeoutMs: 5000,
+      tls: { ca, servername: "localhost" },
+    };
     const connect = (user: string, password = PASSWORD): Promise<SieveSession> =>
-      connectManageSieve({
-        host: "127.0.0.1",
-        port,
-        username: user,
-        password,
-        timeoutMs: 5000,
-        tls: { ca, servername: "localhost" },
-      });
+      connectManageSieve({ ...endpoint, username: user, password });
 
     const deadline = Date.now() + 60_000;
     for (;;) {
@@ -90,6 +112,10 @@ export async function startDovecot(): Promise<Dovecot> {
 
     return {
       password: PASSWORD,
+      port,
+      imapPort,
+      ca,
+      endpoint,
       connect,
       deliver(user, mail) {
         const raw = `From: ${mail.from}\r\nTo: ${user}\r\nSubject: ${mail.subject}\r\n\r\nbody\r\n`;

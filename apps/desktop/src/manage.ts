@@ -8,11 +8,14 @@ import {
   GOOGLE_CLIENT_SECRET_PATTERN,
   GoogleClientInputSchema,
   GoogleSignInRequestSchema,
+  MANAGESIEVE_PORT,
   MXROUTE_LIMITS,
   MxrouteEnableSchema,
   MxrouteInputSchema,
   MxrouteKeyRefSchema,
+  SERVER_PRESETS,
   WatchPausedSchema,
+  formServer,
   isEntryId,
 } from "@senderban/core";
 import type {
@@ -78,7 +81,7 @@ export interface WatchStatus {
 }
 
 export interface AccountRemoveRequest {
-  readonly confirm: (label: string) => Promise<boolean>;
+  readonly confirm: (label: string, mxroute: boolean) => Promise<boolean>;
   readonly confirmLeaveRules: (label: string) => Promise<boolean>;
 }
 
@@ -336,6 +339,8 @@ export class ManageWindow {
         ...(await this.#handlers.mxrouteList()),
         limits: MXROUTE_LIMITS,
         addLimits: ACCOUNT_ADD_LIMITS,
+        // Host names too: the page shows them, the main process alone decides where a password goes.
+        addServers: { presets: SERVER_PRESETS, port: MANAGESIEVE_PORT },
         restartPending: this.#restartPending,
       };
     } catch (error) {
@@ -406,13 +411,18 @@ export class ManageWindow {
     const abort = new AbortController();
     this.#addAbort = abort;
     try {
-      const { address, host } = parsed.data;
+      const { address } = parsed.data;
+      const server = formServer(parsed.data);
+      const where =
+        server.presetName === null
+          ? "Compare the name with what your mail provider gave you, letter by letter."
+          : `This is ${server.presetName}'s server.`;
       const result = await this.#step(() =>
         this.#handlers.accountAdd(parsed.data, {
           confirm: () =>
             this.#ask({
               message: "Send this password to this server?",
-              detail: `Server: ${host}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your MXroute welcome mail, letter by letter. The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
+              detail: `Server: ${server.imapHost}\nFilters: ${server.sieveHost}, port ${String(server.sievePort)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. ${where} The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
               yes: "Sign in",
               signal: abort.signal,
             }),
@@ -438,11 +448,10 @@ export class ManageWindow {
     try {
       const result = await this.#step(() =>
         this.#handlers.accountRemove(id, {
-          confirm: (label) =>
+          confirm: (label, mxroute) =>
             this.#ask({
               message: `Remove ${label}?`,
-              detail:
-                "Senderban deletes its rules from this mailbox and forgets the password on this device. Mail from blocked senders then reaches this inbox again. Your MXroute API key stays, and anything on your MXroute blacklist stays there.",
+              detail: `Senderban deletes its rules from this mailbox and forgets the password on this device. Mail from blocked senders then reaches this inbox again.${mxroute ? " Your MXroute API key stays, and anything on your MXroute blacklist stays there." : ""}`,
               yes: "Remove",
             }),
           confirmLeaveRules: (label) =>

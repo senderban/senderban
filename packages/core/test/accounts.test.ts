@@ -15,8 +15,11 @@ import {
   MxrouteKeysFileSchema,
   NewAccountSchema,
   accountFromForm,
+  formServer,
   isImapAccount,
+  isMxrouteAccount,
 } from "../src/accounts.js";
+import { PRESET_SERVERS } from "../src/mail-server.js";
 import { MAX_ACCOUNTS } from "../src/sync/engine.js";
 
 const account = (id = "main") => ({
@@ -214,11 +217,71 @@ describe("MXroute key (advanced)", () => {
 
   it("lower-cases the server: a look-alike capital then shows in the question", () => {
     const parsed = AccountAddSchema.parse({
+      provider: "mxroute",
       address: "you@example.com",
       host: "maIl.example.com",
       password: "pw",
     });
-    expect(parsed.host).toBe("mail.example.com");
+    expect(formServer(parsed).imapHost).toBe("mail.example.com");
+  });
+
+  describe("the add form's servers", () => {
+    const base = { address: "you@example.com", password: "pw" };
+    const ok = (value: unknown) => AccountAddSchema.safeParse(value).success;
+
+    it("needs a known provider", () => {
+      expect(ok({ ...base, host: "mail.example.com" })).toBe(false);
+      expect(ok({ ...base, provider: "fastmail", host: "mail.example.com" })).toBe(false);
+    });
+
+    it("lets the page name no server for a preset: the table decides where the password goes", () => {
+      for (const provider of PRESET_SERVERS) {
+        expect(ok({ ...base, provider })).toBe(true);
+        expect(ok({ ...base, provider, host: "evil.example.com" })).toBe(false);
+        expect(ok({ ...base, provider, port: 4190 })).toBe(false);
+      }
+    });
+
+    it("answers each preset from the table, on the ManageSieve port", () => {
+      const server = formServer(AccountAddSchema.parse({ ...base, provider: "migadu" }));
+      expect(server).toEqual({
+        imapHost: "imap.migadu.com",
+        sieveHost: "imap.migadu.com",
+        sievePort: 4190,
+        presetName: "Migadu",
+      });
+    });
+
+    it("gives MXroute a server and no port", () => {
+      const provider = "mxroute";
+      expect(ok({ ...base, provider })).toBe(false);
+      expect(ok({ ...base, provider, host: "mail.example.com", port: 4190 })).toBe(false);
+    });
+
+    it("bounds another server's port in port numbers", () => {
+      const other = { ...base, provider: "other", host: "mail.example.com" };
+      expect(ok(other)).toBe(false);
+      for (const port of [ACCOUNT_ADD_LIMITS.port.min, 4190, ACCOUNT_ADD_LIMITS.port.max]) {
+        expect(ok({ ...other, port })).toBe(true);
+      }
+      for (const port of [0, 65_536, 41.9, "4190", Number.NaN]) {
+        expect(ok({ ...other, port })).toBe(false);
+      }
+    });
+
+    it("keeps refusing a private host for another server", () => {
+      for (const host of ["localhost", "mail.lan", "192.168.1.5", "mail.internal"]) {
+        expect(ok({ ...base, provider: "other", host, port: 4190 })).toBe(false);
+      }
+    });
+
+    it("counts an account from before 0.2 as MXroute, and only then", () => {
+      expect(isMxrouteAccount(account())).toBe(true);
+      expect(isMxrouteAccount({ ...account(), provider: "mxroute" })).toBe(true);
+      for (const provider of [...PRESET_SERVERS, "other"] as const) {
+        expect(isMxrouteAccount({ ...account(), provider })).toBe(false);
+      }
+    });
   });
 
   it("refuses an id that could take another lane's id, also from a file", () => {
@@ -392,7 +455,12 @@ describe("Google client (ADR 0009, Data)", () => {
 });
 
 describe("AccountAddSchema", () => {
-  const form = { address: "You@Example.com", host: "mail.example.com", password: "p" };
+  const form = {
+    provider: "mxroute",
+    address: "You@Example.com",
+    host: "mail.example.com",
+    password: "p",
+  };
 
   it("gives the address in canonical form", () => {
     expect(AccountAddSchema.parse(form).address).toBe("you@example.com");
@@ -401,6 +469,7 @@ describe("AccountAddSchema", () => {
   it("builds the account on the MXroute ports, with the address as login and id", () => {
     expect(accountFromForm(AccountAddSchema.parse(form))).toEqual({
       id: "you@example.com",
+      provider: "mxroute",
       imap: { host: form.host, port: 993, secure: true, user: "you@example.com" },
       sieve: { host: form.host, port: 4190, user: "you@example.com" },
       password: "p",

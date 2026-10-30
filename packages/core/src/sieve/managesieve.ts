@@ -7,23 +7,38 @@ import type { SieveScriptInfo, SieveSession } from "./session.js";
 // PROVISIONAL bound (milliseconds): one network step (connect, TLS handshake, one command).
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** Replies after TLS from a server that spoke in clear: its own capabilities, if it repeats them, CAPABILITY's and NOOP's. */
+const CLEAR_REPLIES_MAX = 3;
+
 // RFC 4616 §2: each of authzid/authcid/passwd is at most 255 octets.
 const SASL_FIELD_MAX_BYTES = 255;
 const PORT = { min: 1, max: 65_535 } as const;
 // RFC 5804 §4: a quoted string is at most 1024 octets.
 const QUOTED_MAX_BYTES = 1024;
 
-export interface ManageSieveOptions {
+/** Where a server is. Nothing here is a secret, so a probe can run on it alone. */
+export interface ManageSieveEndpoint {
   readonly host: string;
   /** Default 4190 (the registered ManageSieve port). */
   readonly port?: number;
-  readonly username: string;
-  readonly password: string;
   readonly timeoutMs?: number;
   /** Stops the sign-in: the socket closes, so the password is not sent after the caller has given up. */
   readonly signal?: AbortSignal;
   /** Only for private CAs / tests; certificate verification is never switched off. */
   readonly tls?: { readonly ca?: string | Buffer; readonly servername?: string };
+}
+
+export interface ManageSieveOptions extends ManageSieveEndpoint {
+  readonly username: string;
+  readonly password: string;
+}
+
+/** What a server says about itself after TLS, before anyone signs in. */
+export interface ManageSieveProbe {
+  /** Whether it takes SASL PLAIN, the one mechanism Senderban signs in with. */
+  readonly plain: boolean;
+  /** Lowercase extension names from its `SIEVE` capability line. */
+  readonly extensions: ReadonlySet<string>;
 }
 
 type Channel = Socket | TLSSocket;
@@ -135,6 +150,11 @@ function expectOk(response: Response, what: string): void {
   if (response.status !== "OK") throw failure(response, what);
 }
 
+/** Before TLS anyone on the path can write the reply, and an error's text reaches a notification: only the status counts. */
+function expectClearOk(response: Response, what: string): void {
+  if (response.status !== "OK") throw failure({ ...response, text: null }, what);
+}
+
 function quoted(value: string): string {
   if (
     value.length === 0 ||
@@ -148,7 +168,7 @@ function quoted(value: string): string {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-function checkOptions(options: ManageSieveOptions): number {
+function checkEndpoint(options: ManageSieveEndpoint): number {
   const port = options.port ?? 4190;
   if (!Number.isInteger(port) || port < PORT.min || port > PORT.max) {
     throw new AdapterError("REJECTED", "port out of range");
@@ -156,13 +176,16 @@ function checkOptions(options: ManageSieveOptions): number {
   if (options.host.length === 0 || options.host.length > 253) {
     throw new AdapterError("REJECTED", "host out of range");
   }
+  return port;
+}
+
+function checkCredentials(options: ManageSieveOptions): void {
   for (const field of [options.username, options.password]) {
     const size = Buffer.byteLength(field);
     if (size === 0 || size > SASL_FIELD_MAX_BYTES || field.includes("\u0000")) {
       throw new AdapterError("REJECTED", "credential length out of range");
     }
   }
-  return port;
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -180,12 +203,37 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Pr
 }
 
 /**
- * Opens an authenticated ManageSieve session: plain TCP, STARTTLS (refused if the server does not
- * offer it, so the password never travels in clear), one SASL PLAIN attempt, no retries - a wrong
- * password is not retried because some hosts block the address after repeated failures.
+ * RFC 5804 §2.2: the server re-issues its capabilities once TLS is up. Purelymail sends them in clear right behind the STARTTLS
+ * reply instead, and nothing after the handshake (measured 3 of 3, 2026-10-31), so a client that only waits times out. A server
+ * that spoke in clear is therefore asked. ManageSieve has no command tags and such a server may or may not repeat itself, so
+ * NOOP closes the exchange: its reply is the one without data, and nothing is left over to answer the next command.
  */
-export async function connectManageSieve(options: ManageSieveOptions): Promise<SieveSession> {
-  const port = checkOptions(options);
+async function capabilitiesOverTls(
+  secure: ResponseChannel,
+  spokeInClear: boolean,
+): Promise<Response> {
+  if (!spokeInClear) return secure.read();
+  secure.write("CAPABILITY\r\nNOOP\r\n");
+  let capabilities: Response | null = null;
+  for (let replies = 0; replies < CLEAR_REPLIES_MAX; replies += 1) {
+    const reply = await secure.read();
+    if (reply.status !== "OK") return reply;
+    if (reply.data.length > 0) capabilities = reply;
+    else if (capabilities !== null) return capabilities;
+    else break;
+  }
+  throw new AdapterError("TRANSIENT", "ManageSieve protocol error: no capabilities over TLS");
+}
+
+/**
+ * Plain TCP, then STARTTLS, refused if the server does not offer it, so nothing is ever sent in clear. `use` gets the
+ * verified channel and the capabilities the server sent over it (RFC 5804 §2.2: the ones from before TLS are discarded).
+ */
+async function overTls<T>(
+  options: ManageSieveEndpoint,
+  use: (secure: ResponseChannel, caps: ReadonlyMap<string, string>) => Promise<T>,
+): Promise<T> {
+  const port = checkEndpoint(options);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const signal = options.signal;
   signal?.throwIfAborted();
@@ -212,7 +260,7 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
 
     const plain = new ResponseChannel(raw, timeoutMs);
     const greeting = await plain.read();
-    expectOk(greeting, "greeting");
+    expectClearOk(greeting, "greeting");
     if (!capabilitiesOf(greeting).has("STARTTLS")) {
       throw new AdapterError(
         "CAPABILITY_NOT_SUPPORTED",
@@ -220,9 +268,10 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
       );
     }
     plain.write("STARTTLS\r\n");
-    expectOk(await plain.read(), "STARTTLS");
-    // Bytes queued behind the STARTTLS reply would be attacker-controlled plaintext.
-    if (plain.pending > 0) throw new AdapterError("TRANSIENT", "data injected before TLS upgrade");
+    expectClearOk(await plain.read(), "STARTTLS");
+    // Bytes queued behind the STARTTLS reply are unauthenticated: they are dropped unread with this channel, so nothing an
+    // attacker put there can reach the parser (RFC 5804 §2.2 has the client discard all it knew before TLS).
+    const spokeInClear = plain.pending > 0;
 
     const tlsSocket = tlsConnect({
       socket: plain.detach(),
@@ -250,32 +299,61 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
     );
 
     const secure = new ResponseChannel(tlsSocket, timeoutMs);
-    const afterTls = await secure.read();
-    expectOk(afterTls, "capabilities after STARTTLS");
-    const caps = capabilitiesOf(afterTls);
-    if (!(caps.get("SASL") ?? "").toUpperCase().split(" ").includes("PLAIN")) {
-      throw new AdapterError("CAPABILITY_NOT_SUPPORTED", "server does not offer SASL PLAIN");
-    }
-
-    signal?.throwIfAborted();
-    const initial = Buffer.from(`\u0000${options.username}\u0000${options.password}`, "utf8");
-    secure.write(`AUTHENTICATE "PLAIN" "${initial.toString("base64")}"\r\n`);
-    const auth = await secure.read();
-    if (auth.status !== "OK") throw authFailure(auth);
-
-    const extensions = new Set(
-      (caps.get("SIEVE") ?? "")
-        .toLowerCase()
-        .split(" ")
-        .filter((e) => e.length > 0),
+    const afterTls = await withTimeout(
+      capabilitiesOverTls(secure, spokeInClear),
+      timeoutMs,
+      "capabilities after STARTTLS",
     );
-    return new ManageSieveSession(secure, extensions);
+    expectOk(afterTls, "capabilities after STARTTLS");
+    return await use(secure, capabilitiesOf(afterTls));
   } catch (error) {
     raw.destroy();
     throw error;
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+const extensionsOf = (caps: ReadonlyMap<string, string>): ReadonlySet<string> =>
+  new Set(
+    (caps.get("SIEVE") ?? "")
+      .toLowerCase()
+      .split(" ")
+      .filter((e) => e.length > 0),
+  );
+
+const offersPlain = (caps: ReadonlyMap<string, string>): boolean =>
+  (caps.get("SASL") ?? "").toUpperCase().split(" ").includes("PLAIN");
+
+/**
+ * Asks a server what it is without signing in: nothing about the person leaves the device, so a wrong host costs no
+ * password. The answer comes from behind verified TLS, because a server may offer PLAIN only there (Migadu's greeting
+ * lists no mechanism before it). Throws what `connectManageSieve` throws.
+ */
+export function probeManageSieve(options: ManageSieveEndpoint): Promise<ManageSieveProbe> {
+  return overTls(options, (secure, caps) => {
+    secure.socket.destroy();
+    return Promise.resolve({ plain: offersPlain(caps), extensions: extensionsOf(caps) });
+  });
+}
+
+/**
+ * Opens an authenticated ManageSieve session: one SASL PLAIN attempt over `overTls`, no retries - a wrong
+ * password is not retried because some hosts block the address after repeated failures.
+ */
+export async function connectManageSieve(options: ManageSieveOptions): Promise<SieveSession> {
+  checkCredentials(options);
+  return await overTls(options, async (secure, caps) => {
+    if (!offersPlain(caps)) {
+      throw new AdapterError("CAPABILITY_NOT_SUPPORTED", "server does not offer SASL PLAIN");
+    }
+    options.signal?.throwIfAborted();
+    const initial = Buffer.from(`\u0000${options.username}\u0000${options.password}`, "utf8");
+    secure.write(`AUTHENTICATE "PLAIN" "${initial.toString("base64")}"\r\n`);
+    const auth = await secure.read();
+    if (auth.status !== "OK") throw authFailure(auth);
+    return new ManageSieveSession(secure, extensionsOf(caps));
+  });
 }
 
 class ManageSieveSession implements SieveSession {

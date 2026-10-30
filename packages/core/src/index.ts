@@ -20,6 +20,7 @@ export * from "./sync/engine.js";
 export * from "./watcher/watcher.js";
 export * from "./notify/pending.js";
 export * from "./accounts.js";
+export * from "./mail-server.js";
 export * from "./notify/block-action.js";
 export * from "./notify/unblock.js";
 export * from "./gate.js";

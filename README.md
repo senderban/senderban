@@ -36,6 +36,7 @@ result is shown in the notification, and every block can be undone in the **Bloc
 | On                | Choices                                                            | Whole domain |
 | ----------------- | ------------------------------------------------------------------ | ------------ |
 | MXroute           | **Move to Junk** (default), **Move to Trash**, **Block at server** | yes          |
+| Other mail server | **Move to Junk** (default), **Move to Trash**                      | yes          |
 | Gmail / Workspace | **Move this sender to Trash**                                      | no           |
 
 - **Block at server** (MXroute, one address, off until you switch it on) puts the address on the
@@ -75,12 +76,21 @@ Senderban signs in through your own Google Cloud project, so nobody else holds a
 That takes a one-time setup: [docs/gmail-setup.md](docs/gmail-setup.md). Then open Senderban from the
 tray, **Accounts**, **Add mailbox**, **Gmail**, paste the client, **Add Gmail account**, **Restart now**.
 
-### MXroute
+### MXroute and other mail servers
 
-Open Senderban from the tray, **Accounts**, **Add mailbox**, enter the mail address, password and
-server (it is in your MXroute welcome mail), **Add mailbox**, **Restart now**. Senderban asks you to
-confirm the server, signs in over IMAP and ManageSieve and stores nothing unless both work. The
-password is stored encrypted on this device.
+Open Senderban from the tray, **Accounts**, **Add mailbox**, **Mail server**, pick your provider,
+enter the mail address and password, **Add mailbox**, **Restart now**. For MXroute also enter the
+server (it is in your MXroute welcome mail). Senderban asks you to confirm the server, checks that
+it speaks ManageSieve before any password leaves your device, signs in over IMAP and ManageSieve and
+stores nothing unless both work. The password is stored encrypted on this device.
+
+**Other mail server** is for any server that speaks ManageSieve, such as a self-hosted Dovecot,
+Stalwart, mailcow or Mailu. Only Dovecot was measured. It needs a public host name, IMAP over TLS on 993, ManageSieve with STARTTLS (the port is yours to set, 4190 by default) and
+a certificate that verifies.
+
+A server without the Sieve `include` extension (Migadu and Purelymail advertise none) has room for
+one active script. Senderban's rules take that place if it is free. If you already run a script of
+your own there, Senderban refuses the mailbox and leaves your script alone.
 
 **Remove** next to the account deletes Senderban's rules from the mail server, then the password. If
 the rules cannot be deleted it says so and asks you first. Senders on the MXroute blacklist stay
@@ -93,13 +103,14 @@ own values, directly in your user folder (`%USERPROFILE%`). Not on the Desktop o
 may sync to OneDrive. Not in a new folder under `C:\`: other users of the PC can read it. Then run
 the command below it.
 
-When it works the password is stored encrypted and the file is gone. If the file is still there it
+Without `"provider"` the account counts as MXroute. When it works the password is stored encrypted and the file is gone. If the file is still there it
 failed: delete it with Shift+Delete, which skips the Recycle Bin. If the file ever reached a synced
 folder, change the password.
 
 ```json
 {
   "id": "you@example.com",
+  "provider": "other",
   "imap": { "host": "mail.example.com", "port": 993, "secure": true, "user": "you@example.com" },
   "sieve": { "host": "mail.example.com", "port": 4190, "user": "you@example.com" },
   "password": "your mailbox password"
@@ -118,17 +129,23 @@ user name and API key once (it covers every mailbox and domain on your MXroute a
 
 ## Provider support
 
-| Provider                          | Mechanism                           | Target | Evidence                        |
-| --------------------------------- | ----------------------------------- | ------ | ------------------------------- |
-| MXroute                           | Sieve (ManageSieve) + blacklist API | v0.1   | measured 2026-10-30             |
-| Gmail / Workspace                 | Gmail filters (own OAuth client)    | v0.1   | measured 2026-10-30, Gmail only |
-| Outlook / Hotmail / Microsoft 365 | Graph message rules                 | v0.2   | documented, not yet measured    |
+| Provider                          | Mechanism                           | Target | Evidence                                 |
+| --------------------------------- | ----------------------------------- | ------ | ---------------------------------------- |
+| MXroute                           | Sieve (ManageSieve) + blacklist API | v0.1   | measured 2026-10-30                      |
+| Gmail / Workspace                 | Gmail filters (own OAuth client)    | v0.1   | measured 2026-10-30, Gmail only          |
+| Migadu                            | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot, not on the provider |
+| mailbox.org                       | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot, not on the provider |
+| Purelymail                        | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot, not on the provider |
+| Other ManageSieve server          | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot 2026-10-31           |
+| Outlook / Hotmail / Microsoft 365 | Graph message rules                 | v0.2   | documented, not yet measured             |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
-"Measured" means it ran against a real account.
+"Measured" means it ran against a real account. "Measured on Dovecot, not on the provider" means
+the same code ran against a local Dovecot + Pigeonhole on 2026-10-31, and the provider's public
+ManageSieve port answered with the right abilities without a sign-in. No rule was written and no
+mail filtered at that provider ([ADR 0012](docs/adr/0012-generic-managesieve.md)).
 Not yet measured on MXroute: adding the `include` to a user's already-active Sieve script, and an
 envelope-sender match on its own (the test mail had the same From and envelope address).
-Other servers that speak IMAP and ManageSieve may work; none was tried.
 
 ## Uninstall
 

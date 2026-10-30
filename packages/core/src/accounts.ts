@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ADDRESS_LIMITS, mailboxKey, parseAddress, validateDomain } from "./address.js";
+import { MAIL_SERVERS, MANAGESIEVE_PORT, PRESET_SERVERS, SERVER_PRESETS } from "./mail-server.js";
 import { ACCOUNT_ID, MAX_ACCOUNTS } from "./sync/engine.js";
 
 // RFC 1035 §2.3.4: a host name is at most 253 characters of letters, digits, dots and hyphens
@@ -10,7 +11,9 @@ const Host = z
   .min(HOST_LENGTH.min)
   .max(HOST_LENGTH.max)
   .regex(/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/u);
-const Port = z.number().int().min(1).max(65_535);
+/** A TCP port. Unit: port number. */
+const PORT = { min: 1, max: 65_535 } as const;
+const Port = z.number().int().min(PORT.min).max(PORT.max);
 // RFC 4616 §2: a SASL authcid is at most 255 octets; ASCII-only here keeps characters = octets.
 const User = z
   .string()
@@ -134,6 +137,8 @@ export type MxrouteConfig = z.infer<typeof MxrouteConfig>;
 /** A mailbox reached over IMAP, blocked through ManageSieve (and, optionally, the MXroute blacklist). */
 export const ImapAccountConfigSchema = z.strictObject({
   id: z.string().regex(ACCOUNT_ID),
+  /** Who runs it. Absent on accounts from before 0.2, when the form made MXroute accounts only. */
+  provider: z.enum(MAIL_SERVERS).optional(),
   imap: z.strictObject({ host: Host, port: Port, secure: z.boolean(), user: User }),
   sieve: z.strictObject({ host: Host, port: Port, user: User }),
   passwordCipher: Ciphertext,
@@ -224,6 +229,11 @@ export function isImapAccount(account: AccountConfig): account is ImapAccountCon
   return "imap" in account;
 }
 
+/** Only these mailboxes can have an MXroute key and a blacklist. */
+export function isMxrouteAccount(account: ImapAccountConfig): boolean {
+  return account.provider === undefined || account.provider === "mxroute";
+}
+
 /** Narrows to the Gmail kind. */
 export function isGmailAccount(account: AccountConfig): account is GmailAccountConfig {
   return "gmail" in account;
@@ -269,6 +279,7 @@ export const ACCOUNT_ADD_LIMITS = {
   address: { min: 3, max: 64 },
   host: HOST_LENGTH,
   password: { min: 1, max: 255 },
+  port: PORT,
 } as const;
 
 /** No control characters: a NUL or a line break cannot be sent in a SASL or quoted login, and no real password holds one. */
@@ -306,40 +317,95 @@ const PRIVATE_HOST_ENDING =
 /** A dot and an alphabetic top label: this also turns away an IP address and a single-label name. */
 const PUBLIC_HOST_NAME = /\.(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/iu;
 
-/** The form's three fields. The address comes out in the form `parseAddress` returns; an issue never quotes the input. */
-export const AccountAddSchema = z.strictObject({
-  address: z
-    .string()
-    .min(ACCOUNT_ADD_LIMITS.address.min)
-    .max(ACCOUNT_ADD_LIMITS.address.max)
-    .transform((value, ctx) => {
-      const parsed = parseAddress(value);
-      if (
-        parsed.ok &&
-        ACCOUNT_ID.test(parsed.value.address) &&
-        !LANE_ID_ENDING.test(parsed.value.address)
-      ) {
-        return parsed.value.address;
-      }
-      ctx.addIssue({ code: "custom", message: "not a mail address" });
-      return z.NEVER;
-    }),
-  // Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
-  // process's own confirmation are what protect the password.
-  host: Host.refine((value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value), {
+/** The address comes out in the form `parseAddress` returns; an issue never quotes the input. */
+const FormAddress = z
+  .string()
+  .min(ACCOUNT_ADD_LIMITS.address.min)
+  .max(ACCOUNT_ADD_LIMITS.address.max)
+  .transform((value, ctx) => {
+    const parsed = parseAddress(value);
+    if (
+      parsed.ok &&
+      ACCOUNT_ID.test(parsed.value.address) &&
+      !LANE_ID_ENDING.test(parsed.value.address)
+    ) {
+      return parsed.value.address;
+    }
+    ctx.addIssue({ code: "custom", message: "not a mail address" });
+    return z.NEVER;
+  });
+
+// Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
+// process's own confirmation are what protect the password.
+const FormHost = Host.refine(
+  (value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value),
+  {
     message: "not a public host name",
     // Lower case: DNS does not care, and in a dialog a capital I then shows as an i, not as an l.
-  }).transform((value) => value.toLowerCase()),
-  password: Password,
-});
+  },
+).transform((value) => value.toLowerCase());
+
+/**
+ * The add form. A preset names its server here, in the main process: the page never says where a password goes for those.
+ * "other" alone has a port, because a host running ManageSieve elsewhere than 4190 is its own choice; IMAP stays 993 over TLS.
+ */
+export const AccountAddSchema = z.discriminatedUnion("provider", [
+  z.strictObject({
+    provider: z.literal("mxroute"),
+    address: FormAddress,
+    host: FormHost,
+    password: Password,
+  }),
+  z.strictObject({
+    provider: z.literal("other"),
+    address: FormAddress,
+    host: FormHost,
+    port: Port,
+    password: Password,
+  }),
+  z.strictObject({
+    provider: z.enum(PRESET_SERVERS),
+    address: FormAddress,
+    password: Password,
+  }),
+]);
 export type AccountAddInput = z.infer<typeof AccountAddSchema>;
 
-/** The form asks for no ports: MXroute serves IMAP over TLS on 993 and ManageSieve on 4190, and the login is the address. */
+export interface FormServer {
+  readonly imapHost: string;
+  readonly sieveHost: string;
+  readonly sievePort: number;
+  /** The provider's name for a preset, null when the person typed the server. */
+  readonly presetName: string | null;
+}
+
+/** Where this form's password goes: the one answer for the check, the stored account and the confirmation. */
+export function formServer(input: AccountAddInput): FormServer {
+  if (input.provider === "mxroute" || input.provider === "other") {
+    return {
+      imapHost: input.host,
+      sieveHost: input.host,
+      sievePort: input.provider === "other" ? input.port : MANAGESIEVE_PORT,
+      presetName: null,
+    };
+  }
+  const preset = SERVER_PRESETS[input.provider];
+  return {
+    imapHost: preset.imapHost,
+    sieveHost: preset.sieveHost,
+    sievePort: MANAGESIEVE_PORT,
+    presetName: preset.name,
+  };
+}
+
+/** IMAP is always TLS on 993 and the login is the address; a server set up differently goes through `--add-account`. */
 export function accountFromForm(input: AccountAddInput): NewAccount {
+  const server = formServer(input);
   return NewAccountSchema.parse({
     id: input.address,
-    imap: { host: input.host, port: 993, secure: true, user: input.address },
-    sieve: { host: input.host, port: 4190, user: input.address },
+    provider: input.provider,
+    imap: { host: server.imapHost, port: 993, secure: true, user: input.address },
+    sieve: { host: server.sieveHost, port: server.sievePort, user: input.address },
     password: input.password,
   });
 }

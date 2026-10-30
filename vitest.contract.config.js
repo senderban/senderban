@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // default `npm test`: GitHub's windows-latest runners cannot run Linux containers.
 export default defineConfig({
   test: {
-    include: ["packages/*/contract/**/*.contract.ts"],
+    include: ["packages/*/contract/**/*.contract.ts", "apps/*/contract/**/*.contract.ts"],
     testTimeout: 60_000,
     hookTimeout: 120_000,
     fileParallelism: false,

@@ -4,6 +4,24 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- **Add mailbox** now takes any mail server that speaks IMAP and ManageSieve: pick MXroute, Migadu,
+  mailbox.org or Purelymail, or **Other mail server** with your own host and port. The presets were
+  checked on the providers' public ports without signing in; the rules themselves were measured on
+  a local Dovecot, not on those providers.
+- Before any password leaves the device, Senderban asks the ManageSieve port what it is, so a server
+  without it, without encryption or with a bad certificate is named as such.
+
+### Changed
+
+- Servers without the Sieve `include` extension work: Senderban's rules become the active script
+  when that place is free. A mailbox with its own active script on such a server is refused when
+  added, and that script is never touched.
+- A server that sends its capabilities in clear behind the STARTTLS reply is no longer refused. Those
+  bytes are dropped unread and the capabilities are asked for over TLS.
+- The MXroute key card shows only when you have an MXroute mailbox or a saved key.
+
 ## [0.1.4] - 2026-10-31
 
 ### Changed

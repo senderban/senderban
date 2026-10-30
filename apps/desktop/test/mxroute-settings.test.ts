@@ -41,6 +41,7 @@ const KEY = "test-mxroute-key-not-real-0000";
 const login = { server: "mx.example.net", username: "exampleuser" };
 const input = { ...login, apiKey: KEY };
 const onDomain = (domain: string, enabled: boolean) => ({ ...login, domain, enabled });
+const onDomainEntry = { domain: "example.com", enabled: true };
 
 let dir: string;
 let file: string;
@@ -68,11 +69,36 @@ describe("MXroute key storage", () => {
     const page = await listMxroute(keys, file);
     expect(page.keys).toEqual([{ ...login, domains: [{ domain: "example.com", enabled: false }] }]);
     expect(page.accounts).toEqual([
-      { accountId: "a", label: "a@example.com" },
-      { accountId: "b", label: "b@example.com" },
+      { accountId: "a", label: "a@example.com", mxroute: true },
+      { accountId: "b", label: "b@example.com", mxroute: true },
     ]);
     expect(JSON.stringify(page)).not.toContain("apiKeyCipher");
     expect(JSON.stringify(page)).not.toContain(KEY);
+  });
+
+  it("offers a key no mailbox hosted elsewhere, and no blacklist for one", async () => {
+    const elsewhere = { ...account("c", "elsewhere.example"), provider: "migadu" as const };
+    await saveAccounts(file, [account("a"), elsewhere]);
+    await saveMxroute(keys, input, ok);
+    const page = await listMxroute(keys, file);
+    expect(page.keys[0]?.domains.map((d) => d.domain)).toEqual(["example.com"]);
+    expect(page.accounts.map((a) => a.mxroute)).toEqual([true, false]);
+    expect(await setMxrouteEnabled(keys, file, onDomain("elsewhere.example", true), ok)).toBe(
+      "unknown-domain",
+    );
+    const domains = [{ domain: "elsewhere.example", enabled: true }];
+    const held = [{ ...login, apiKeyCipher: "QUJD", domains }];
+    expect(mxrouteGroups(held, [elsewhere]).size).toBe(0);
+    expect(await blacklistOutlives(keys, file, elsewhere)).toBe(false);
+  });
+
+  it("warns of a blacklist left behind though a mailbox hosted elsewhere keeps the domain", async () => {
+    const gone = account("a");
+    const same = { ...account("b"), provider: "other" as const };
+    await saveAccounts(file, [same]);
+    const held = [{ ...login, apiKeyCipher: "QUJD", domains: [onDomainEntry] }];
+    await seed(held);
+    expect(await blacklistOutlives(keys, file, gone)).toBe(true);
   });
 
   it("works with no mailbox set up at all: a key belongs to the login", async () => {

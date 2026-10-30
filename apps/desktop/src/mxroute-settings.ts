@@ -5,6 +5,7 @@ import {
   MxrouteKeysFileSchema,
   createMxrouteClient,
   isImapAccount,
+  isMxrouteAccount,
   mxrouteLaneId,
   mxrouteStateHolds,
   validateDomain,
@@ -36,6 +37,8 @@ export interface MxroutePageAccount {
   readonly accountId: string;
   /** How the person knows the account (its mail address). */
   readonly label: string;
+  /** Whether an MXroute key and a blacklist can apply to it at all. */
+  readonly mxroute: boolean;
 }
 
 /** What the page may know about a key. The key itself never leaves this process. */
@@ -164,7 +167,7 @@ export function mxrouteGroups(
   hasLaneState: (accountId: string) => boolean = () => false,
 ): Map<string, MxrouteGroup> {
   const onDomain = new Map<string, string[]>();
-  for (const account of accounts) {
+  for (const account of accounts.filter(isMxrouteAccount)) {
     const domain = mailDomain(account);
     if (domain === null) continue;
     onDomain.set(domain, [...(onDomain.get(domain) ?? []), account.id]);
@@ -187,7 +190,11 @@ export function mxrouteGroups(
 /** Everything the page needs to draw the Accounts view: no ciphertext, no key. */
 export async function listMxroute(keysPath: string, accountsPath: string): Promise<MxroutePage> {
   const accounts = (await loadAccounts(accountsPath)).filter(isImapAccount);
-  const page = accounts.map((a) => ({ accountId: a.id, label: a.imap.user }));
+  const page = accounts.map((a) => ({
+    accountId: a.id,
+    label: a.imap.user,
+    mxroute: isMxrouteAccount(a),
+  }));
   let keys: MxrouteStoredKey[];
   try {
     keys = await loadMxrouteKeys(keysPath);
@@ -195,7 +202,7 @@ export async function listMxroute(keysPath: string, accountsPath: string): Promi
     return { accounts: page, keys: [], keysUnreadable: true };
   }
   const held = new Set(keys.flatMap((k) => k.domains.map((d) => d.domain)));
-  const unheld = [...new Set(accounts.map(mailDomain))].filter(
+  const unheld = [...new Set(accounts.filter(isMxrouteAccount).map(mailDomain))].filter(
     (d): d is string => d !== null && !held.has(d),
   );
   return {
@@ -259,7 +266,9 @@ export async function setMxrouteEnabled(
   if (!holds(key)) {
     if (!enabled) return "saved";
     const accounts = (await loadAccounts(accountsPath)).filter(isImapAccount);
-    if (!accounts.some((a) => mailDomain(a) === domain)) return "unknown-domain";
+    if (!accounts.some((a) => isMxrouteAccount(a) && mailDomain(a) === domain)) {
+      return "unknown-domain";
+    }
     try {
       await check(key, domain);
     } catch (error) {
@@ -345,12 +354,12 @@ export async function blacklistOutlives(
   accountsPath: string,
   account: ImapAccountConfig,
 ): Promise<boolean> {
-  const domain = mailDomain(account);
+  const domain = isMxrouteAccount(account) ? mailDomain(account) : null;
   if (domain === null) return false;
   const keys = await loadMxrouteKeys(keysPath);
   if (!keys.some((k) => k.domains.some((d) => d.domain === domain))) return false;
   const left = (await loadAccounts(accountsPath)).filter(isImapAccount);
-  return !left.some((a) => mailDomain(a) === domain);
+  return !left.some((a) => isMxrouteAccount(a) && mailDomain(a) === domain);
 }
 
 /**

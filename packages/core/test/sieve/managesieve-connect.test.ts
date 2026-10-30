@@ -1,7 +1,8 @@
 import { createServer } from "node:net";
 import type { AddressInfo, Server, Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { connectManageSieve } from "../../src/sieve/managesieve.js";
+import type { AdapterError } from "../../src/adapter.js";
+import { connectManageSieve, probeManageSieve } from "../../src/sieve/managesieve.js";
 
 const servers: Server[] = [];
 const sockets: Socket[] = [];
@@ -96,6 +97,97 @@ describe("connectManageSieve", () => {
     const { port } = await listen('"IMPLEMENTATION" "fake"\r\nOK\r\n');
     await expect(connectManageSieve(options(port))).rejects.toMatchObject({
       code: "CAPABILITY_NOT_SUPPORTED",
+    });
+  });
+});
+
+describe("a refusal before TLS", () => {
+  const phish = "Your mailbox is locked, go to evil.example";
+
+  it("keeps the unauthenticated greeting's words out of the error", async () => {
+    const { port } = await listen(`NO "${phish}"\r\n`);
+    const error: unknown = await connectManageSieve(options(port)).catch((e: unknown) => e);
+    expect((error as Error).message).not.toContain("evil.example");
+    expect((error as AdapterError).code).toBe("REJECTED");
+  });
+
+  it("keeps the unauthenticated STARTTLS reply's words out of the error", async () => {
+    const { port } = await listen('"STARTTLS"\r\nOK\r\n', `NO "${phish}"\r\n`);
+    const error: unknown = await connectManageSieve(options(port)).catch((e: unknown) => e);
+    expect((error as Error).message).not.toContain("evil.example");
+  });
+});
+
+describe("bytes behind the STARTTLS reply", () => {
+  it("are never taken for an answer: the client goes on to TLS, and no password leaves in clear", async () => {
+    const received: Buffer[] = [];
+    const forged = 'OK\r\n"SASL" "PLAIN"\r\n"SIEVE" "fileinto mailbox envelope"\r\nOK\r\n';
+    const server = createServer((socket: Socket) => {
+      sockets.push(socket);
+      socket.on("error", () => undefined);
+      socket.write('"STARTTLS"\r\nOK\r\n');
+      socket.once("data", () => {
+        socket.write(forged);
+        socket.on("data", (chunk: Buffer) => {
+          received.push(chunk);
+          socket.destroy();
+        });
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    await expect(connectManageSieve(options(port))).rejects.toThrow(/TLS|closed/u);
+    const sent = Buffer.concat(received);
+    // 0x16 is a TLS handshake record: the next thing on the wire was the client's hello.
+    expect(sent[0]).toBe(0x16);
+    expect(sent.toString("latin1")).not.toContain("AUTHENTICATE");
+  });
+});
+
+describe("probeManageSieve", () => {
+  it("refuses a server without STARTTLS, having sent nothing", async () => {
+    let received = 0;
+    const server = createServer((socket: Socket) => {
+      sockets.push(socket);
+      socket.on("error", () => undefined);
+      socket.on("data", (chunk: Buffer) => {
+        received += chunk.length;
+      });
+      socket.write('"IMPLEMENTATION" "fake"\r\nOK\r\n');
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    await expect(probeManageSieve({ host: "127.0.0.1", port })).rejects.toMatchObject({
+      code: "CAPABILITY_NOT_SUPPORTED",
+    });
+    expect(received).toBe(0);
+  });
+
+  it("fails on something that is not ManageSieve instead of hanging", async () => {
+    const { port } = await listen("220 mail.example.com ESMTP\r\n");
+    await expect(
+      probeManageSieve({ host: "127.0.0.1", port, timeoutMs: 200 }),
+    ).rejects.toMatchObject({ code: "TRANSIENT" });
+  });
+
+  it("closes the socket when the caller gives up", async () => {
+    const { port, closed } = await listen();
+    const controller = new AbortController();
+    const failed = expect(
+      probeManageSieve({ host: "127.0.0.1", port, signal: controller.signal }),
+    ).rejects.toThrow();
+    setTimeout(() => {
+      controller.abort();
+    }, 50);
+    await closed;
+    await failed;
+  });
+
+  it("refuses a port out of range before connecting", async () => {
+    await expect(probeManageSieve({ host: "127.0.0.1", port: 70_000 })).rejects.toMatchObject({
+      code: "REJECTED",
     });
   });
 });

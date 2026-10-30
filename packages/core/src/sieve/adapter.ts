@@ -28,7 +28,7 @@ import {
   scriptSha256,
   type RenderOptions,
 } from "./rules.js";
-import type { SieveSession } from "./session.js";
+import type { SieveScriptInfo, SieveSession } from "./session.js";
 
 export const SIEVE_ADAPTER_ID = "sieve";
 /**
@@ -37,8 +37,14 @@ export const SIEVE_ADAPTER_ID = "sieve";
  */
 export const SIEVE_SUSPEND_WAIT_MS = 75_000;
 
-/** Extensions our scripts use: `fileinto`+`mailbox`+`envelope` for the rule, `include` for the hook. */
-const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "envelope", "include"] as const;
+/**
+ * Extensions the rules script uses. `include` is not among them: Migadu and Purelymail do not advertise it (their greetings,
+ * read 2026-10-31), and there the rules script itself is made the active one.
+ */
+const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "envelope"] as const;
+
+/** The name `initialSieveState` gives the rules script. */
+const RULES_SCRIPT = "senderban-rules";
 
 // PROVISIONAL bound (bytes): size of the pre-edit copy of the user's script kept in local state.
 // Replace with the measured server script limit once the Dovecot contract run (S4) has it.
@@ -69,7 +75,7 @@ const StateSchema = z.strictObject({
 export type SieveState = z.infer<typeof StateSchema>;
 
 export function initialSieveState(
-  rulesName = "senderban-rules",
+  rulesName = RULES_SCRIPT,
   mainName = "senderban-main",
 ): OpaqueState {
   assertScriptName(rulesName);
@@ -175,17 +181,53 @@ function requireExtensions(session: SieveSession): void {
   }
 }
 
+/** Whether a server can hold our rules: `own-script` is a person's active script on a server with no `include` to add to it. */
+export type SieveFit = "ok" | "missing-extensions" | "own-script";
+
+/** The answer before anything is written. Only one script is active at a time, so taking that place would switch theirs off. */
+export function sieveFit(
+  extensions: ReadonlySet<string>,
+  scripts: readonly SieveScriptInfo[],
+  rulesName = RULES_SCRIPT,
+): SieveFit {
+  if (REQUIRED_EXTENSIONS.some((name) => !extensions.has(name))) return "missing-extensions";
+  if (extensions.has("include")) return "ok";
+  const active = scripts.find((s) => s.active);
+  return active === undefined || active.name === rulesName ? "ok" : "own-script";
+}
+
+const ownScriptInTheWay = (): AdapterError =>
+  new AdapterError(
+    "CAPABILITY_NOT_SUPPORTED",
+    "server has no include extension and another script is active",
+  );
+
 /**
- * Makes sure the user's active script runs our rules script and returns a backup of their script
- * when it had to be edited. Idempotent: calling it again changes nothing.
+ * Makes sure our rules run: through an `include`, or as the active script themselves where the server has none. Returns a
+ * backup of the user's script when it had to be edited. Idempotent: calling it again changes nothing.
  */
+async function ensureRulesRun(
+  session: SieveSession,
+  state: SieveState,
+  active: SieveScriptInfo | undefined,
+  justWritten: boolean,
+): Promise<SieveState["includeBackup"]> {
+  if (active?.name === state.rulesName) return null;
+  if (session.extensions().has("include")) return ensureInclude(session, state, active);
+  // SETACTIVE switches off whatever is active and nothing shows it afterwards, so the place is read once more first.
+  if ((await session.listScripts()).some((s) => s.active)) {
+    if (justWritten) await session.deleteScript(state.rulesName);
+    throw ownScriptInTheWay();
+  }
+  await session.setActive(state.rulesName);
+  return null;
+}
+
 async function ensureInclude(
   session: SieveSession,
   state: SieveState,
+  active: SieveScriptInfo | undefined,
 ): Promise<SieveState["includeBackup"]> {
-  const scripts = await session.listScripts();
-  const active = scripts.find((s) => s.active);
-
   if (active === undefined || active.name === state.mainName) {
     // Ours: either nothing is active (we activate our own script) or our script already is.
     const current = await session.getScript(state.mainName);
@@ -389,9 +431,16 @@ export class SieveAdapter implements BlockAdapter {
           throw new AdapterError("QUOTA_EXCEEDED", "server has no room for the rules script");
         }
 
+        // Right before the first write: a refusal after the rules script went up would leave it there, unrecorded.
+        const scripts = await session.listScripts();
+        if (sieveFit(session.extensions(), scripts, state.rulesName) === "own-script") {
+          throw ownScriptInTheWay();
+        }
+
         // The include target must exist before anything points at it (servers compile includes).
         if (remote === null) await session.putScript(state.rulesName, rules);
-        const backup = await ensureInclude(session, state);
+        const active = scripts.find((s) => s.active);
+        const backup = await ensureRulesRun(session, state, active, remote === null);
         if (remote !== null && needsWrite) await session.putScript(state.rulesName, rules);
 
         const next: SieveState = {
@@ -434,7 +483,10 @@ export class SieveAdapter implements BlockAdapter {
         }
       }
 
-      if (active?.name === current.mainName) {
+      if (active?.name === current.rulesName) {
+        // Active itself on a server without `include`: the server refuses to delete an active script.
+        await session.setActive("");
+      } else if (active?.name === current.mainName) {
         const text = await session.getScript(current.mainName);
         if (text === null || !isOurMain(text)) {
           throw new AdapterError("REMOTE_CHANGED", `script "${current.mainName}" is not ours`);
@@ -501,6 +553,8 @@ export class SieveAdapter implements BlockAdapter {
         const active = (await session.listScripts()).find((s) => s.active);
         if (active === undefined) {
           check("include-active", false, "no active script");
+        } else if (active.name === current.rulesName) {
+          check("include-active", true, `rules script "${active.name}" is the active script`);
         } else {
           const text = await session.getScript(active.name);
           const included = text !== null && hasInclude(text, current.rulesName);

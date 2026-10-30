@@ -13,7 +13,11 @@ export class FakeSieveServer {
   /** Hooks for failure injection. */
   beforeGet: ((name: string, nth: number) => void) | null = null;
   failSetActiveOnce = false;
+  /** Runs after each PUTSCRIPT: a person acting between two commands of a round. */
+  afterPut: (() => void) | null = null;
   readonly puts: string[] = [];
+  /** Every command sent, in order: what a round costs. */
+  readonly commands: string[] = [];
   #gets = new Map<string, number>();
   closed = 0;
   destroyed = 0;
@@ -21,27 +25,36 @@ export class FakeSieveServer {
   session(): SieveSession {
     return {
       extensions: () => this.extensions,
-      listScripts: () =>
-        Promise.resolve(
+      listScripts: () => {
+        this.commands.push("LISTSCRIPTS");
+        return Promise.resolve(
           [...this.scripts.keys()].map((name): SieveScriptInfo => ({
             name,
             active: name === this.active,
           })),
-        ),
+        );
+      },
       getScript: (name) => {
+        this.commands.push("GETSCRIPT");
         const nth = (this.#gets.get(name) ?? 0) + 1;
         this.#gets.set(name, nth);
         this.beforeGet?.(name, nth);
         return Promise.resolve(this.scripts.get(name) ?? null);
       },
-      haveSpace: (_name, size) => Promise.resolve(size <= this.maxScriptBytes),
+      haveSpace: (_name, size) => {
+        this.commands.push("HAVESPACE");
+        return Promise.resolve(size <= this.maxScriptBytes);
+      },
       putScript: (name, content) => {
+        this.commands.push("PUTSCRIPT");
         this.compile(content);
         this.scripts.set(name, content);
         this.puts.push(name);
+        this.afterPut?.();
         return Promise.resolve();
       },
       deleteScript: (name) => {
+        this.commands.push("DELETESCRIPT");
         if (name === this.active) {
           return Promise.reject(new AdapterError("REJECTED", "cannot delete the active script"));
         }
@@ -51,6 +64,7 @@ export class FakeSieveServer {
         return Promise.resolve();
       },
       setActive: (name) => {
+        this.commands.push("SETACTIVE");
         if (name === "") {
           this.active = null;
           return Promise.resolve();

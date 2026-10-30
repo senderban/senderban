@@ -2,6 +2,7 @@ import {
   AdapterError,
   SIEVE_SUSPEND_WAIT_MS,
   initialSieveState,
+  isMxrouteAccount,
   isImapAccount,
   mxrouteLaneId,
   sieveStateForReinstall,
@@ -220,7 +221,7 @@ export function dropImapAccount(accountId: string, rulesRemain: boolean, live: L
 
 export interface AccountRemoveSteps {
   /** The person's own yes, asked by the main process, naming the account. */
-  readonly confirm: (label: string) => Promise<boolean>;
+  readonly confirm: (label: string, mxroute: boolean) => Promise<boolean>;
   /** The rules could not be deleted: does the person want the account gone anyway? */
   readonly confirmLeaveRules: (label: string) => Promise<boolean>;
   readonly rules: () => Promise<SieveRulesLifecycle>;
@@ -242,7 +243,7 @@ export async function removeImapAccount(
   const account = (await loadAccounts(path)).filter(isImapAccount).find((a) => a.id === accountId);
   if (account === undefined) return "unknown-account";
   const label = account.imap.user;
-  if (!(await steps.confirm(label))) return "cancelled";
+  if (!(await steps.confirm(label, isMxrouteAccount(account)))) return "cancelled";
 
   const rules = await steps.rules();
   let rulesRemain = false;

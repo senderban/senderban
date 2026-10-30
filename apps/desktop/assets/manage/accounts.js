@@ -1,6 +1,6 @@
 /* global setNotice, leaveAddView, stateBadge, offerRestart, mxDraw, mxLoadFailed, mxSwitches */
 /* exported acLoad, acLoaded */
-// MXroute mailboxes of the sandboxed manage page, grouped by mail domain, and the add form. The password is typed here, sent once to the main process and then
+// Mailboxes on mail servers of the sandboxed manage page, grouped by mail domain, and the add form. The password is typed here, sent once to the main process and then
 // forgotten: nothing here ever receives it back, and every value shown came from main as plain text (textContent only).
 const acApi = window.senderban;
 const acEls = {
@@ -9,6 +9,12 @@ const acEls = {
   address: document.getElementById("account-address"),
   password: document.getElementById("account-password"),
   host: document.getElementById("account-host"),
+  provider: document.getElementById("account-provider"),
+  port: document.getElementById("account-port"),
+  hostField: document.getElementById("account-host-field"),
+  hostHint: document.getElementById("account-host-hint"),
+  portField: document.getElementById("account-port-field"),
+  server: document.getElementById("account-server"),
   save: document.getElementById("account-save"),
   providerMx: document.getElementById("provider-mx"),
   providerGmail: document.getElementById("provider-gmail"),
@@ -28,7 +34,19 @@ const AC_REPLY = {
   "login-refused": ["error", "The server refused this address or password."],
   "sieve-missing": [
     "error",
-    "The login worked, but Senderban could not reach ManageSieve on port 4190, which it needs to write rules. Nothing was saved.",
+    "ManageSieve did not answer on that server and port, and Senderban needs it to write rules. Your provider may not offer it. Nothing was saved.",
+  ],
+  "sieve-no-tls": [
+    "error",
+    "This server offers ManageSieve without encryption, so Senderban did not send the password. Nothing was saved.",
+  ],
+  "sieve-unsupported": [
+    "error",
+    "This server's ManageSieve lacks the sign-in or the Sieve extensions Senderban needs. Nothing was saved.",
+  ],
+  "sieve-own-script": [
+    "error",
+    "This mailbox has its own active filter script, and this server cannot add Senderban's rules to it. Switch that script off at your provider, or keep it and do not add this mailbox. Nothing was saved.",
   ],
   unreachable: ["error", "Could not reach this server. Check its name and try again."],
   "tls-refused": [
@@ -74,6 +92,7 @@ const AC_REMOVE_REPLY = {
 
 let acBusy = false;
 let acLimits = null;
+let acServers = null;
 
 /** Marks a value longer than the limit as invalid (the form then refuses to send it) instead of cutting it. */
 function acCheckLength(input, max) {
@@ -126,7 +145,9 @@ function acGroup(domain, accounts, keys) {
   title.textContent = domain;
   const hint = document.createElement("p");
   hint.className = "meta";
-  if (holders.length === 0) {
+  if (holders.length === 0 && !accounts.some((account) => account.mxroute)) {
+    hint.textContent = "Notifications offer Junk and Trash here.";
+  } else if (holders.length === 0) {
     hint.dataset.tone = "warn";
     hint.textContent = "Block at server needs an API key. Add one below.";
   } else {
@@ -198,22 +219,26 @@ async function acLoadOnce({ quiet = false } = {}) {
   acEls.password.minLength = acLimits.password.min;
   acEls.host.minLength = acLimits.host.min;
   acEls.host.pattern = "[A-Za-z0-9]([A-Za-z0-9.\\-]*[A-Za-z0-9])?";
+  acServers = result.addServers;
+  acEls.port.min = String(acLimits.port.min);
+  acEls.port.max = String(acLimits.port.max);
+  if (acEls.port.value === "") acEls.port.value = String(acServers.port);
+  acShowServer();
   mxDraw(result);
   acDraw(result);
 }
 
 async function acAdd() {
   acSetBusy(true);
-  const input = {
-    address: acEls.address.value,
-    host: acEls.host.value,
-    password: acEls.password.value,
-  };
+  const provider = acEls.provider.value;
+  const input = { provider, address: acEls.address.value, password: acEls.password.value };
+  if (provider === "mxroute" || provider === "other") input.host = acEls.host.value;
+  if (provider === "other") input.port = Number(acEls.port.value);
   // The password leaves the page as soon as it is sent, whatever the answer.
   acEls.password.value = "";
   let saved = false;
   try {
-    setNotice("working", "Checking the login. This can take up to 45 seconds…");
+    setNotice("working", "Checking the server and the login. This can take up to a minute…");
     const reply = await acApi.accountAdd(input);
     const [tone, text] = AC_REPLY[reply] ?? AC_REPLY.failed;
     setNotice(tone, text);
@@ -225,6 +250,7 @@ async function acAdd() {
   if (saved) {
     acEls.address.value = "";
     acEls.host.value = "";
+    acEls.port.value = String(acServers.port);
     await acLoad({ quiet: true }).catch(() => undefined);
     leaveAddView();
     offerRestart();
@@ -263,6 +289,34 @@ acEls.form.addEventListener("submit", (event) => {
   if (acBusy || !acEls.form.reportValidity()) return;
   void acAdd();
 });
+
+/** Who runs the mailbox decides which fields there are. A hidden field is disabled, so it takes no part in the form's check. */
+function acShowServer() {
+  const provider = acEls.provider.value;
+  const preset = acServers?.presets[provider];
+  const typed = provider === "mxroute" || provider === "other";
+  acEls.hostField.hidden = !typed;
+  acEls.host.disabled = !typed;
+  acEls.portField.hidden = provider !== "other";
+  acEls.port.disabled = provider !== "other";
+  acEls.hostHint.textContent =
+    provider === "other"
+      ? "The server must take IMAP over TLS on port 993 and ManageSieve with STARTTLS, under a certificate that verifies."
+      : "It is in your MXroute welcome mail.";
+  acEls.host.placeholder =
+    provider === "other" ? "e.g. mail.example.com" : "e.g. eagle.mxlogin.com";
+  acEls.server.hidden = preset === undefined;
+  if (preset === undefined) return;
+  acEls.server.textContent = [
+    `Senderban signs in at ${preset.imapHost} and writes filters at ${preset.sieveHost}, port ${String(acServers.port)}.`,
+    preset.note,
+    `Not yet tried on a real ${preset.name} mailbox.`,
+  ]
+    .filter((line) => line !== "")
+    .join(" ");
+}
+
+acEls.provider.addEventListener("change", acShowServer);
 
 function acShowProvider(provider) {
   acEls.providerMx.setAttribute("aria-pressed", String(provider === "mx"));

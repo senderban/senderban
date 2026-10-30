@@ -15,12 +15,17 @@ vi.mock("electron", () => ({
 
 const { AddAccountError, addAccountFromFile, addAccountFromForm } =
   await import("../src/add-account.js");
-const { ACCOUNT_CHECK_IMAP_MS, ACCOUNT_CHECK_SIEVE_MS, checkAccount } =
+const { ACCOUNT_CHECK_IMAP_MS, ACCOUNT_CHECK_REACH_MS, ACCOUNT_CHECK_SIEVE_MS, checkAccount } =
   await import("../src/account-check.js");
 const { loadAccounts, saveAccounts } = await import("../src/accounts-file.js");
 
 const PASSWORD = "not-a-real-password";
-const form = { address: "you@example.com", host: "mail.example.com", password: PASSWORD };
+const form = {
+  provider: "mxroute" as const,
+  address: "you@example.com",
+  host: "mail.example.com",
+  password: PASSWORD,
+};
 const CIPHER = Buffer.from("opaque-cipher-bytes").toString("base64");
 
 function imapAccount(user: string, id = user): AccountConfig {
@@ -55,11 +60,36 @@ afterEach(async () => {
 });
 
 describe("addAccountFromForm", () => {
+  it("takes a preset's servers from the table, not from the page", async () => {
+    const check = vi.fn(() => Promise.resolve("ok" as const));
+    const input = { provider: "purelymail" as const, address: form.address, password: PASSWORD };
+    expect(await addAccountFromForm(path, input, steps(check))).toBe("saved");
+    expect(await loadAccounts(path)).toEqual([
+      {
+        id: form.address,
+        provider: "purelymail",
+        imap: { host: "imap.purelymail.com", port: 993, secure: true, user: form.address },
+        sieve: { host: "mailserver.purelymail.com", port: 4190, user: form.address },
+        passwordCipher: CIPHER,
+      },
+    ]);
+  });
+
+  it("keeps the typed port of another mail server", async () => {
+    const check = vi.fn(() => Promise.resolve("ok" as const));
+    const input = { ...form, provider: "other" as const, port: 2000 };
+    expect(await addAccountFromForm(path, input, steps(check))).toBe("saved");
+    const [saved] = await loadAccounts(path);
+    expect(saved).toMatchObject({ provider: "other", sieve: { port: 2000 } });
+  });
+
   it("stores the account with the MXroute ports, encrypted, after the check", async () => {
     const check = vi.fn(() => Promise.resolve("ok" as const));
     expect(await addAccountFromForm(path, form, steps(check))).toBe("saved");
     expect(check).toHaveBeenCalledTimes(1);
-    expect(await loadAccounts(path)).toEqual([imapAccount(form.address)]);
+    expect(await loadAccounts(path)).toEqual([
+      { ...imapAccount(form.address), provider: "mxroute" },
+    ]);
     expect(await readFile(path, "utf8")).not.toContain(PASSWORD);
   });
 
@@ -275,6 +305,7 @@ describe("checkAccount", () => {
     password: PASSWORD,
   } satisfies NewAccount;
   const ok = () => Promise.resolve();
+  const fits = () => Promise.resolve("ok" as const);
   const refused = new FatalWatchError("authentication failed", {
     cause: { authenticationFailed: true },
   });
@@ -282,39 +313,43 @@ describe("checkAccount", () => {
   it("answers ok only when both logins worked, IMAP first", async () => {
     const order: string[] = [];
     const reply = await checkAccount(account, {
+      reach: () => {
+        order.push("reach");
+        return fits();
+      },
       imap: () => {
         order.push("imap");
         return Promise.resolve();
       },
       sieve: () => {
         order.push("sieve");
-        return Promise.resolve();
+        return fits();
       },
     });
     expect(reply).toBe("ok");
-    expect(order).toEqual(["imap", "sieve"]);
+    expect(order).toEqual(["reach", "imap", "sieve"]);
   });
 
   it("says a refused IMAP login, and never tries ManageSieve after it", async () => {
-    const sieve = vi.fn(ok);
+    const sieve = vi.fn(fits);
     const imap = () => Promise.reject(refused);
-    expect(await checkAccount(account, { imap, sieve })).toBe("login-refused");
+    expect(await checkAccount(account, { reach: fits, imap, sieve })).toBe("login-refused");
     expect(sieve).not.toHaveBeenCalled();
   });
 
   it("does not call another fatal IMAP answer a refused password", async () => {
     const imap = () => Promise.reject(new FatalWatchError("server did not report UIDNEXT"));
-    expect(await checkAccount(account, { imap, sieve: ok })).toBe("unreachable");
+    expect(await checkAccount(account, { reach: fits, imap, sieve: fits })).toBe("unreachable");
   });
 
   it("gives up on a login that never answers, at the deadline of each step", async () => {
     vi.useFakeTimers();
     try {
-      const hung = () => new Promise<void>(() => undefined);
-      const imap = checkAccount(account, { imap: hung, sieve: ok });
+      const hung = () => new Promise<never>(() => undefined);
+      const imap = checkAccount(account, { reach: fits, imap: hung, sieve: fits });
       await vi.advanceTimersByTimeAsync(ACCOUNT_CHECK_IMAP_MS);
       expect(await imap).toBe("unreachable");
-      const sieve = checkAccount(account, { imap: ok, sieve: hung });
+      const sieve = checkAccount(account, { reach: fits, imap: ok, sieve: hung });
       await vi.advanceTimersByTimeAsync(ACCOUNT_CHECK_SIEVE_MS);
       expect(await sieve).toBe("sieve-missing");
       expect(vi.getTimerCount()).toBe(0);
@@ -327,8 +362,8 @@ describe("checkAccount", () => {
     const tls = Object.assign(new Error("certificate"), { code: "CERT_HAS_EXPIRED" });
     const imap = () => Promise.reject(tls);
     const sieve = () => Promise.reject(new AdapterError("TRANSIENT", "TLS error", { cause: tls }));
-    expect(await checkAccount(account, { imap, sieve: ok })).toBe("tls-refused");
-    expect(await checkAccount(account, { imap: ok, sieve })).toBe("tls-refused");
+    expect(await checkAccount(account, { reach: fits, imap, sieve: fits })).toBe("tls-refused");
+    expect(await checkAccount(account, { reach: fits, imap: ok, sieve })).toBe("tls-refused");
   });
 
   it("hands each probe a signal that ends at the deadline, so its socket closes with the answer", async () => {
@@ -337,9 +372,9 @@ describe("checkAccount", () => {
       let seen: AbortSignal | undefined;
       const sieve = (_: NewAccount, signal: AbortSignal) => {
         seen = signal;
-        return new Promise<void>(() => undefined);
+        return new Promise<never>(() => undefined);
       };
-      const reply = checkAccount(account, { imap: ok, sieve });
+      const reply = checkAccount(account, { reach: fits, imap: ok, sieve });
       await vi.advanceTimersByTimeAsync(ACCOUNT_CHECK_SIEVE_MS);
       expect(await reply).toBe("sieve-missing");
       expect(seen?.aborted).toBe(true);
@@ -349,10 +384,10 @@ describe("checkAccount", () => {
   });
 
   it("answers cancelled at once when the person gives up, on either login", async () => {
-    const hung = () => new Promise<void>(() => undefined);
+    const hung = () => new Promise<never>(() => undefined);
     for (const probes of [
-      { imap: hung, sieve: ok },
-      { imap: ok, sieve: hung },
+      { reach: fits, imap: hung, sieve: fits },
+      { reach: fits, imap: ok, sieve: hung },
     ]) {
       const abort = new AbortController();
       const reply = checkAccount(account, probes, { signal: abort.signal });
@@ -369,7 +404,7 @@ describe("checkAccount", () => {
       const stages: string[] = [];
       const reply = checkAccount(
         account,
-        { imap: ok, sieve: () => new Promise<void>(() => undefined) },
+        { reach: fits, imap: ok, sieve: () => new Promise<never>(() => undefined) },
         {
           onStage: (stage) => {
             stages.push(`${stage.stage}:${String(stage.timedOut)}`);
@@ -378,7 +413,7 @@ describe("checkAccount", () => {
       );
       await vi.advanceTimersByTimeAsync(ACCOUNT_CHECK_SIEVE_MS);
       await reply;
-      expect(stages).toEqual(["imap:false", "sieve:true"]);
+      expect(stages).toEqual(["reach:false", "imap:false", "sieve:true"]);
     } finally {
       vi.useRealTimers();
     }
@@ -386,14 +421,53 @@ describe("checkAccount", () => {
 
   it("calls a network failure unreachable", async () => {
     const imap = () => Promise.reject(new Error("ECONNREFUSED"));
-    expect(await checkAccount(account, { imap, sieve: ok })).toBe("unreachable");
+    expect(await checkAccount(account, { reach: fits, imap, sieve: fits })).toBe("unreachable");
   });
 
   it("tells a refused ManageSieve login from a server without ManageSieve", async () => {
     const auth = () => Promise.reject(new AdapterError("AUTH_REQUIRED", "refused"));
     const gone = () => Promise.reject(new AdapterError("TRANSIENT", "connection error"));
-    expect(await checkAccount(account, { imap: ok, sieve: auth })).toBe("login-refused");
-    expect(await checkAccount(account, { imap: ok, sieve: gone })).toBe("sieve-missing");
+    expect(await checkAccount(account, { reach: fits, imap: ok, sieve: auth })).toBe(
+      "login-refused",
+    );
+    expect(await checkAccount(account, { reach: fits, imap: ok, sieve: gone })).toBe(
+      "sieve-missing",
+    );
+  });
+
+  it("stops before any password leaves when the ManageSieve port is not fit to take one", async () => {
+    const imap = vi.fn(ok);
+    const sieve = vi.fn(fits);
+    const dead = () => Promise.reject(new AdapterError("TRANSIENT", "connection error"));
+    const clear = () => Promise.reject(new AdapterError("CAPABILITY_NOT_SUPPORTED", "no STARTTLS"));
+    const tls = Object.assign(new Error("certificate"), { code: "CERT_HAS_EXPIRED" });
+    const badCert = () => Promise.reject(new AdapterError("TRANSIENT", "TLS", { cause: tls }));
+    const lacking = () => Promise.resolve("missing-extensions" as const);
+    expect(await checkAccount(account, { reach: dead, imap, sieve })).toBe("sieve-missing");
+    expect(await checkAccount(account, { reach: clear, imap, sieve })).toBe("sieve-no-tls");
+    expect(await checkAccount(account, { reach: badCert, imap, sieve })).toBe("tls-refused");
+    expect(await checkAccount(account, { reach: lacking, imap, sieve })).toBe("sieve-unsupported");
+    expect(imap).not.toHaveBeenCalled();
+    expect(sieve).not.toHaveBeenCalled();
+  });
+
+  it("says when the person's own active script leaves no way in", async () => {
+    const own = () => Promise.resolve("own-script" as const);
+    expect(await checkAccount(account, { reach: fits, imap: ok, sieve: own })).toBe(
+      "sieve-own-script",
+    );
+  });
+
+  it("gives up on a port that never answers, at the first step's deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = () => new Promise<never>(() => undefined);
+      const reply = checkAccount(account, { reach: hung, imap: ok, sieve: fits });
+      await vi.advanceTimersByTimeAsync(ACCOUNT_CHECK_REACH_MS);
+      expect(await reply).toBe("sieve-missing");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -407,6 +481,9 @@ describe("the page's sentences", () => {
       "limit",
       "login-refused",
       "sieve-missing",
+      "sieve-no-tls",
+      "sieve-unsupported",
+      "sieve-own-script",
       "unreachable",
       "tls-refused",
       "cancelled",

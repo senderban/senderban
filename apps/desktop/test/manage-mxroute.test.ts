@@ -75,7 +75,7 @@ beforeEach(() => {
   mxrouteEnable = vi.fn(() => Promise.resolve("saved"));
   mxrouteList = vi.fn(() =>
     Promise.resolve({
-      accounts: [{ accountId: "main", label: "me@example.com" }],
+      accounts: [{ accountId: "main", label: "me@example.com", mxroute: true }],
       keys: [{ ...login, domains: [{ domain: "example.com", enabled: false }] }],
       keysUnreadable: false,
     }),
@@ -186,12 +186,13 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
     expect(Object.keys(reply).sort()).toEqual([
       "accounts",
       "addLimits",
+      "addServers",
       "keys",
       "keysUnreadable",
       "limits",
       "restartPending",
     ]);
-    expect(Object.keys(reply.accounts[0] ?? {}).sort()).toEqual(["accountId", "label"]);
+    expect(Object.keys(reply.accounts[0] ?? {}).sort()).toEqual(["accountId", "label", "mxroute"]);
     expect(Object.keys(reply.keys[0] ?? {}).sort()).toEqual(["domains", "server", "username"]);
     expect(reply.limits).toMatchObject({ apiKey: { min: 8, max: 512 } });
     expect(await call("manage:mxroute-list", otherFrame)).toBeNull();
@@ -232,7 +233,12 @@ describe("manage:mxroute-enable", () => {
 
 describe("manage:account-add", () => {
   const PASSWORD = "not-a-real-password";
-  const form = { address: "You@Example.com", host: "mail.example.com", password: PASSWORD };
+  const form = {
+    provider: "mxroute",
+    address: "You@Example.com",
+    host: "mail.example.com",
+    password: PASSWORD,
+  };
 
   it("hands the checked input over once, with the address in canonical form, and answers a fixed word", async () => {
     const reply = await call("manage:account-add", trusted, form);
@@ -253,7 +259,9 @@ describe("manage:account-add", () => {
     ["no payload", undefined],
     ["an IP address as the server", { ...form, host: "192.0.2.1" }],
     ["an unknown key", { ...form, port: 993 }],
-    ["a missing password", { address: form.address, host: form.host }],
+    ["a missing password", { provider: "mxroute", address: form.address, host: form.host }],
+    ["no provider", { address: form.address, host: form.host, password: PASSWORD }],
+    ["a server named for a preset", { ...form, provider: "migadu" }],
     ["a host with a path", { ...form, host: "mail.example.com/x" }],
     ["a line break in the host", { ...form, host: "mail.example.com\r\nA" }],
     ["two addresses", { ...form, address: "a@example.com,b@example.com" }],
@@ -432,6 +440,7 @@ describe("manage:account-remove", () => {
     expect(await call("manage:account-remove", trusted, ID)).toBe("busy");
     expect(
       await call("manage:account-add", trusted, {
+        provider: "mxroute",
         address: ID,
         host: "mail.example.com",
         password: "not-a-real-password",
@@ -444,11 +453,25 @@ describe("manage:account-remove", () => {
 
   it("asks in the main process, with Cancel as the default", async () => {
     accountRemove.mockImplementationOnce(async (_id, request) =>
-      (await request.confirm(ID)) ? "removed" : "cancelled",
+      (await request.confirm(ID, true)) ? "removed" : "cancelled",
     );
     showMessageBox.mockResolvedValueOnce({ response: 0 });
     expect(await call("manage:account-remove", trusted, ID)).toBe("cancelled");
     expect(showMessageBox.mock.calls[0]?.[1]).toMatchObject({ defaultId: 0, cancelId: 0 });
+  });
+
+  it("speaks of the MXroute key and blacklist only to an MXroute mailbox", async () => {
+    const detail = async (mxroute: boolean): Promise<unknown> => {
+      accountRemove.mockImplementationOnce(async (_id, request) =>
+        (await request.confirm(ID, mxroute)) ? "removed" : "cancelled",
+      );
+      showMessageBox.mockClear();
+      showMessageBox.mockResolvedValueOnce({ response: 0 });
+      await call("manage:account-remove", trusted, ID);
+      return (showMessageBox.mock.calls[0]?.[1] as { detail: string }).detail;
+    };
+    expect(await detail(true)).toContain("MXroute");
+    expect(await detail(false)).not.toContain("MXroute");
   });
 
   it("offers the restart after a removal, not after a refusal", async () => {
