@@ -4,6 +4,38 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- Remove an MXroute mailbox in the **Blocked senders** window. Senderban deletes its rules from the
+  mail server first, then forgets the password. If the rules cannot be deleted it says so and asks.
+
+### Changed
+
+- Adding an account now asks first, in a box the app itself draws, naming the server that will
+  receive the password.
+- Closing the window during the login check cancels the add: nothing is stored.
+- **Restart now** stays on offer after the window is closed and opened again.
+- A saved account refreshes the list at once, and says when blocks on your list stop applying
+  because that mail domain now counts as your own.
+
+### Fixed
+
+- A certificate that does not verify now has its own message, apart from a server that cannot be
+  reached.
+- An account file can no longer reuse the mailbox of another account under a new id, or take an id
+  ending in `.mxroute` or `.gmail`.
+- An account whose id clashes with another lane no longer stops the app at start: that account is
+  skipped.
+- A mail too large to read no longer stops notifications for its mailbox: Senderban steps past it
+  and says how many messages it did not announce.
+- More private and reserved names are refused as a mail server (`.arpa`, `.onion`, `.svc`).
+- The password field counts bytes, as the check behind it does.
+
+### Security
+
+- A single IMAP response is capped at 8 MiB (4 MiB per line or literal), down from imapflow's 1 GiB
+  and 2 GiB defaults.
+
 ## [0.1.1] - 2026-10-30
 
 ### Added

@@ -238,7 +238,8 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
       new Promise<void>((resolve, reject) => {
         tlsSocket.once("secureConnect", resolve);
         tlsSocket.once("error", (e: Error) => {
-          reject(new AdapterError("TRANSIENT", `TLS error: ${e.message}`));
+          // The cause keeps Node's error code: a refused certificate must stay distinct from a dead connection.
+          reject(new AdapterError("TRANSIENT", `TLS error: ${e.message}`, { cause: e }));
         });
         tlsSocket.once("close", () => {
           reject(new AdapterError("TRANSIENT", "connection closed during TLS handshake"));

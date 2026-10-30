@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 
 type Handler = (event: unknown, payload?: unknown) => unknown;
 const handlers = new Map<string, Handler>();
+const windowEvents = new Map<string, () => void>();
+const showMessageBox = vi.hoisted(() =>
+  vi.fn<(win: unknown, options: Record<string, unknown>) => Promise<{ response: number }>>(),
+);
 
 // Just enough of Electron for ManageWindow to build one window and register its IPC handlers.
 vi.mock("electron", () => {
@@ -19,13 +24,16 @@ vi.mock("electron", () => {
     focus = () => undefined;
     removeMenu = () => undefined;
     once = () => undefined;
-    on = () => undefined;
+    on = (name: string, fn: () => void) => {
+      windowEvents.set(name, fn);
+    };
     show = () => undefined;
     close = () => undefined;
     loadFile = () => Promise.resolve();
   }
   return {
     BrowserWindow: FakeWindow,
+    dialog: { showMessageBox },
     nativeTheme: { shouldUseDarkColors: false },
     ipcMain: {
       handle: (channel: string, fn: Handler) => {
@@ -36,6 +44,7 @@ vi.mock("electron", () => {
 });
 
 const { ManageWindow } = await import("../src/manage.js");
+import type { AccountAddRequest, AccountRemoveRequest } from "../src/manage.js";
 
 const KEY = "test-mxroute-key-not-real-0000";
 const good = {
@@ -58,7 +67,8 @@ let mxrouteSave: ReturnType<typeof vi.fn>;
 let mxrouteRemove: ReturnType<typeof vi.fn>;
 let mxrouteEnable: ReturnType<typeof vi.fn>;
 let mxrouteList: ReturnType<typeof vi.fn>;
-let accountAdd: ReturnType<typeof vi.fn>;
+let accountAdd: Mock<(input: unknown, request: AccountAddRequest) => Promise<string>>;
+let accountRemove: Mock<(id: string, request: AccountRemoveRequest) => Promise<string>>;
 let onError: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -79,6 +89,9 @@ beforeEach(() => {
     ]),
   );
   accountAdd = vi.fn(() => Promise.resolve("saved"));
+  accountRemove = vi.fn(() => Promise.resolve("removed"));
+  showMessageBox.mockReset();
+  windowEvents.clear();
   onError = vi.fn();
   new ManageWindow("assets", {
     list: () => [],
@@ -88,6 +101,8 @@ beforeEach(() => {
     mxrouteRemove,
     mxrouteEnable,
     accountAdd,
+    accountRemove,
+    googleCancel: () => undefined,
     restart: () => undefined,
     onError,
   } as never).show();
@@ -154,7 +169,12 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
       accounts: Record<string, unknown>[];
       limits: Record<string, unknown>;
     };
-    expect(Object.keys(reply).sort()).toEqual(["accounts", "addLimits", "limits"]);
+    expect(Object.keys(reply).sort()).toEqual([
+      "accounts",
+      "addLimits",
+      "limits",
+      "restartPending",
+    ]);
     expect(Object.keys(reply.accounts[0] ?? {}).sort()).toEqual([
       "accountId",
       "enabled",
@@ -209,7 +229,8 @@ describe("manage:account-add", () => {
     const reply = await call("manage:account-add", trusted, form);
     expect(reply).toBe("saved");
     expect(accountAdd).toHaveBeenCalledTimes(1);
-    expect(accountAdd).toHaveBeenCalledWith({ ...form, address: "you@example.com" });
+    expect(accountAdd.mock.calls[0]?.[0]).toEqual({ ...form, address: "you@example.com" });
+    expect(accountAdd.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal);
     expect(JSON.stringify(reply)).not.toContain(PASSWORD);
   });
 
@@ -248,6 +269,66 @@ describe("manage:account-add", () => {
     expect(accountAdd).toHaveBeenCalledTimes(2);
   });
 
+  it("asks in the main process, naming the server and the address, with Cancel as the default", async () => {
+    let answer: boolean | undefined;
+    accountAdd.mockImplementationOnce(async (_input, request) => {
+      answer = await request.confirm();
+      return "cancelled";
+    });
+    showMessageBox.mockResolvedValueOnce({ response: 0 });
+    expect(await call("manage:account-add", trusted, form)).toBe("cancelled");
+    expect(answer).toBe(false);
+    const options = showMessageBox.mock.calls[0]?.[1];
+    expect(options?.detail).toContain("mail.example.com");
+    expect(options?.detail).toContain("you@example.com");
+    expect(options?.detail).not.toContain(PASSWORD);
+    expect(options).toMatchObject({ defaultId: 0, cancelId: 0 });
+  });
+
+  it("answers yes only for the second button", async () => {
+    let answer: boolean | undefined;
+    accountAdd.mockImplementationOnce(async (_input, request) => {
+      answer = await request.confirm();
+      return "saved";
+    });
+    showMessageBox.mockResolvedValueOnce({ response: 1 });
+    await call("manage:account-add", trusted, form);
+    expect(answer).toBe(true);
+  });
+
+  it("aborts the add when the window closes", async () => {
+    let signal: AbortSignal | undefined;
+    let finish: (value: string) => void = () => undefined;
+    accountAdd.mockImplementationOnce((_input, request) => {
+      signal = request.signal;
+      return new Promise<string>((resolve) => {
+        finish = resolve;
+      });
+    });
+    const first = call("manage:account-add", trusted, form);
+    await Promise.resolve();
+    expect(signal?.aborted).toBe(false);
+    windowEvents.get("closed")?.();
+    expect(signal?.aborted).toBe(true);
+    finish("cancelled");
+    await first;
+  });
+
+  it("keeps offering the restart after a save, also for a page that opens later", async () => {
+    const before = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(before.restartPending).toBe(false);
+    await call("manage:account-add", trusted, form);
+    const after = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(after.restartPending).toBe(true);
+  });
+
+  it("does not offer a restart when nothing was stored", async () => {
+    accountAdd.mockResolvedValueOnce("login-refused");
+    await call("manage:account-add", trusted, form);
+    const list = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(list.restartPending).toBe(false);
+  });
+
   it("refuses a restart while an add is running", async () => {
     let finish: (value: string) => void = () => undefined;
     accountAdd.mockReturnValueOnce(
@@ -269,5 +350,81 @@ describe("manage:account-add", () => {
     expect(JSON.stringify(onError.mock.calls)).not.toContain(PASSWORD);
     expect(await call("manage:restart", trusted)).not.toBe("busy");
     expect(await call("manage:account-add", trusted, form)).toBe("saved");
+  });
+});
+
+describe("manage:account-remove", () => {
+  const ID = "you@example.com";
+
+  it("hands a valid id over and answers a fixed word", async () => {
+    expect(await call("manage:account-remove", trusted, ID)).toBe("removed");
+    expect(accountRemove).toHaveBeenCalledTimes(1);
+    expect(accountRemove.mock.calls[0]?.[0]).toBe(ID);
+  });
+
+  it("ignores a message from another frame or another window", async () => {
+    expect(await call("manage:account-remove", otherFrame, ID)).toBe("denied");
+    expect(await call("manage:account-remove", otherWindow, ID)).toBe("denied");
+    expect(accountRemove).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no payload", undefined],
+    ["a number", 7],
+    ["a path", "../accounts.json"],
+    ["a line break", "you@example.com\r\nX"],
+    ["a long id", "a".repeat(65)],
+  ])("refuses %s without reaching the handler", async (_name, payload) => {
+    expect(await call("manage:account-remove", trusted, payload)).toBe("invalid");
+    expect(accountRemove).not.toHaveBeenCalled();
+  });
+
+  it("runs one account change at a time, also against an add", async () => {
+    let finish: (value: string) => void = () => undefined;
+    accountRemove.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const first = call("manage:account-remove", trusted, ID);
+    await Promise.resolve();
+    expect(await call("manage:account-remove", trusted, ID)).toBe("busy");
+    expect(
+      await call("manage:account-add", trusted, {
+        address: ID,
+        host: "mail.example.com",
+        password: "not-a-real-password",
+      }),
+    ).toBe("busy");
+    expect(await call("manage:restart", trusted)).toBe("busy");
+    finish("removed");
+    await first;
+  });
+
+  it("asks in the main process, with Cancel as the default", async () => {
+    accountRemove.mockImplementationOnce(async (_id, request) =>
+      (await request.confirm(ID)) ? "removed" : "cancelled",
+    );
+    showMessageBox.mockResolvedValueOnce({ response: 0 });
+    expect(await call("manage:account-remove", trusted, ID)).toBe("cancelled");
+    expect(showMessageBox.mock.calls[0]?.[1]).toMatchObject({ defaultId: 0, cancelId: 0 });
+  });
+
+  it("offers the restart after a removal, not after a refusal", async () => {
+    accountRemove.mockResolvedValueOnce("rules-left");
+    await call("manage:account-remove", trusted, ID);
+    const kept = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(kept.restartPending).toBe(false);
+    accountRemove.mockResolvedValueOnce("removed-rules-remain");
+    await call("manage:account-remove", trusted, ID);
+    const gone = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(gone.restartPending).toBe(true);
+  });
+
+  it("gives the page a generic word when the handler throws", async () => {
+    accountRemove.mockRejectedValueOnce(new Error("boom"));
+    expect(await call("manage:account-remove", trusted, ID)).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:account-remove", expect.any(Error));
+    expect(await call("manage:account-remove", trusted, ID)).toBe("removed");
   });
 });

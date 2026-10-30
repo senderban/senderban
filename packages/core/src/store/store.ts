@@ -271,6 +271,11 @@ export class Store {
     });
   }
 
+  /** A removed account whose rules stay on the server: its state stays to find them again, but a re-add starts from "now". */
+  forgetCursor(accountId: string): void {
+    this.#db.prepare("DELETE FROM imap_cursor WHERE account_id = ?").run(accountId);
+  }
+
   /**
    * Call once at start. Any row still `pending` belongs to a process that died mid-sync: the provider
    * may be half-written, so the caller must `verify`/re-plan those accounts before trusting the stored

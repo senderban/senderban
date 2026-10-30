@@ -135,6 +135,8 @@ export class MxrouteAdapter implements BlockAdapter {
   readonly #mirror: boolean;
   readonly #budgetMs: number;
   readonly #now: () => number;
+  /** The account that held the key was removed: rounds have nothing to do for the rest of the session. */
+  #retired = false;
 
   constructor(options: MxrouteAdapterOptions) {
     this.#client = options.client;
@@ -148,7 +150,15 @@ export class MxrouteAdapter implements BlockAdapter {
     return CAPABILITIES;
   }
 
+  /** The lane stays in the engine, which cannot drop one, but its key must not be used again. */
+  retire(): void {
+    this.#retired = true;
+  }
+
   plan(list: Blocklist, state: OpaqueState): Promise<Plan> {
+    if (this.#retired) {
+      return Promise.resolve({ accountId: this.#accountId, changes: [], basedOn: state });
+    }
     try {
       const current = parseState(state);
       const refused = new Set(current.rejected);
@@ -200,6 +210,7 @@ export class MxrouteAdapter implements BlockAdapter {
     let stopped: AdapterError | null = null;
 
     for (const [index, change] of todo.entries()) {
+      if (this.#retired) break;
       if (handled > 0 && this.#now() - started >= this.#budgetMs) break;
       try {
         signal?.throwIfAborted();
@@ -284,6 +295,8 @@ export class MxrouteAdapter implements BlockAdapter {
   }
 
   async verify(state: OpaqueState, signal?: AbortSignal): Promise<Drift> {
+    // No round runs for a retired lane, so a clean read here would confirm a change nothing wrote; and the key is not used again.
+    if (this.#retired) throw new AdapterError("TRANSIENT", "the account was removed");
     const current = parseState(state);
     // Nothing of ours is on the blacklist (never switched on, or taken back): there is nothing to read back.
     if (current.applied.length === 0) {

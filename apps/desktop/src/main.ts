@@ -41,6 +41,7 @@ import { connectManageSieve, imapflowConnector, signIn } from "@senderban/core/n
 import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
 import { checkAccount } from "./account-check.js";
+import type { AccountCheckStage } from "./account-check.js";
 import { AddAccountError, addAccountFromFile, addAccountFromForm } from "./add-account.js";
 import { decryptPassword, loadAccounts } from "./accounts-file.js";
 import {
@@ -65,6 +66,8 @@ import {
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
 import { SHUTDOWN_CAP_MS, SHUTDOWN_DEADLINE_MS, settleWithin, stopThenClose } from "./deadline.js";
+import { createSieveLifecycle, dropImapAccount, removeImapAccount } from "./remove-account.js";
+import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
 import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import { openGoogleAuthUrl } from "./google-url.js";
@@ -114,6 +117,7 @@ interface Runtime {
   readonly own: OwnMailSet;
   /** What removing or signing out a Gmail account does about its filters (google-accounts.ts). */
   readonly gmail: GmailFilterLifecycle;
+  readonly sieve: SieveRulesLifecycle;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
@@ -149,6 +153,7 @@ const gmailLanes = new Set<string>();
 const gmailToastLanes = new Set<string>();
 /** Gmail lanes held still while their account is being removed (a failed fan-out round is not news then). */
 const heldGmailLanes = createHeldLanes();
+const heldSieveLanes = createHeldLanes();
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
 let gmailSkipped: GmailSkipped[] = [];
 /** Accounts whose blocked single addresses are also refused at the MXroute server (live lane, switch on). */
@@ -177,7 +182,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
     unsynced.delete(id);
     return;
   }
-  if (clicking.has(id) || heldGmailLanes.has(id) || unsynced.has(id)) return;
+  if (clicking.has(id) || heldGmailLanes.has(id) || heldSieveLanes.has(id) || unsynced.has(id)) {
+    return;
+  }
   unsynced.add(id);
   const label = runtime?.labels.get(id) ?? id;
   const why = outcome.status === "failed" ? outcome.code : "some changes failed";
@@ -375,22 +382,40 @@ async function start(): Promise<Runtime> {
   }
   // One gate for every watcher: start, resume and unpause open at most MAX_CONCURRENT_LOGINS logins at once.
   const loginGate = createGate(MAX_CONCURRENT_LOGINS);
+  const sieveLanes = new Map<string, SieveLane>();
+  const mxrouteAdapters = new Map<string, MxrouteAdapter>();
+  const skippedAccounts = new Set<string>();
 
   for (const account of accounts) {
-    engine.addAccount({
-      id: account.id,
-      initialState: initialSieveState(),
-      adapter: new SieveAdapter({
-        accountId: account.id,
-        connect: async () =>
-          connectManageSieve({
-            host: account.sieve.host,
-            port: account.sieve.port,
-            username: account.sieve.user,
-            password: await decryptPassword(account.passwordCipher),
-          }),
-      }),
+    const sieveAdapter = new SieveAdapter({
+      accountId: account.id,
+      connect: async () =>
+        connectManageSieve({
+          host: account.sieve.host,
+          port: account.sieve.port,
+          username: account.sieve.user,
+          password: await decryptPassword(account.passwordCipher),
+        }),
     });
+    try {
+      engine.addAccount({
+        id: account.id,
+        initialState: initialSieveState(),
+        adapter: sieveAdapter,
+      });
+    } catch {
+      // A hand-edited file can hold an id that is another lane's: that one account stays off, the rest of the app starts.
+      log("account-skipped", { account: accountTag(account.id) });
+      skippedAccounts.add(account.id);
+      const at = lanes.indexOf(account.id);
+      if (at >= 0) lanes.splice(at, 1);
+      notice(
+        "Senderban",
+        `${account.imap.user} could not start: its id clashes with another account. Remove it under MXroute accounts and add it again.`,
+      );
+      continue;
+    }
+    sieveLanes.set(account.id, sieveAdapter);
 
     const groupKey = mxrouteGroupKey(account);
     const group = groupKey === null ? undefined : mxrouteGroups.get(groupKey);
@@ -402,24 +427,26 @@ async function start(): Promise<Runtime> {
       try {
         if (domain === null) throw new Error("no mail domain");
         const { mxroute } = account;
+        const mxrouteAdapter = new MxrouteAdapter({
+          accountId: laneId,
+          mirror: group.mirror,
+          client: createMxrouteClient({
+            server: mxroute.server,
+            username: mxroute.username,
+            getKey: () => decryptPassword(mxroute.apiKeyCipher),
+            // Operation, HTTP status and duration only: no key, no address.
+            onCall: (call) => {
+              log("mxroute-call", { account: accountTag(account.id), ...call });
+            },
+          }),
+        });
         engine.addAccount({
           id: laneId,
           initialState: initialMxrouteState(domain),
           background: true,
-          adapter: new MxrouteAdapter({
-            accountId: laneId,
-            mirror: group.mirror,
-            client: createMxrouteClient({
-              server: mxroute.server,
-              username: mxroute.username,
-              getKey: () => decryptPassword(mxroute.apiKeyCipher),
-              // Operation, HTTP status and duration only: no key, no address.
-              onCall: (call) => {
-                log("mxroute-call", { account: accountTag(account.id), ...call });
-              },
-            }),
-          }),
+          adapter: mxrouteAdapter,
         });
+        mxrouteAdapters.set(laneId, mxrouteAdapter);
         lanes.push(laneId);
         mxrouteLanes.add(laneId);
         labels.set(laneId, `${labels.get(account.id) ?? account.id} (MXroute)`);
@@ -633,6 +660,43 @@ async function start(): Promise<Runtime> {
     },
   });
 
+  const sieve = createSieveLifecycle({
+    lanes: sieveLanes,
+    skipped: skippedAccounts,
+    store,
+    log,
+    settled: (accountId) => engine.settled(accountId),
+    // A failed round during the removal is not news: the removal reports its own outcome.
+    onHold: (accountId, held) => {
+      heldSieveLanes.hold(accountId, held);
+    },
+    onResumed: (accountId) => {
+      engine.requestSync(accountId);
+    },
+    // A removed account no longer takes part in a block or an Unblock.
+    onDone: (accountId, rulesRemain) => {
+      const key = accounts.find((a) => a.id === accountId);
+      const group = key === undefined ? null : mxrouteGroupKey(key);
+      dropImapAccount(accountId, rulesRemain, {
+        lanes,
+        labels,
+        mxrouteLanes,
+        mxrouteAdapters,
+        rejectingAccounts,
+        blacklistGroup: () =>
+          accounts.filter((a) => group !== null && mxrouteGroupKey(a) === group).map((a) => a.id),
+        pending,
+        store,
+        settled: (id) => engine.settled(id),
+        sieveLanes,
+        watchers,
+        states,
+      });
+      updateTray();
+      manage?.notifyChanged();
+    },
+  });
+
   // Interrupted syncs from a previous run are repaired in the background: `recover()` closes the interrupted journal rows
   // before its first await, so a block clicked later queues behind the repair on its lane (one round per lane at a time),
   // and new mail is announced meanwhile instead of after up to 60 s per wave of stuck lanes.
@@ -664,7 +728,19 @@ async function start(): Promise<Runtime> {
     // A poll that slept may have died unreported: look soon, spread over 30 s like a start (50 accounts do not tick together).
     if (!paused) gmailWatchers.resumeNow();
   });
-  return { store, engine, accounts, lanes, watchers, gmailWatchers, pending, labels, own, gmail };
+  return {
+    store,
+    engine,
+    accounts,
+    lanes,
+    watchers,
+    gmailWatchers,
+    pending,
+    labels,
+    own,
+    gmail,
+    sieve,
+  };
 }
 
 async function shutdown(): Promise<void> {
@@ -856,6 +932,17 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return { ...toast, text: toast.text + gmailNote };
       },
     });
+    // How many list entries reach the person's own mail, so none of them applies. Never throws: an account is stored by then.
+    const ownEntryCount = async (): Promise<number> => {
+      try {
+        const { store, own } = await ready.promise;
+        const current = own.get();
+        return store.list().filter((entry) => isOwnEntry(entry, current)).length;
+      } catch (error) {
+        log("own-refresh-failed", { detail: errorText(error) });
+        return 0;
+      }
+    };
     manage = new ManageWindow(assets, {
       // `gmailLanes` is the lanes that run this session: with none, a row says nothing about Gmail.
       list: () => {
@@ -885,14 +972,53 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         log("mxroute-enabled", { account: accountTag(accountId), enabled, result });
         return result;
       },
-      accountAdd: async (input) => {
+      accountAdd: async (input, request) => {
         const started = Date.now();
-        const result = await addAccountFromForm(accountsPath, input, checkAccount);
-        // The never-refuse set must hold the new address now, not after the restart.
-        if (result === "saved") await googleDeps.onAccountsChanged?.();
-        // Account tag and outcome only: never the address, the server or the password.
+        const stages: Partial<Record<AccountCheckStage["stage"], AccountCheckStage>> = {};
+        const result = await addAccountFromForm(accountsPath, input, {
+          confirm: request.confirm,
+          check: (account, signal) =>
+            checkAccount(account, undefined, {
+              signal,
+              onStage: (stage) => {
+                stages[stage.stage] = stage;
+              },
+            }),
+          signal: request.signal,
+          // The never-refuse set must hold the new address now, not after the restart, and the list rows show what it changed.
+          onSaved: async () => {
+            const before = await ownEntryCount();
+            await googleDeps.onAccountsChanged?.();
+            manage?.notifyChanged();
+            const stopped = (await ownEntryCount()) > before;
+            // Entries over the new domain leave the rules now, not at the next change.
+            if (stopped) runtime?.engine.requestSync();
+            return stopped;
+          },
+        });
+        // Account tag, outcome and times only: never the address, the server or the password.
         log("account-added", {
           account: accountTag(input.address),
+          result,
+          ms: Date.now() - started,
+          imapMs: stages.imap?.ms,
+          sieveMs: stages.sieve?.ms,
+          timedOut: stages.imap?.timedOut === true || stages.sieve?.timedOut === true,
+        });
+        return result;
+      },
+      accountRemove: async (accountId, request) => {
+        const started = Date.now();
+        const result = await removeImapAccount(accountsPath, accountId, {
+          ...request,
+          rules: async () => (await ready.promise).sieve,
+          onRemoved: async () => {
+            await googleDeps.onAccountsChanged?.();
+            manage?.notifyChanged();
+          },
+        });
+        log("account-removed", {
+          account: accountTag(accountId),
           result,
           ms: Date.now() - started,
         });

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { AdapterError, type OpaqueState } from "../../src/adapter.js";
 import type { BlockEntry, Blocklist } from "../../src/blocklist.js";
-import { SieveAdapter, initialSieveState } from "../../src/sieve/adapter.js";
+import {
+  SieveAdapter,
+  initialSieveState,
+  sieveStateForReinstall,
+  sieveStateHoldsRules,
+} from "../../src/sieve/adapter.js";
 import { hasInclude, isOurMain } from "../../src/sieve/rules.js";
 import { FakeSieveServer } from "./fake-server.js";
 
@@ -303,6 +308,121 @@ describe("SieveAdapter failure handling", () => {
     expect(await failure(adapter.plan([], { adapterId: "sieve", data: { rulesName: "x" } }))).toBe(
       "REJECTED",
     );
+  });
+});
+
+describe("SieveAdapter.suspend", () => {
+  const blocked = [entry(1, "exactAddress", "a@example.com")];
+
+  it("refuses to plan or apply while suspended, as a failure and never as nothing to do", async () => {
+    const { adapter } = setup();
+    expect(await adapter.suspend()).toBe(true);
+    expect(await failure(adapter.plan(blocked, initialSieveState()))).toBe("TRANSIENT");
+    adapter.resume();
+    const plan = await adapter.plan(blocked, initialSieveState());
+    await adapter.suspend();
+    expect(await failure(adapter.apply(plan))).toBe("TRANSIENT");
+    adapter.resume();
+    expect((await adapter.apply(plan)).state).toBeDefined();
+  });
+
+  it("waits for a running round, then answers true", async () => {
+    const { server, adapter } = setup();
+    const plan = await adapter.plan(blocked, initialSieveState());
+    const round = adapter.apply(plan);
+    expect(await adapter.suspend()).toBe(true);
+    await round;
+    expect(server.scripts.size).toBeGreaterThan(0);
+  });
+
+  it("answers false when a round outlives the wait", async () => {
+    const connect = () => new Promise<never>(() => undefined);
+    const adapter = new SieveAdapter({ accountId: "main", connect });
+    const plan = await adapter.plan(blocked, initialSieveState());
+    void adapter.apply(plan);
+    expect(await adapter.suspend(1)).toBe(false);
+  });
+
+  it("does not confirm anything once retired: no round wrote it", async () => {
+    const { adapter } = setup();
+    const { result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    adapter.retire();
+    expect(await failure(adapter.verify(result.state))).toBe("TRANSIENT");
+  });
+
+  it("has nothing to do once retired, for the rest of the session", async () => {
+    const { adapter } = setup();
+    adapter.retire();
+    const plan = await adapter.plan(blocked, initialSieveState());
+    expect(plan.changes).toEqual([]);
+    await expect(adapter.apply(plan)).rejects.toThrow();
+  });
+});
+
+describe("sieveStateForReinstall", () => {
+  const one = entry(1, "exactAddress", "a@example.com");
+
+  it("removes an entry that left the list, never an empty plan while rules may be there", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, [one], initialSieveState());
+    const { plan } = await sync(adapter, [], sieveStateForReinstall(result.state));
+    expect(plan.changes.map((c) => c.kind)).toEqual(["remove"]);
+    expect([...server.scripts.values()].join("\n")).not.toContain("a@example.com");
+  });
+
+  it("writes an entry twice over without doubling it, and ends the rewrite", async () => {
+    const { adapter } = setup();
+    const { result } = await sync(adapter, [one], initialSieveState());
+    const again = await sync(adapter, [one], sieveStateForReinstall(result.state));
+    expect(again.plan.changes.map((c) => c.kind)).toEqual(["create"]);
+    expect((again.result.state.data as { applied: unknown[] }).applied).toHaveLength(1);
+    expect((await adapter.plan([one], again.result.state)).changes).toEqual([]);
+  });
+
+  it("accepts a missing script while rewriting, and only then", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, [one], initialSieveState());
+    server.scripts.clear();
+    server.active = null;
+    const two = [one, entry(2, "exactAddress", "b@example.com")];
+    expect(await failure(sync(adapter, two, result.state))).toBe("REMOTE_CHANGED");
+    await sync(adapter, two, sieveStateForReinstall(result.state));
+    expect([...server.scripts.values()].join("\n")).toContain("b@example.com");
+  });
+
+  it("reads an old state row, which has no flag", async () => {
+    const { adapter } = setup();
+    const { data } = initialSieveState();
+    const old = { ...(data as Record<string, unknown>) };
+    delete old.rewrite;
+    const plan = await adapter.plan([one], { adapterId: "sieve", data: old });
+    expect(plan.changes).toHaveLength(1);
+  });
+});
+
+describe("SieveAdapter.uninstall and a script of that name", () => {
+  it("leaves a rules script that is not ours, and changes nothing", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("senderban-rules", 'require ["fileinto"];\nfileinto "Theirs";\n');
+    expect(await failure(adapter.uninstall(initialSieveState()))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.has("senderban-rules")).toBe(true);
+  });
+});
+
+describe("sieveStateHoldsRules", () => {
+  it("says no for a new state and yes after a round", async () => {
+    const { adapter } = setup();
+    expect(sieveStateHoldsRules(initialSieveState())).toBe(false);
+    const { result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    expect(sieveStateHoldsRules(result.state)).toBe(true);
   });
 });
 

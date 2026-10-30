@@ -317,6 +317,11 @@ export class SyncEngine {
     );
   }
 
+  /** Resolves once the lane has no round running or queued, its result saved. */
+  settled(accountId: string): Promise<void> {
+    return this.#settled(accountId);
+  }
+
   /** Resolves once the lane has no round running or queued. */
   async #settled(accountId: string): Promise<void> {
     const lane = this.#lanes.get(accountId);

@@ -26,8 +26,8 @@ export type AdapterErrorCode = (typeof ADAPTER_ERROR_CODES)[number];
 /** Unsupported operations fail loudly; an adapter never emulates a match kind it cannot guarantee. */
 export class AdapterError extends Error {
   readonly code: AdapterErrorCode;
-  constructor(code: AdapterErrorCode, message: string) {
-    super(message);
+  constructor(code: AdapterErrorCode, message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "AdapterError";
     this.code = code;
   }

@@ -58,6 +58,14 @@ export interface CursorStore {
   set(accountId: string, cursor: Cursor): void;
 }
 
+/**
+ * A mail the client cannot read: its answer ran past a size limit, which ends the connection. A reconnect would fetch the same
+ * mail and fail the same way for good, so the watcher steps past it instead (see `skipUnreadable`).
+ */
+export class UnreadableMailError extends Error {
+  override readonly name = "UnreadableMailError";
+}
+
 /** Retrying cannot help (wrong password, account locked): hammering it risks a lockout. */
 export class FatalWatchError extends Error {
   override readonly name = "FatalWatchError";
@@ -153,6 +161,10 @@ export class AccountWatcher {
   /** Epoch whose drain is running; -1 when none. A stale drain never blocks a newer connection. */
   private drainEpoch = -1;
   private drainAgain = false;
+  /** The connection died on a mail too large to read: the next one steps past it. */
+  private skipUnreadable = false;
+  /** The connection whose first look at the mailbox is still to come. */
+  private opening: MailboxSession | null = null;
 
   constructor(private readonly options: WatcherOptions) {
     this.backoff = options.backoff ?? DEFAULT_BACKOFF;
@@ -167,6 +179,7 @@ export class AccountWatcher {
   start(): void {
     if (this.state !== "stopped" && this.state !== "halted") return;
     this.failures = 0;
+    this.skipUnreadable = false;
     void this.connectOnce();
   }
 
@@ -225,6 +238,7 @@ export class AccountWatcher {
     }
 
     this.session = session;
+    this.opening = session;
     session.onClose((cause) => {
       this.fail(epoch, cause ?? new Error("connection closed"));
     });
@@ -297,12 +311,29 @@ export class AccountWatcher {
 
   private async drainOnce(epoch: number, session: MailboxSession): Promise<void> {
     const { accountId, cursors } = this.options;
+    // Spent by the first drain, whichever way it ends: `uidNext` is frozen at open, so the test below holds only then.
+    const opening = this.opening === session;
+    this.opening = null;
     const cursor = cursors.get(accountId);
     if (cursor === undefined || cursor.uidValidity !== session.uidValidity) {
       // First run, or the server renumbered the mailbox: mail already there is not "new".
       cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: session.uidNext - 1 });
+      this.skipUnreadable = false;
       return;
     }
+    if (this.skipUnreadable) {
+      // One mail must not end notifications for this mailbox: everything up to now is passed over and the person is told.
+      this.skipUnreadable = false;
+      const lastUid = session.uidNext - 1;
+      if (lastUid > cursor.lastUid) {
+        cursors.set(accountId, { uidValidity: session.uidValidity, lastUid });
+        this.options.onOverflow?.(accountId, lastUid - cursor.lastUid);
+        return;
+      }
+    }
+    // Nothing past the cursor, and `n:*` would still hand back the newest mail. That one may be the mail that cannot be read, so
+    // asking again at every connect would end this connection the same way.
+    if (opening && session.uidNext - 1 <= cursor.lastUid) return;
 
     const fresh = (await session.fetchSince(cursor.lastUid))
       .filter((m) => m.uid > cursor.lastUid)
@@ -335,6 +366,7 @@ export class AccountWatcher {
     this.session = null;
     if (session !== null) void closeQuietly(session);
 
+    if (error instanceof UnreadableMailError) this.skipUnreadable = true;
     const message = (error instanceof Error ? error.message : "unknown error").slice(0, 300);
     if (error instanceof FatalWatchError) {
       this.setState("halted", message);

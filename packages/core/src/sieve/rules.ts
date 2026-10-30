@@ -100,6 +100,10 @@ export function assertScriptName(name: string): void {
 export const isOurMain = (script: string): boolean =>
   normalizeNewlines(script).split("\n").includes(MAIN_MARKER);
 
+/** True when this rules script carries our marker: anything else of that name is not ours to delete. */
+export const isOurRules = (script: string): boolean =>
+  normalizeNewlines(script).split("\n").includes(RULES_MARKER);
+
 /** True when the script (comments ignored) already runs `include :personal "<rulesName>"`. */
 export function hasInclude(script: string, rulesName: string): boolean {
   const code = stripComments(normalizeNewlines(script));

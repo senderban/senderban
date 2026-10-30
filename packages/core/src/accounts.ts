@@ -226,18 +226,25 @@ const Password = z
     { message: "password cannot be used" },
   );
 
+/** Lane ids end in these (`<account id>.mxroute`, `.gmail`): an account id ending in one could take another lane's id. */
+const LANE_ID_ENDING = /\.(?:mxroute|gmail)$/u;
+
 /** What a person types when adding an account: the plaintext password exists only until it is encrypted. */
 export const NewAccountSchema = ImapAccountConfigSchema.omit({
   passwordCipher: true,
   mxroute: true,
-}).extend({ password: Password });
+}).extend({
+  id: z
+    .string()
+    .regex(ACCOUNT_ID)
+    .refine((value) => !LANE_ID_ENDING.test(value), { message: "not an account id" }),
+  password: Password,
+});
 export type NewAccount = z.infer<typeof NewAccountSchema>;
 
-/** Lane ids end in these (`<account id>.mxroute`, `.gmail`): an account id ending in one could take another lane's id. */
-const LANE_ID_ENDING = /\.(?:mxroute|gmail)$/u;
-/** Names that never lead to a public mail server (RFC 6762, RFC 6761, RFC 8375, ICANN's .internal and the usual private ones). */
+/** Names that never lead to a public mail server (RFC 6762, RFC 6761, RFC 7686, RFC 8375, ICANN's .internal and the usual private ones). */
 const PRIVATE_HOST_ENDING =
-  /\.(?:local|localhost|localdomain|internal|intranet|lan|home|home\.arpa|corp|test|example|invalid)$/iu;
+  /\.(?:local|localhost|localdomain|internal|intranet|lan|home|arpa|corp|svc|onion|test|example|invalid)$/iu;
 /** A dot and an alphabetic top label: this also turns away an IP address and a single-label name. */
 const PUBLIC_HOST_NAME = /\.(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/iu;
 
@@ -259,7 +266,8 @@ export const AccountAddSchema = z.strictObject({
       ctx.addIssue({ code: "custom", message: "not a mail address" });
       return z.NEVER;
     }),
-  // The password goes to this host, so it has to be one a mail provider could be: not an address or a name on this network.
+  // Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
+  // process's own confirmation are what protect the password.
   host: Host.refine((value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value), {
     message: "not a public host name",
   }),

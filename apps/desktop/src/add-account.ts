@@ -38,8 +38,11 @@ export async function addAccountFromFile(inputPath: string, accountsPath: string
   const { password, ...rest } = parsed.data;
 
   const existing = await loadAccounts(accountsPath);
-  if (existing.some((a) => a.id === rest.id))
+  const refused = refusal(existing, parsed.data);
+  if (refused === "exists") {
     throw new AddAccountError(`account ${accountTag(rest.id)} already exists`);
+  }
+  if (refused !== null) throw new AddAccountError("no room for another account");
   const account = ImapAccountConfigSchema.parse({
     ...rest,
     passwordCipher: await encryptPassword(password),
@@ -49,7 +52,23 @@ export async function addAccountFromFile(inputPath: string, accountsPath: string
   return rest.id;
 }
 
-export type AccountAddResult = "saved" | "exists" | "limit" | Exclude<AccountCheckResult, "ok">;
+export type AccountAddResult =
+  | "saved"
+  /** Saved, and entries of the block list now reach the person's own mail, so they stop applying. */
+  | "saved-own-entries"
+  | "exists"
+  | "limit"
+  | Exclude<AccountCheckResult, "ok">;
+
+export interface AccountAddSteps {
+  /** The person's own yes to sending this password to this server, asked by the main process. */
+  readonly confirm: () => Promise<boolean>;
+  readonly check: (account: NewAccount, signal: AbortSignal) => Promise<AccountCheckResult>;
+  /** Runs once, after a save; true when list entries stopped applying. It must not throw: the account is stored by then. */
+  readonly onSaved: () => Promise<boolean>;
+  /** The person gave up (the window closed): nothing is stored from here on. */
+  readonly signal: AbortSignal;
+}
 
 /** Why this account cannot join the list, compared by mailbox as AccountsFileSchema does; null when it can. */
 function refusal(accounts: readonly AccountConfig[], account: NewAccount): AccountAddResult | null {
@@ -72,21 +91,27 @@ function refusal(accounts: readonly AccountConfig[], account: NewAccount): Accou
 export async function addAccountFromForm(
   path: string,
   input: AccountAddInput,
-  check: (account: NewAccount) => Promise<AccountCheckResult>,
+  steps: AccountAddSteps,
 ): Promise<AccountAddResult> {
   const account = accountFromForm(input);
   const early = refusal(await loadAccounts(path), account);
   if (early !== null) return early;
-  const checked = await check(account);
+  const gaveUp = (): boolean => steps.signal.aborted;
+  if (!(await steps.confirm()) || gaveUp()) return "cancelled";
+  const checked = await steps.check(account, steps.signal);
   if (checked !== "ok") return checked;
+  if (gaveUp()) return "cancelled";
   const { password, ...rest } = account;
   const passwordCipher = await encryptPassword(password);
-  return serialized(async () => {
+  const stored = await serialized(async () => {
+    if (gaveUp()) return "cancelled";
     const accounts = await loadAccounts(path);
     const late = refusal(accounts, account);
     if (late !== null) return late;
-    const stored = ImapAccountConfigSchema.parse({ ...rest, passwordCipher });
-    await saveAccounts(path, [...accounts, stored]);
-    return "saved";
+    const entry = ImapAccountConfigSchema.parse({ ...rest, passwordCipher });
+    await saveAccounts(path, [...accounts, entry]);
+    return "saved" as const;
   });
+  if (stored !== "saved") return stored;
+  return (await steps.onSaved()) ? "saved-own-entries" : "saved";
 }

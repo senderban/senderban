@@ -209,6 +209,14 @@ describe("MXroute key (advanced)", () => {
     expect(parse({ ...stored, enabled: "yes" }).success).toBe(false);
   });
 
+  it("refuses an id that could take another lane's id, also from a file", () => {
+    const added = { ...account(), password: "pw" };
+    delete (added as { passwordCipher?: string }).passwordCipher;
+    for (const id of ["a@example.com.mxroute", "a@example.com.gmail"]) {
+      expect(NewAccountSchema.safeParse({ ...added, id }).success).toBe(false);
+    }
+  });
+
   it("is not accepted when adding an account from a file", () => {
     const added = { ...account(), password: "pw" };
     delete (added as { passwordCipher?: string }).passwordCipher;

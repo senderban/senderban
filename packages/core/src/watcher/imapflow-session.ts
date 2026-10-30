@@ -1,6 +1,6 @@
 import { ImapFlow } from "imapflow";
 import type { IncomingMessage, MailboxSession } from "./watcher.js";
-import { FatalWatchError, toIncoming } from "./watcher.js";
+import { FatalWatchError, UnreadableMailError, toIncoming } from "./watcher.js";
 
 // Not exported from index.ts, like the store: it pulls in a Node-only library.
 
@@ -17,6 +17,34 @@ export const FETCH_LIMIT = 200;
  * broken) is cut off here instead of growing the main process; 5x the keep-limit leaves room for UID gaps.
  */
 export const FETCH_SCAN_MAX = 1_000;
+
+/**
+ * Caps on what one IMAP response may hold, in bytes (imapflow's defaults are 1 GiB and 2 GiB). This app reads greetings,
+ * capability lists and one ENVELOPE with one header per mail, so 4 MiB matches the ManageSieve reply cap (`codec.ts`) and
+ * a server that sends more is cut off instead of growing the main process. The response cap stays above the literal cap,
+ * as imapflow asks: it also carries the framing around a literal.
+ */
+export const MAX_IMAP_LINE_BYTES = 4 * 1024 * 1024;
+export const MAX_IMAP_LITERAL_BYTES = 4 * 1024 * 1024;
+export const MAX_IMAP_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+/** imapflow's words for an answer past a limit. It ends the connection, and after login only a mail can have caused it. */
+const OVERSIZED_CODES: ReadonlySet<string> = new Set([
+  "LineTooLarge",
+  "LiteralTooLarge",
+  "ResponseTooLarge",
+  "TooManyTokens",
+]);
+
+function isOversized(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    OVERSIZED_CODES.has(error.code)
+  );
+}
 
 /**
  * First UID worth asking for: after `lastUid`, and no further back than the newest FETCH_LIMIT slots
@@ -112,14 +140,20 @@ export function imapflowConnector(
       maxIdleTime: IDLE_RESTART_MS,
       connectionTimeout: CONNECT_TIMEOUT_MS,
       greetingTimeout: GREETING_TIMEOUT_MS,
+      maxLineLength: MAX_IMAP_LINE_BYTES,
+      maxLiteralSize: MAX_IMAP_LITERAL_BYTES,
+      maxResponseSize: MAX_IMAP_RESPONSE_BYTES,
     });
 
     let existsListener: (() => void) | null = null;
     let closeListener: ((cause: Error | null) => void) | null = null;
     let lastError: Error | null = null;
+    // Only a session that opened reports these two ways, so a limit hit here came from a mail.
+    const fromMail = (error: Error): Error =>
+      isOversized(error) ? new UnreadableMailError("a mail is too large to read") : error;
     // Without an 'error' listener EventEmitter throws and takes the app down.
     client.on("error", (error: unknown) => {
-      lastError = error instanceof Error ? error : new Error("imap error");
+      lastError = fromMail(error instanceof Error ? error : new Error("imap error"));
     });
     client.on("exists", () => existsListener?.());
     client.on("close", () => closeListener?.(lastError));
@@ -153,7 +187,9 @@ export function imapflowConnector(
             ),
             FETCH_LIMIT,
             FETCH_SCAN_MAX,
-          );
+          ).catch((error: unknown) => {
+            throw error instanceof Error ? fromMail(error) : error;
+          });
           for (const row of rows) {
             const incoming = toIncoming(
               row.uid,

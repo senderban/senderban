@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("senderban", {
   mxrouteRemove: (accountId) => ipcRenderer.invoke("manage:mxroute-remove", accountId),
   mxrouteEnable: (input) => ipcRenderer.invoke("manage:mxroute-enable", input),
   accountAdd: (input) => ipcRenderer.invoke("manage:account-add", input),
+  accountRemove: (accountId) => ipcRenderer.invoke("manage:account-remove", accountId),
   googleState: () => ipcRenderer.invoke("manage:google-state"),
   googleSaveClient: (input) => ipcRenderer.invoke("manage:google-save-client", input),
   googleSignIn: (request) => ipcRenderer.invoke("manage:google-sign-in", request),

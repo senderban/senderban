@@ -18,6 +18,7 @@ import {
   hasInclude,
   insertInclude,
   isOurMain,
+  isOurRules,
   normalizeNewlines,
   removeInclude,
   renderMain,
@@ -29,6 +30,11 @@ import {
 import type { SieveSession } from "./session.js";
 
 export const SIEVE_ADAPTER_ID = "sieve";
+/**
+ * Longest `suspend` waits for a running round. Unit: milliseconds. A round ends by the engine's 60 s deadline (DEFAULT_TIMEOUT_MS);
+ * 15 s more are for the answer to be handled. Past it the removal answers "rules left" instead of waiting for ever.
+ */
+export const SIEVE_SUSPEND_WAIT_MS = 75_000;
 
 /** Extensions our scripts use: `fileinto`+`mailbox`+`envelope` for the rule, `include` for the hook. */
 const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "envelope", "include"] as const;
@@ -45,6 +51,11 @@ const StateSchema = z.strictObject({
   /** What the remote rules script contains, as of our last successful write. */
   applied: BlocklistSchema,
   rulesSha256: Sha256.nullable(),
+  /**
+   * What is on the server is in doubt (an `uninstall` began and did not finish): the next round writes every wanted entry,
+   * removes the others, and a missing script is no longer a sign of someone else's edit.
+   */
+  rewrite: z.boolean().default(false),
   /** Copy of the user's active script from before we added the include line. */
   includeBackup: z
     .strictObject({
@@ -67,6 +78,7 @@ export function initialSieveState(
     mainName,
     applied: [],
     rulesSha256: null,
+    rewrite: false,
     includeBackup: null,
   };
   return { adapterId: SIEVE_ADAPTER_ID, data };
@@ -216,10 +228,31 @@ async function ensureInclude(
   };
 }
 
+/** True while this state says rules of ours are on the server; a false answer needs no connection to take them out. */
+export function sieveStateHoldsRules(state: OpaqueState): boolean {
+  const current = parseState(state);
+  return current.applied.length > 0 || current.rulesSha256 !== null;
+}
+
+/**
+ * The state to hold while an `uninstall` runs, and after one that did not finish: the next plan writes every entry and takes out
+ * the ones no longer wanted, so nothing rests on a script that may be half gone. `applied` stays: an Unblock must still produce
+ * a removal. The hash stays too: it still proves a script found on the server is ours.
+ */
+export function sieveStateForReinstall(state: OpaqueState): OpaqueState {
+  return { adapterId: SIEVE_ADAPTER_ID, data: { ...parseState(state), rewrite: true } };
+}
+
 export class SieveAdapter implements BlockAdapter {
   readonly id = SIEVE_ADAPTER_ID;
   readonly #options: SieveAdapterOptions;
   readonly #render: RenderOptions;
+  /** Set while the account's rules are being taken out: no round starts (see `suspend`). */
+  #suspended = false;
+  /** The account is gone for good: rounds have nothing to do for the rest of the session. */
+  #retired = false;
+  #active = 0;
+  #idle: (() => void)[] = [];
 
   constructor(options: SieveAdapterOptions) {
     this.#options = options;
@@ -230,7 +263,41 @@ export class SieveAdapter implements BlockAdapter {
     return CAPABILITIES;
   }
 
+  /**
+   * Stops writing, as `GmailAdapter.suspend` does: a running round finishes (each command has its own deadline), a new one
+   * does not start. While suspended `plan` and `apply` answer TRANSIENT, never "nothing to do": the engine must not read the
+   * pause as a clean round. Resolves true when no round is running, false when one still runs after `timeoutMs`.
+   */
+  suspend(timeoutMs: number = SIEVE_SUSPEND_WAIT_MS): Promise<boolean> {
+    this.#suspended = true;
+    if (this.#active === 0) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        resolve(false);
+      }, timeoutMs);
+      this.#idle.push(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
+
+  resume(): void {
+    this.#suspended = false;
+  }
+
+  /** The account was removed: the lane stays in the engine, which cannot drop one, with nothing to do this session. */
+  retire(): void {
+    this.#retired = true;
+  }
+
   plan(list: Blocklist, state: OpaqueState): Promise<Plan> {
+    if (this.#retired) {
+      return Promise.resolve({ accountId: this.#options.accountId, changes: [], basedOn: state });
+    }
+    if (this.#suspended) {
+      return Promise.reject(new AdapterError("TRANSIENT", "Sieve rules are being removed"));
+    }
     try {
       return Promise.resolve(this.#plan(list, state));
     } catch (error) {
@@ -255,7 +322,9 @@ export class SieveAdapter implements BlockAdapter {
       if (!wanted.has(key)) changes.push({ kind: "remove", entry, match: entry.match });
     }
     for (const [key, entry] of wanted) {
-      if (!have.has(key)) changes.push({ kind: "create", entry, match: entry.match });
+      if (current.rewrite || !have.has(key)) {
+        changes.push({ kind: "create", entry, match: entry.match });
+      }
     }
     return { accountId: this.#options.accountId, changes, basedOn: state };
   }
@@ -265,11 +334,26 @@ export class SieveAdapter implements BlockAdapter {
    * list. Retrying after a failure is safe: an already-written script is recognised by its hash.
    */
   async apply(plan: Plan, signal?: AbortSignal): Promise<ApplyResult> {
+    if (this.#suspended || this.#retired) {
+      throw new AdapterError("TRANSIENT", "Sieve rules are being removed");
+    }
+    this.#active += 1;
+    try {
+      return await this.#applyPlan(plan, signal);
+    } finally {
+      this.#active -= 1;
+      if (this.#active === 0) for (const wake of this.#idle.splice(0)) wake();
+    }
+  }
+
+  async #applyPlan(plan: Plan, signal?: AbortSignal): Promise<ApplyResult> {
     const state = parseState(plan.basedOn);
     const removed = new Set(plan.changes.filter((c) => c.kind === "remove").map((c) => c.entry.id));
     const created = plan.changes.filter((c) => c.kind === "create").map((c) => c.entry);
+    // Under `rewrite` a created entry can already be in `applied`.
+    const fresh = new Set(created.map((e) => e.id));
     const applied = BlocklistSchema.parse([
-      ...state.applied.filter((e) => !removed.has(e.id)),
+      ...state.applied.filter((e) => !removed.has(e.id) && !fresh.has(e.id)),
       ...created,
     ]);
     const rules = renderRules(applied, this.#render);
@@ -282,7 +366,7 @@ export class SieveAdapter implements BlockAdapter {
 
         const remote = await session.getScript(state.rulesName);
         if (remote === null) {
-          if (state.rulesSha256 !== null) {
+          if (state.rulesSha256 !== null && !state.rewrite) {
             throw new AdapterError("REMOTE_CHANGED", "rules script was deleted on the server");
           }
         } else {
@@ -309,6 +393,7 @@ export class SieveAdapter implements BlockAdapter {
           ...state,
           applied,
           rulesSha256: sha,
+          rewrite: false,
           includeBackup: backup ?? state.includeBackup,
         };
         return {
@@ -331,6 +416,13 @@ export class SieveAdapter implements BlockAdapter {
     return withSession(this.#options.connect, async (session) => {
       const scripts = await session.listScripts();
       const active = scripts.find((s) => s.active);
+      // Before anything changes: a script of that name without our marker is someone else's, and gets no copy here.
+      if (scripts.some((s) => s.name === current.rulesName)) {
+        const rules = await session.getScript(current.rulesName);
+        if (rules !== null && !isOurRules(rules)) {
+          throw new AdapterError("REMOTE_CHANGED", `script "${current.rulesName}" is not ours`);
+        }
+      }
 
       if (active?.name === current.mainName) {
         const text = await session.getScript(current.mainName);
@@ -360,12 +452,20 @@ export class SieveAdapter implements BlockAdapter {
       if (scripts.some((s) => s.name === current.rulesName)) {
         await session.deleteScript(current.rulesName);
       }
-      const next: SieveState = { ...current, applied: [], rulesSha256: null, includeBackup: null };
+      const next: SieveState = {
+        ...current,
+        applied: [],
+        rulesSha256: null,
+        rewrite: false,
+        includeBackup: null,
+      };
       return { adapterId: SIEVE_ADAPTER_ID, data: next };
     });
   }
 
   async verify(state: OpaqueState, signal?: AbortSignal): Promise<Drift> {
+    // No round runs for a retired lane, so a clean read here would confirm a change nothing wrote.
+    if (this.#retired) throw new AdapterError("TRANSIENT", "the account was removed");
     const current = parseState(state);
     return withSession(
       this.#options.connect,

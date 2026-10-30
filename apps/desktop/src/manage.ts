@@ -14,7 +14,7 @@ import {
   isEntryId,
 } from "@senderban/core";
 import type { AccountAddInput, BlockEntry, GoogleClientInput } from "@senderban/core";
-import { BrowserWindow, ipcMain, nativeTheme } from "electron";
+import { BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import type { AccountAddResult } from "./add-account.js";
 import type {
@@ -23,6 +23,7 @@ import type {
   GoogleRemoveReply,
   GoogleSignInOutcome,
 } from "./google-accounts.js";
+import type { AccountRemoveResult } from "./remove-account.js";
 
 const PAGE = "manage/manage.html";
 
@@ -51,6 +52,17 @@ export type ManageEntry = BlockEntry & {
   readonly own: boolean;
 };
 
+/** What the window lends an add: the question only the main process can ask, and the end of the window as a signal. */
+export interface AccountAddRequest {
+  readonly confirm: () => Promise<boolean>;
+  readonly signal: AbortSignal;
+}
+
+export interface AccountRemoveRequest {
+  readonly confirm: (label: string) => Promise<boolean>;
+  readonly confirmLeaveRules: (label: string) => Promise<boolean>;
+}
+
 export interface ManageHandlers {
   /** The device block list, oldest first. */
   readonly list: () => readonly ManageEntry[];
@@ -66,7 +78,15 @@ export interface ManageHandlers {
   /** Switches the account's MXroute blacklist on or off (takes effect when Senderban starts). */
   readonly mxrouteEnable: (accountId: string, enabled: boolean) => Promise<MxrouteOutcome>;
   /** Tries the logins, then stores the account. The input has already passed the core schema. */
-  readonly accountAdd: (input: AccountAddInput) => Promise<AccountAddResult>;
+  readonly accountAdd: (
+    input: AccountAddInput,
+    request: AccountAddRequest,
+  ) => Promise<AccountAddResult>;
+  /** Deletes the account's rules from its server, then the account. */
+  readonly accountRemove: (
+    accountId: string,
+    request: AccountRemoveRequest,
+  ) => Promise<AccountRemoveResult>;
   /** Gmail: the app-wide client's ID and the Gmail accounts (never a token, never the secret). */
   readonly googleState: () => Promise<GooglePageState>;
   /** Stores the client; the input has already passed the core schema. */
@@ -93,8 +113,12 @@ export class ManageWindow {
   #win: BrowserWindow | null = null;
   /** One unblock at a time: a second click while one runs must not start another sync round. */
   #unblocking = false;
-  /** One add at a time: each one signs in to a mail server twice with a password. */
+  /** One account change at a time: an add signs in to a mail server twice with a password, a remove rewrites its rules. */
   #adding = false;
+  /** Aborts the add in flight when the window closes: nobody is left to read its answer. */
+  #addAbort: AbortController | null = null;
+  /** An account changed since Senderban started, so the page keeps offering a restart, also after the window closed. */
+  #restartPending = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
   #steps = 0;
 
@@ -112,6 +136,7 @@ export class ManageWindow {
       this.#mxrouteEnable(event, value),
     );
     ipcMain.handle("manage:account-add", (event, value: unknown) => this.#accountAdd(event, value));
+    ipcMain.handle("manage:account-remove", (event, id: unknown) => this.#accountRemove(event, id));
     ipcMain.handle("manage:google-state", (event) => this.#googleState(event));
     ipcMain.handle("manage:google-save-client", (event, value: unknown) =>
       this.#googleSaveClient(event, value),
@@ -165,6 +190,8 @@ export class ManageWindow {
       if (this.#win === win) this.#win = null;
       // A sign-in waits for the browser with its page open; without the page nobody sees the answer, so stop it.
       this.#handlers.googleCancel();
+      // Closing the window during the check is giving up: the account must not be stored behind the person's back.
+      this.#addAbort?.abort();
     });
     this.#win = win;
     void win.loadFile(join(this.#assets, PAGE));
@@ -225,6 +252,7 @@ export class ManageWindow {
         accounts: await this.#handlers.mxrouteList(),
         limits: MXROUTE_LIMITS,
         addLimits: ACCOUNT_ADD_LIMITS,
+        restartPending: this.#restartPending,
       };
     } catch (error) {
       this.#handlers.onError("manage:mxroute-list", error);
@@ -273,18 +301,95 @@ export class ManageWindow {
   /** The reply is a fixed word, never the input and never an error text: the password must not travel back. */
   async #accountAdd(event: IpcMainInvokeEvent, value: unknown): Promise<AccountAddReply> {
     if (!this.#trusted(event)) return "denied";
+    if (this.#adding) return "busy";
     const parsed = AccountAddSchema.safeParse(value);
     if (!parsed.success) return "invalid";
-    if (this.#adding) return "busy";
     this.#adding = true;
+    const abort = new AbortController();
+    this.#addAbort = abort;
     try {
-      return await this.#step(() => this.#handlers.accountAdd(parsed.data));
+      const { address, host } = parsed.data;
+      const result = await this.#step(() =>
+        this.#handlers.accountAdd(parsed.data, {
+          confirm: () =>
+            this.#ask({
+              message: "Send this password to this server?",
+              detail: `Senderban will sign in to ${host} as ${address}. Whoever runs that server receives the password, now and at every start. Compare the name with your MXroute welcome mail.`,
+              yes: "Sign in",
+              signal: abort.signal,
+            }),
+          signal: abort.signal,
+        }),
+      );
+      if (result === "saved" || result === "saved-own-entries") this.#restartPending = true;
+      return result;
     } catch (error) {
       this.#handlers.onError("manage:account-add", error);
       return "failed";
     } finally {
+      this.#addAbort = null;
       this.#adding = false;
     }
+  }
+
+  async #accountRemove(event: IpcMainInvokeEvent, id: unknown): Promise<AccountRemoveReply> {
+    if (!this.#trusted(event)) return "denied";
+    if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
+    if (this.#adding) return "busy";
+    this.#adding = true;
+    try {
+      const result = await this.#step(() =>
+        this.#handlers.accountRemove(id, {
+          confirm: (label) =>
+            this.#ask({
+              message: `Remove ${label}?`,
+              detail:
+                "Senderban deletes its rules from this mailbox and forgets the password on this device. Mail from blocked senders then reaches this inbox again.",
+              yes: "Remove",
+            }),
+          confirmLeaveRules: (label) =>
+            this.#ask({
+              message: `Remove ${label} without deleting its rules?`,
+              detail:
+                "Senderban could not delete its rules from the mail server. They go on moving mail from blocked senders until you delete them at your provider.",
+              yes: "Remove anyway",
+            }),
+        }),
+      );
+      if (result.startsWith("removed")) this.#restartPending = true;
+      return result;
+    } catch (error) {
+      this.#handlers.onError("manage:account-remove", error);
+      return "failed";
+    } finally {
+      this.#adding = false;
+    }
+  }
+
+  /**
+   * A question drawn by the main process: the page can neither draw this box nor click it, so it holds even against a page
+   * that was taken over. Cancel is the default. Everything it names passed the core schemas.
+   */
+  async #ask(question: {
+    message: string;
+    detail: string;
+    yes: string;
+    signal?: AbortSignal;
+  }): Promise<boolean> {
+    const win = this.#win;
+    if (win === null || win.isDestroyed()) return false;
+    const { response } = await dialog.showMessageBox(win, {
+      type: "question",
+      title: "Senderban",
+      message: question.message,
+      detail: question.detail,
+      buttons: ["Cancel", question.yes],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      ...(question.signal === undefined ? {} : { signal: question.signal }),
+    });
+    return response === 1;
   }
 
   async #googleState(event: IpcMainInvokeEvent) {
@@ -387,3 +492,4 @@ export type MxrouteOutcome =
   "saved" | "unknown-account" | "no-key" | "no-domain" | "key-refused" | "unreachable";
 type MxrouteReply = MxrouteOutcome | "invalid" | "denied" | "failed";
 type AccountAddReply = AccountAddResult | "busy" | "invalid" | "denied" | "failed";
+type AccountRemoveReply = AccountRemoveResult | "busy" | "invalid" | "denied" | "failed";

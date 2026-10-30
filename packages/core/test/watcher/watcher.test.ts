@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  UnreadableMailError,
   AccountWatcher,
   FatalWatchError,
   SUBJECT_MAX,
@@ -57,8 +58,8 @@ class FakeSession implements MailboxSession {
   }
 
   deliver(...more: IncomingMessage[]): void {
+    // `uidNext` stays: a real session holds the value it read at open.
     this.messages.push(...more);
-    this.uidNext = Math.max(...this.messages.map((m) => m.uid)) + 1;
     this.existsListener?.();
   }
   drop(cause: Error | null = null): void {
@@ -110,6 +111,127 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("AccountWatcher and a mail too large to read", () => {
+  it("steps past it after one reconnect and tells the person, instead of looping for good", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1), msg(2), msg(3)]);
+    const third = new FakeSession([msg(1), msg(2), msg(3)]);
+    const { watcher, seen, cursors, overflow, connects } = setup([first, second, third]);
+    watcher.start();
+    await flush();
+    first.drop(new UnreadableMailError("a mail is too large to read"));
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
+    expect(connects()).toBe(2);
+    expect(watcher.current).toBe("watching");
+    expect(cursors.get("acc")?.lastUid).toBe(3);
+    expect(overflow).toEqual([2]);
+    expect(seen).toEqual([]);
+    expect(second.fetches).toBe(0);
+    second.deliver(msg(4));
+    await flush();
+    expect(seen.map((m) => m.uid)).toEqual([4]);
+    await watcher.stop();
+  });
+
+  it("does not ask for the newest mail at every connect: that one may be the mail it cannot read", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1), msg(2)]);
+    const third = new FakeSession([msg(1), msg(2)]);
+    const { watcher, connects } = setup([first, second, third]);
+    watcher.start();
+    await flush();
+    first.drop(new UnreadableMailError("a mail is too large to read"));
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
+    second.drop(new Error("network blip"));
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs * 2);
+    expect(connects()).toBe(3);
+    expect(third.fetches).toBe(0);
+    expect(watcher.current).toBe("watching");
+    third.deliver(msg(3));
+    await flush();
+    expect(third.fetches).toBe(1);
+    await watcher.stop();
+  });
+
+  it("announces the next mail on the connection that stepped past one", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1), msg(2)]);
+    const { watcher, seen } = setup([first, second]);
+    watcher.start();
+    await flush();
+    first.drop(new UnreadableMailError("a mail is too large to read"));
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
+    second.deliver(msg(3));
+    await flush();
+    expect(seen.map((m) => m.uid)).toEqual([3]);
+    await watcher.stop();
+  });
+
+  it("announces the first mail after the very first connect", async () => {
+    const session = new FakeSession([msg(1)]);
+    const { watcher, seen } = setup([session]);
+    watcher.start();
+    await flush();
+    session.deliver(msg(2));
+    await flush();
+    expect(seen.map((m) => m.uid)).toEqual([2]);
+    await watcher.stop();
+  });
+
+  it("announces the first mail after a mailbox was renumbered", async () => {
+    const session = new FakeSession([msg(1)]);
+    const { watcher, seen, cursors } = setup([session]);
+    cursors.set("acc", { uidValidity: "0", lastUid: 900 });
+    watcher.start();
+    await flush();
+    session.deliver(msg(2));
+    await flush();
+    expect(seen.map((m) => m.uid)).toEqual([2]);
+    await watcher.stop();
+  });
+
+  it("forgets a pending skip when the watcher is started again", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1), msg(2)]);
+    const { watcher, overflow, seen } = setup([first, second]);
+    watcher.start();
+    await flush();
+    first.drop(new UnreadableMailError("a mail is too large to read"));
+    await watcher.stop();
+    watcher.start();
+    await flush();
+    expect(overflow).toEqual([]);
+    expect(seen.map((m) => m.uid)).toEqual([2]);
+    await watcher.stop();
+  });
+
+  it("moves nothing and says nothing when no mail lies past the cursor", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1)]);
+    const { watcher, overflow } = setup([first, second]);
+    watcher.start();
+    await flush();
+    first.drop(new UnreadableMailError("a mail is too large to read"));
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
+    expect(watcher.current).toBe("watching");
+    expect(overflow).toEqual([]);
+    await watcher.stop();
+  });
+
+  it("keeps the backoff for an ordinary failure: the mail is not skipped", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1), msg(2)]);
+    const { watcher, seen, overflow } = setup([first, second]);
+    watcher.start();
+    await flush();
+    first.drop(new Error("connection reset"));
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
+    expect(seen.map((m) => m.uid)).toEqual([2]);
+    expect(overflow).toEqual([]);
+    await watcher.stop();
+  });
 });
 
 describe("AccountWatcher announcing", () => {

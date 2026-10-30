@@ -3,6 +3,7 @@ export * from "./adapter.js";
 export * from "./blocklist.js";
 export * from "./freemail.js";
 export * from "./registry.js";
+export * from "./tls-refusal.js";
 export * from "./sieve/adapter.js";
 export * from "./sieve/rules.js";
 export * from "./sieve/session.js";

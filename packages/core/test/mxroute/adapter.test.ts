@@ -147,6 +147,59 @@ describe("MxrouteAdapter plan", () => {
   });
 });
 
+describe("MxrouteAdapter.retire", () => {
+  it("does not read back with the removed key", async () => {
+    const { adapter } = setup();
+    adapter.retire();
+    await expect(adapter.verify(initialMxrouteState("example.com"))).rejects.toThrow(AdapterError);
+  });
+
+  it("stops a round in flight: the next change does not go out with the removed key", async () => {
+    const adds: string[] = [];
+    const adapter: MxrouteAdapter = new MxrouteAdapter({
+      accountId: LANE,
+      client: {
+        list: () => Promise.resolve([]),
+        add: (_domain, value) => {
+          adds.push(value);
+          adapter.retire();
+          return Promise.resolve();
+        },
+        remove: () => Promise.resolve(),
+      },
+    });
+    const list = ["a", "b", "c"].map((name, n) => ({
+      id: `0b5f5f58-8f2c-4b9e-9a45-2f0a5c6d9d0${String(n)}`,
+      match: "exactAddress" as const,
+      value: `${name}@example.org`,
+      action: "reject" as const,
+      createdAt: "2026-10-24T12:00:00.000Z",
+    }));
+    const plan = await adapter.plan(list, initialMxrouteState("example.com"));
+    expect(plan.changes).toHaveLength(3);
+    await adapter.apply(plan);
+    expect(adds).toHaveLength(1);
+  });
+
+  it("plans nothing once retired, whatever the state says: its key must not be used again", async () => {
+    const { adapter } = setup();
+    adapter.retire();
+    const plan = await adapter.plan(
+      [
+        {
+          id: "0b5f5f58-8f2c-4b9e-9a45-2f0a5c6d9d01",
+          match: "exactAddress",
+          value: "a@example.com",
+          action: "reject",
+          createdAt: "2026-10-24T12:00:00.000Z",
+        },
+      ],
+      initialMxrouteState("example.com"),
+    );
+    expect(plan.changes).toEqual([]);
+  });
+});
+
 describe("MxrouteAdapter apply", () => {
   it("adds the address to the blacklist and never touches the person's own entries", async () => {
     const { fake, adapter } = setup();
