@@ -198,7 +198,8 @@ describe("isAllowedHost", () => {
   });
 
   it("keeps the exact-only list from growing (new tests use reserved names)", () => {
-    expect(EXACT_HOSTS.length).toBeLessThanOrEqual(23);
+    // 23 test names, and one host the app itself names to people (ADR 0012).
+    expect(EXACT_HOSTS.length).toBeLessThanOrEqual(24);
   });
 });
 

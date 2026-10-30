@@ -92,9 +92,10 @@
       <h2>No Senderban server</h2>
       <p>
         This version of Senderban has no server and no account with us. The app talks directly from
-        your device to your mail provider (for Gmail, to Google; for MXroute's blacklist, to the
-        MXroute API). We do not receive, collect, store or see any of the data described below, and
-        there is no analytics, telemetry, advertising or tracking in the app.
+        your device to your mail provider (for Gmail, to Google; for Outlook and Microsoft 365, to
+        Microsoft; for MXroute's blacklist, to the MXroute API). We do not receive, collect, store
+        or see any of the data described below, and there is no analytics, telemetry, advertising or
+        tracking in the app.
       </p>
 
       <h2>What the app handles, and where it stays</h2>
@@ -177,6 +178,33 @@
         </li>
         <li>No person reads it: we never receive it.</li>
       </ul>
+
+      <h2>Microsoft user data (Outlook and Microsoft 365)</h2>
+      <p>
+        Senderban signs in through Microsoft's own page and never sees your password. It asks for
+        three permissions, and for a refresh token so that it stays signed in:
+      </p>
+      <ul>
+        <li>
+          <strong>MailboxSettings.ReadWrite.</strong> To create, change and delete the Inbox rules
+          named Senderban. It does not change any other rule.
+        </li>
+        <li>
+          <strong>Mail.ReadBasic.</strong> To find your Junk folder. Microsoft's consent page words
+          this permission more widely (it also covers the sender and subject of your mail, never the
+          body); this version of Senderban reads no message.
+        </li>
+        <li><strong>User.Read.</strong> To learn your mail address.</li>
+      </ul>
+      <p>
+        What is stored on your device: your address, and the refresh token, encrypted by Windows for
+        your user. Access tokens are kept in memory only. The addresses and domains you block are
+        written to Microsoft as rules, on your mailbox. Removing the account deletes the rules it
+        can reach and the token, and tells you about any rule it could not delete or that you
+        changed in Outlook; Microsoft keeps listing the access until you remove it at
+        account.live.com/consent/Manage (personal account) or myapps.microsoft.com (work or school
+        account).
+      </p>
 
       <h2>Keeping and deleting your data</h2>
       <ul>

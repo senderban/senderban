@@ -216,7 +216,38 @@ export const GmailAccountConfigSchema = z.strictObject({
 });
 export type GmailAccountConfig = z.infer<typeof GmailAccountConfigSchema>;
 
-export const AccountConfigSchema = z.union([ImapAccountConfigSchema, GmailAccountConfigSchema]);
+/**
+ * A refresh token's ciphertext. Longer than `Ciphertext`: Microsoft's tokens are opaque and may reach MICROSOFT_TOKEN_BYTES.refresh (8 KiB), and
+ * base64 of what DPAPI makes of that is about 11 KiB. PROVISIONAL with that limit. Unit: characters.
+ */
+export const REFRESH_CIPHER_MAX_CHARS = 16_384;
+const RefreshCipher = z
+  .string()
+  .min(1)
+  .max(REFRESH_CIPHER_MAX_CHARS)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/u);
+
+/**
+ * A Microsoft mailbox (ADR 0012): Outlook.com or Microsoft 365. Only the refresh token is stored, as ciphertext; `refreshCipher` is missing
+ * while the account is signed out. The client ID is the app's own, not per account.
+ */
+export const MicrosoftAccountConfigSchema = z.strictObject({
+  id: z.string().regex(ACCOUNT_ID),
+  microsoft: z.strictObject({
+    email: GmailAddress,
+    refreshCipher: RefreshCipher.optional(),
+  }),
+});
+export type MicrosoftAccountConfig = z.infer<typeof MicrosoftAccountConfigSchema>;
+
+/** Sign in: a new account carries nothing, a re-sign-in names the account. */
+export const MicrosoftSignInRequestSchema = GoogleSignInRequestSchema;
+
+export const AccountConfigSchema = z.union([
+  ImapAccountConfigSchema,
+  GmailAccountConfigSchema,
+  MicrosoftAccountConfigSchema,
+]);
 export type AccountConfig = z.infer<typeof AccountConfigSchema>;
 
 /** Narrows to the IMAP/Sieve kind; every reader of `imap` or `sieve` goes through this. */
@@ -227,6 +258,19 @@ export function isImapAccount(account: AccountConfig): account is ImapAccountCon
 /** Narrows to the Gmail kind. */
 export function isGmailAccount(account: AccountConfig): account is GmailAccountConfig {
   return "gmail" in account;
+}
+
+/** Narrows to the Microsoft kind. */
+export function isMicrosoftAccount(account: AccountConfig): account is MicrosoftAccountConfig {
+  return "microsoft" in account;
+}
+
+/** The addresses an account signs in with, lowercased: two accounts that share one are one mailbox. */
+export function accountLogins(account: AccountConfig): string[] {
+  if (isImapAccount(account)) {
+    return [account.imap.user.toLowerCase(), account.sieve.user.toLowerCase()];
+  }
+  return [isGmailAccount(account) ? account.gmail.email : account.microsoft.email];
 }
 
 export const AccountsFileSchema = z
@@ -243,16 +287,15 @@ export const AccountsFileSchema = z
       // Compared by mailbox, not by text: Gmail reads `m.e@gmail.com` and `me@googlemail.com` as `me@gmail.com`.
       const seen = new Set<string>();
       for (const a of file.accounts) {
-        if (isImapAccount(a)) {
-          for (const login of [a.imap.user, a.sieve.user])
-            seen.add(mailboxKey(login.toLowerCase()));
-        }
+        if (isImapAccount(a)) for (const login of accountLogins(a)) seen.add(mailboxKey(login));
       }
       for (const a of file.accounts) {
         if (isImapAccount(a)) continue;
-        const key = mailboxKey(a.gmail.email);
-        if (seen.has(key)) return false;
-        seen.add(key);
+        for (const login of accountLogins(a)) {
+          const key = mailboxKey(login);
+          if (seen.has(key)) return false;
+          seen.add(key);
+        }
       }
       return true;
     },
@@ -284,8 +327,8 @@ const Password = z
     { message: "password cannot be used" },
   );
 
-/** Lane ids end in these (`<account id>.mxroute`, `.gmail`): an account id ending in one could take another lane's id. */
-const LANE_ID_ENDING = /\.(?:mxroute|gmail)$/u;
+/** Lane ids end in these (`<account id>.mxroute`, `.gmail`, `.graph`): an account id ending in one could take another lane's id. */
+const LANE_ID_ENDING = /\.(?:mxroute|gmail|graph)$/u;
 
 /** What a person types when adding an account: the plaintext password exists only until it is encrypted. */
 export const NewAccountSchema = ImapAccountConfigSchema.omit({

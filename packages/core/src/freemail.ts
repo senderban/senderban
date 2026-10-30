@@ -122,6 +122,11 @@ function isListed(list: ReadonlySet<string>, domain: string): boolean {
   }
 }
 
+/** Every listed provider domain, for a rule that matches text and cannot rely on `isFreemail`'s labels. */
+export function freemailDomains(): Iterable<string> {
+  return [...FREEMAIL_DOMAINS, ...FREEMAIL_NOT_OFFERED];
+}
+
 /** True for a freemail domain or any subdomain of one (`mail.gmail.com`). Input must be lowercase ASCII. */
 export function isFreemail(domain: string): boolean {
   return isListed(FREEMAIL_DOMAINS, domain);

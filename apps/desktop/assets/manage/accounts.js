@@ -12,8 +12,10 @@ const acEls = {
   save: document.getElementById("account-save"),
   providerMx: document.getElementById("provider-mx"),
   providerGmail: document.getElementById("provider-gmail"),
+  providerMicrosoft: document.getElementById("provider-microsoft"),
   panelMx: document.getElementById("panel-mx"),
   panelGmail: document.getElementById("panel-gmail"),
+  panelMicrosoft: document.getElementById("panel-microsoft"),
 };
 
 // Replies of the main process, as sentences. The input is never echoed.
@@ -267,8 +269,10 @@ acEls.form.addEventListener("submit", (event) => {
 function acShowProvider(provider) {
   acEls.providerMx.setAttribute("aria-pressed", String(provider === "mx"));
   acEls.providerGmail.setAttribute("aria-pressed", String(provider === "gmail"));
+  acEls.providerMicrosoft.setAttribute("aria-pressed", String(provider === "microsoft"));
   acEls.panelMx.hidden = provider !== "mx";
   acEls.panelGmail.hidden = provider !== "gmail";
+  acEls.panelMicrosoft.hidden = provider !== "microsoft";
 }
 
 acEls.providerMx.addEventListener("click", () => {
@@ -276,6 +280,9 @@ acEls.providerMx.addEventListener("click", () => {
 });
 acEls.providerGmail.addEventListener("click", () => {
   acShowProvider("gmail");
+});
+acEls.providerMicrosoft.addEventListener("click", () => {
+  acShowProvider("microsoft");
 });
 acShowProvider("mx");
 

@@ -1,8 +1,8 @@
 import { request } from "node:http";
 import { describe, expect, it } from "vitest";
-import { startLoopback } from "../../src/google/loopback.js";
-import type { Loopback } from "../../src/google/loopback.js";
-import { newState } from "../../src/google/oauth.js";
+import { startLoopback } from "../src/oauth/loopback.js";
+import type { Loopback } from "../src/oauth/loopback.js";
+import { newState } from "../src/google/oauth.js";
 
 interface Answer {
   readonly status: number;
@@ -159,7 +159,7 @@ describe("startLoopback", () => {
   it("reads any other error from Google as a failure, never as a code", async () => {
     const { state, loopback } = await setup();
     await hit(loopback, `/?error=server_error&state=${state}&code=x`);
-    expect(await loopback.result).toEqual({ kind: "failed", reason: "google-error" });
+    expect(await loopback.result).toEqual({ kind: "failed", reason: "provider-error" });
   });
 
   it("refuses an error that does not carry the state, so a stranger cannot cancel the sign-in", async () => {

@@ -4,6 +4,13 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- **Outlook and Microsoft 365:** a Microsoft account keeps your block list as rules on the mailbox, so
+  every mail app follows. A sender goes to Junk or Deleted Items at the server. The sign-in stays off
+  until the Microsoft app registration is in place, and none of this has been measured on a real
+  mailbox yet ([ADR 0012](docs/adr/0012-graph-adapter.md)).
+
 ## [0.1.4] - 2026-10-31
 
 ### Changed

@@ -51,6 +51,11 @@ const UNCONFIRMED_PILL = ["warn", "Not confirmed"];
 
 // What a signed-in Gmail account does with the entry (a single address becomes a Trash filter); absent: no Gmail account.
 const GMAIL_PILL = { trash: ["", "Gmail: Trash"], no: ["warn", "Gmail: not applied"] };
+// A domain on a Microsoft account is a text match: it can also catch longer domains that start the same way, and one that would catch the person's own mail is not written.
+const OUTLOOK_PILL = {
+  wide: ["warn", "Outlook: text match"],
+  no: ["warn", "Outlook: not applied"],
+};
 const OWN_PILL = ["warn", "Not applied: your own mail"];
 
 const TABS = [
@@ -62,7 +67,11 @@ const TABS = [
     holds: (e) => e.action !== "trash" && !e.atServer && e.own !== true,
   },
   { id: "trash", label: "Trash", holds: (e) => e.action === "trash" },
-  { id: "not", label: "Needs a look", holds: (e) => e.applied !== "yes" || e.gmail === "no" },
+  {
+    id: "not",
+    label: "Needs a look",
+    holds: (e) => e.applied !== "yes" || e.gmail === "no" || e.outlook === "no",
+  },
 ];
 
 // A watcher's state as the row says it: in words, never by colour alone.
@@ -173,6 +182,8 @@ function row(entry) {
     if (action !== undefined) meta.append(pill(...action));
     const gmail = GMAIL_PILL[entry.gmail];
     if (gmail !== undefined) meta.append(pill(...gmail));
+    const outlook = OUTLOOK_PILL[entry.outlook];
+    if (outlook !== undefined) meta.append(pill(...outlook));
     if (entry.applied === "unknown") meta.append(pill(...UNCONFIRMED_PILL));
   }
   what.append(senderValue(entry.value), meta);
@@ -273,24 +284,29 @@ function setHealth(tone, text) {
 
 function drawWatch() {
   const accounts = watch.accounts;
-  const running = accounts.filter((a) => a.state === "watching").length;
+  // An account with rules and no watcher is neither watched nor missed.
+  const watched = accounts.filter((a) => a.rulesOnly !== true);
+  const running = watched.filter((a) => a.state === "watching").length;
   els.navAccountsCount.textContent = String(accounts.length);
   els.version.textContent = `v${watch.version}`;
   els.accountsEmpty.hidden = accounts.length > 0;
   let tone = "ok";
-  let text = `Watching ${String(accounts.length)} ${accounts.length === 1 ? "mailbox" : "mailboxes"}`;
+  let text = `Watching ${String(watched.length)} ${watched.length === 1 ? "mailbox" : "mailboxes"}`;
   if (accounts.length === 0) {
     tone = "working";
     text = "No mailbox yet";
+  } else if (watched.length === 0) {
+    tone = watch.behind.length > 0 ? "warn" : "ok";
+    text = `Blocking on ${String(accounts.length)} ${accounts.length === 1 ? "mailbox" : "mailboxes"}`;
   } else if (watch.paused) {
     tone = "warn";
     text = "Paused";
-  } else if (running < accounts.length) {
+  } else if (running < watched.length) {
     tone = "warn";
-    text = `Watching ${String(running)} of ${String(accounts.length)}`;
+    text = `Watching ${String(running)} of ${String(watched.length)}`;
   }
   setHealth(tone, text);
-  els.pause.hidden = accounts.length === 0;
+  els.pause.hidden = watched.length === 0;
   els.pause.textContent = watch.paused ? "Resume" : "Pause";
   els.restartBar.hidden = watch.restartPending !== true;
   els.restartText.textContent = "Restart Senderban to apply your changes.";

@@ -9,6 +9,7 @@ import {
   GoogleClientInputSchema,
   GoogleSignInRequestSchema,
   MXROUTE_LIMITS,
+  MicrosoftSignInRequestSchema,
   MxrouteEnableSchema,
   MxrouteInputSchema,
   MxrouteKeyRefSchema,
@@ -32,6 +33,11 @@ import type {
   GoogleRemoveReply,
   GoogleSignInOutcome,
 } from "./google-accounts.js";
+import type {
+  MicrosoftPageState,
+  MicrosoftRemoveReply,
+  MicrosoftSignInReply,
+} from "./microsoft-accounts.js";
 import type { MxroutePage, MxrouteSaveResult } from "./mxroute-settings.js";
 import type { AccountRemoveResult } from "./remove-account.js";
 
@@ -57,6 +63,8 @@ export interface ManageOutcome {
  */
 export type ManageEntry = BlockEntry & {
   readonly gmail: "trash" | "no" | null;
+  /** What a signed-in Microsoft account does with the entry (ADR 0012); `null`: no Microsoft account, say nothing. */
+  readonly outlook: "exact" | "wide" | "no" | null;
   readonly own: boolean;
   readonly applied: "yes" | "no" | "unknown";
   readonly atServer: boolean;
@@ -74,7 +82,12 @@ export interface WatchStatus {
   readonly paused: boolean;
   /** Mailboxes whose last sync failed: a block may be missing there until a sync works. */
   readonly behind: readonly string[];
-  readonly accounts: readonly { readonly accountId: string; readonly state: string | null }[];
+  /** `rulesOnly`: the account has server rules and no watcher, so "not watching" says nothing about it. */
+  readonly accounts: readonly {
+    readonly accountId: string;
+    readonly state: string | null;
+    readonly rulesOnly?: boolean;
+  }[];
 }
 
 export interface AccountRemoveRequest {
@@ -117,6 +130,11 @@ export interface ManageHandlers {
   /** Stops a sign-in that is waiting for the browser. */
   readonly googleCancel: () => void;
   readonly googleRemove: (accountId: string) => Promise<GoogleRemoveReply>;
+  /** Microsoft: whether sign-in is available, and the accounts (never a token). */
+  readonly microsoftState: () => Promise<MicrosoftPageState>;
+  /** Opens the browser and waits for Microsoft's answer (minutes). `googleCancel` stops it too: there is one sign-in slot. */
+  readonly microsoftSignIn: (request: { accountId?: string }) => Promise<MicrosoftSignInReply>;
+  readonly microsoftRemove: (accountId: string) => Promise<MicrosoftRemoveReply>;
   /** Quits the way the tray's Quit does, then starts Senderban again (a Gmail sign-in is picked up at start). */
   readonly restart: () => void;
   /** The mailboxes and what their watchers are doing. Reads no provider. */
@@ -180,6 +198,13 @@ export class ManageWindow {
       this.#googleCancel(event);
     });
     ipcMain.handle("manage:google-remove", (event, id: unknown) => this.#googleRemove(event, id));
+    ipcMain.handle("manage:microsoft-state", (event) => this.#microsoftState(event));
+    ipcMain.handle("manage:microsoft-sign-in", (event, value: unknown) =>
+      this.#microsoftSignIn(event, value),
+    );
+    ipcMain.handle("manage:microsoft-remove", (event, id: unknown) =>
+      this.#microsoftRemove(event, id),
+    );
     ipcMain.handle("manage:restart", (event) => this.#restart(event));
     ipcMain.handle("manage:status", (event) => this.#status(event));
     ipcMain.handle("manage:pause", (event, value: unknown) => this.#pause(event, value));
@@ -540,6 +565,53 @@ export class ManageWindow {
     } catch (error) {
       this.#handlers.onError("manage:google-sign-in", error);
       return { reply: "failed" };
+    }
+  }
+
+  async #microsoftState(event: IpcMainInvokeEvent) {
+    if (!this.#trusted(event)) return null;
+    try {
+      return await this.#handlers.microsoftState();
+    } catch (error) {
+      this.#handlers.onError("manage:microsoft-state", error);
+      return null;
+    }
+  }
+
+  async #microsoftSignIn(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<MicrosoftSignInReply | GoogleFailure["reply"]> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = MicrosoftSignInRequestSchema.safeParse(value ?? {});
+    if (!parsed.success) return "invalid";
+    try {
+      const reply = await this.#step(() =>
+        this.#handlers.microsoftSignIn(
+          parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
+        ),
+      );
+      if (reply === "signed-in") this.#restartPending = true;
+      return reply;
+    } catch (error) {
+      this.#handlers.onError("manage:microsoft-sign-in", error);
+      return "failed";
+    }
+  }
+
+  async #microsoftRemove(
+    event: IpcMainInvokeEvent,
+    id: unknown,
+  ): Promise<MicrosoftRemoveReply | GoogleFailure["reply"]> {
+    if (!this.#trusted(event)) return "denied";
+    if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
+    try {
+      const reply = await this.#step(() => this.#handlers.microsoftRemove(id));
+      if (reply.startsWith("removed")) this.#restartPending = true;
+      return reply;
+    } catch (error) {
+      this.#handlers.onError("manage:microsoft-remove", error);
+      return "failed";
     }
   }
 

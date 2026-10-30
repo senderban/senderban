@@ -1,8 +1,8 @@
 import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode } from "../adapter.js";
 import { mailboxKey } from "../address.js";
-import { startLoopback } from "./loopback.js";
-import { GOOGLE_AUTH_URL, buildAuthUrl, checkGrantedScopes, newPkce, newState } from "./oauth.js";
+import { askConsent, oneSignIn } from "../oauth/consent.js";
+import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_BYTES, buildAuthUrl, checkGrantedScopes } from "./oauth.js";
 import type { OAuthClient, ScopeCheck } from "./oauth.js";
 import { fetchProfile } from "./profile.js";
 import type { ProfileOptions } from "./profile.js";
@@ -25,13 +25,6 @@ export interface SignInOptions {
   readonly openBrowserTimeoutMs?: number;
   readonly signal?: AbortSignal;
 }
-
-/**
- * How long opening the browser may take before the sign-in gives up on it. Unit: milliseconds. PROVISIONAL: starting
- * a browser is quick; a call that does not return in this time (a hung `shell.openExternal`) must not hold the single
- * sign-in slot, which would answer `busy` to every later attempt until a restart.
- */
-export const OPEN_BROWSER_TIMEOUT_MS = 15_000;
 
 export type SignInResult =
   | {
@@ -59,8 +52,6 @@ export type SignInResult =
   | { readonly status: "wrong-account" }
   | { readonly status: "failed"; readonly code: AdapterErrorCode };
 
-let running = false;
-
 const codeOf = (error: unknown): AdapterErrorCode =>
   error instanceof AdapterError ? error.code : "TRANSIENT";
 
@@ -74,75 +65,44 @@ const codeOf = (error: unknown): AdapterErrorCode =>
  * the leftover access can be removed under Google Account permissions.
  */
 export async function signIn(options: SignInOptions): Promise<SignInResult> {
-  if (running) return { status: "busy" };
-  running = true;
-  try {
-    return await run(options);
-  } finally {
-    running = false;
-  }
+  return (await oneSignIn(() => run(options))) ?? { status: "busy" };
 }
 
 async function run(options: SignInOptions): Promise<SignInResult> {
-  const pkce = newPkce();
-  const state = newState();
-  let loopback: Awaited<ReturnType<typeof startLoopback>>;
-  try {
-    loopback = await startLoopback({
-      state,
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-    });
-  } catch {
-    return { status: "failed", code: "TRANSIENT" };
-  }
-
-  const url = buildAuthUrl({
-    clientId: options.clientId,
-    redirectUri: loopback.redirectUri,
-    state,
-    challenge: pkce.challenge,
-    ...(options.expectEmail === undefined ? {} : { loginHint: options.expectEmail }),
+  const answer = await askConsent({
+    authUrl: ({ redirectUri, state, pkce }) => {
+      const url = buildAuthUrl({
+        clientId: options.clientId,
+        redirectUri,
+        state,
+        challenge: pkce.challenge,
+        ...(options.expectEmail === undefined ? {} : { loginHint: options.expectEmail }),
+      });
+      return url.startsWith(`${GOOGLE_AUTH_URL}?`) ? url : null;
+    },
+    openBrowser: options.openBrowser,
+    maxCodeBytes: GOOGLE_TOKEN_BYTES.code,
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.openBrowserTimeoutMs === undefined
+      ? {}
+      : { openBrowserTimeoutMs: options.openBrowserTimeoutMs }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
-  if (!url.startsWith(`${GOOGLE_AUTH_URL}?`)) {
-    loopback.close();
-    return { status: "failed", code: "REJECTED" };
-  }
-  // The call may fail, hang, or be overtaken by an abort: none of them keeps the slot.
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    const timedOut = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => {
-        resolve("timeout");
-      }, options.openBrowserTimeoutMs ?? OPEN_BROWSER_TIMEOUT_MS);
-    });
-    const outcome = await Promise.race([
-      options.openBrowser(url).then(() => "opened" as const),
-      timedOut,
-      loopback.result.then(() => "settled" as const),
-    ]);
-    if (outcome === "timeout") {
-      loopback.close();
-      return { status: "browser-failed" };
-    }
-  } catch {
-    loopback.close();
-    return { status: "browser-failed" };
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const answer = await loopback.result;
-  if (answer.kind === "denied") return { status: "cancelled" };
-  if (answer.kind === "failed") {
-    if (answer.reason === "timeout") return { status: "timeout" };
-    if (answer.reason === "aborted") return { status: "aborted" };
-    return { status: "failed", code: "REJECTED" };
+  switch (answer.status) {
+    case "approved":
+      break;
+    case "failed":
+      return { status: "failed", code: answer.listener ? "TRANSIENT" : "REJECTED" };
+    // Google documents no such answer: a word it does not document is a refusal.
+    case "needs-approval":
+      return { status: "failed", code: "REJECTED" };
+    default:
+      return answer;
   }
 
   try {
     const grant = await options.oauth.exchangeCode(
-      { code: answer.code, verifier: pkce.verifier, redirectUri: loopback.redirectUri },
+      { code: answer.code, verifier: answer.verifier, redirectUri: answer.redirectUri },
       options.signal,
     );
     const scopes = checkGrantedScopes(grant.scope);
