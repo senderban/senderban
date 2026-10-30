@@ -83,8 +83,8 @@
       <h1>Privacy policy</h1>
       <p class="lead">Senderban runs on your device. Your mail data does not leave it.</p>
       <p class="status">
-        <strong>Effective 26 October 2026.</strong> Senderban is a pre-alpha, open-source Windows
-        app (<a href="/">senderban.com</a>). This policy describes the code in
+        <strong>Effective 30 October 2026.</strong> Senderban is an early-release, open-source
+        Windows app (<a href="/">senderban.com</a>). This policy describes the code in
         <a href="https://github.com/senderban/senderban">the public repository</a>, so you can check
         every statement against it.
       </p>
@@ -107,8 +107,9 @@
         </li>
         <li>
           <strong>Sender and subject of new mail.</strong> Only the From address and the Subject of
-          a newly arrived message, read on your device to show the notification. Senderban never
-          reads or downloads message bodies or attachments.
+          a newly arrived message, read on your device to show the notification, plus the server's
+          X-Spam-Score header on IMAP accounts. Senderban never reads or downloads message bodies or
+          attachments.
         </li>
         <li>
           <strong>Your block list.</strong> The senders you chose to block, in a local database on
@@ -124,10 +125,9 @@
 
       <h2>Google user data (Gmail)</h2>
       <p>
-        Gmail support (in development) uses your own Google Cloud project: you create an OAuth
-        client there and enter its client ID and secret in Senderban. Senderban never sees any
-        credentials but yours, and no one else holds access to your mail. It asks for exactly two
-        permissions:
+        Gmail support uses your own Google Cloud project: you create an OAuth client there and enter
+        its client ID and secret in Senderban. Senderban never sees any credentials but yours, and
+        no one else holds access to your mail. It asks for exactly two permissions:
       </p>
       <ul>
         <li>

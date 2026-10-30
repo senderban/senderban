@@ -1,7 +1,7 @@
 # Contributing
 
-Thanks for your interest. The project is pre-alpha; the most useful contributions right now are
-bug reports about the design and tests against real providers you own.
+Thanks for your interest. The project is an early release; the most useful contributions right now
+are bug reports and tests against real providers you own.
 
 ## Ground rules
 

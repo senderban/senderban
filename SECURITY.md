@@ -14,11 +14,11 @@ volunteer project: expect an acknowledgement within a few days, not hours.
 ## Scope
 
 In scope: credential handling, rule-writing logic that could block or expose the wrong mail, the
-notification action path, and the update/installer pipeline once it exists.
+notification action path, and the installer and release pipeline.
 
 Out of scope: vulnerabilities in a mail provider's own service, and issues that need an attacker
 who already controls the user's operating system account.
 
 ## Supported versions
 
-There is no release yet. Only the `main` branch is considered.
+Only the latest release and the `main` branch are supported.

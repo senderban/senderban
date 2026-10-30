@@ -2,42 +2,121 @@
 
 Block a sender once, from the Windows notification, on every mail account you own.
 
-> **Status: pre-alpha. Works today on MXroute only. Next: Gmail, then Hotmail / Outlook.** The
-> notification, the Sieve rule and the MXroute server-side block ran against one real MXroute mailbox
-> (2026-10-25). There is no installer and no release yet, and nothing is measured on other providers.
-> Do not point it at a mailbox you cannot afford to experiment on.
+> **Status: v0.1, early release.** Windows only. Works on MXroute and Gmail: the full loop (new mail,
+> notification, block, next mail filed away, undo) was measured on one real account of each on
+> 2026-10-30. Nothing is measured on other providers. The installer is unsigned. Start with a
+> mailbox you can afford to experiment on.
 
-## The idea
+## Download
 
-A new mail arrives. Senderban shows a notification with a choice of what happens to future mail
-(**Block at server**, **Move to Junk**, **Move to Trash**) and two buttons, **This sender** and
-**Whole domain**. One click writes a rule on the mail provider's own server (a Gmail filter, a Sieve
-script, an Outlook rule), so the block also applies on your phone, in webmail and in whichever mail
-client you use. On MXroute, **Block at server** also puts the address on the server's blacklist, so
-the sender gets an error (`550 High scoring spam message has been dropped`) and the mail never
-arrives. The result is shown per account and can be undone.
+[Latest release](https://github.com/senderban/senderban/releases/latest): `Senderban-Setup-X.Y.Z.exe`.
+It installs for your user only, no administrator rights.
+
+The installer is **unsigned** for v0.1, so Windows SmartScreen warns on first run (**More info**,
+then **Run anyway**). Check the download first, against `SHA256SUMS` on the release or against the
+workflow and the tag it came from:
+
+```sh
+gh attestation verify Senderban-Setup-X.Y.Z.exe --repo senderban/senderban \
+  --signer-workflow senderban/senderban/.github/workflows/release.yml \
+  --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners
+```
+
+## What it does
+
+A new mail arrives. Senderban shows a Windows notification. One click writes a rule on the mail
+provider's own server (a Gmail filter or a Sieve script), so the block also applies on your phone,
+in webmail and in whichever mail client you use. The block list is shared by all your accounts, the
+result is shown in the notification, and every block can be undone in the **Blocked senders** window.
+
+| On                | Choices                                                            | Whole domain |
+| ----------------- | ------------------------------------------------------------------ | ------------ |
+| MXroute           | **Move to Junk** (default), **Move to Trash**, **Block at server** | yes          |
+| Gmail / Workspace | **Move this sender to Trash**                                      | no           |
+
+- **Block at server** (MXroute, one address, off until you switch it on) puts the address on the
+  MXroute blacklist, which covers every mailbox on that mail domain. On the mailbox measured the
+  sender got `550 High scoring spam message has been dropped` and no copy was kept. That depends on
+  the spam-score limit in your MXroute panel, so a Junk rule stays as the backup for a mail that
+  still arrives.
+- A single-address Junk or Block at server entry made on MXroute goes to Trash on Gmail: Gmail
+  filters cannot file mail into Spam.
+- Gmail has no whole-domain block: measured, its `from:` search also matches the display name and
+  look-alike domains ([ADR 0009](docs/adr/0009-gmail-account.md)). A whole-domain entry made on
+  MXroute is not applied on Gmail, and the list says so.
+- Your own addresses are never blocked, and a whole-domain block never covers your own mail domain.
 
 It is not an email client. It does not send, sync, search or download message bodies.
 
-## What it will read and write (design, not yet implemented)
+## What it reads and writes
 
-- **Reads:** only the `From` and `Subject` headers of a newly arrived message, on your device, to
-  build the notification. No message body. Nothing is sent to a Senderban server (there is none).
-- **Writes:** one rule per provider, tagged as Senderban's own. It never touches rules you created.
-- **Default action is reversible** (move to Junk / Trash). There is no permanent delete.
-- Credentials are stored in the operating system's keychain, never in the project database or logs.
+- **Reads:** only the `From` and `Subject` of a newly arrived message, plus the server's
+  `X-Spam-Score` header on IMAP accounts, on your device, to build the notification. No message
+  body. Nothing is sent to a Senderban server (there is none).
+- **Writes:** rules on your mail provider, tagged as Senderban's own. It never touches rules you
+  created.
+- **The default action is reversible** (Junk or Trash). There is no permanent delete. **Block at
+  server** is the one choice that can leave no copy, and you have to switch it on and pick it.
+- **Secrets** are stored encrypted with Windows DPAPI, for your Windows user, in
+  `%APPDATA%\Senderban`. They never go to logs.
 
-## Planned provider support
+Full policy: [senderban.com/privacy](https://senderban.com/privacy/).
 
-| Provider                          | Mechanism                           | Target             | Evidence                          |
-| --------------------------------- | ----------------------------------- | ------------------ | --------------------------------- |
-| MXroute                           | Sieve (ManageSieve) + blacklist API | v0.1 (works today) | measured (2026-10-24, 2026-10-25) |
-| Gmail / Workspace                 | Gmail filters (own OAuth client)    | v0.1               | documented, not yet measured      |
-| Outlook / Hotmail / Microsoft 365 | Graph message rules                 | v0.2               | documented, not yet measured      |
+## Add an account
+
+### Gmail
+
+Senderban signs in through your own Google Cloud project, so nobody else holds access to your mail.
+That takes a one-time setup: [docs/gmail-setup.md](docs/gmail-setup.md). Then open **Blocked senders**
+from the tray, **Gmail accounts**, paste the client, **Add Gmail account**, **Restart now**.
+
+### MXroute
+
+There is no account form in v0.1. Quit Senderban from the tray, save this as `account.json` with
+your own values, then run the command below it. Use a path without spaces. The command shows no
+message: when it works the password is stored encrypted and the file is gone. If the file is still
+there it failed: delete it yourself, it holds your password.
+
+```json
+{
+  "id": "you@example.com",
+  "imap": { "host": "mail.example.com", "port": 993, "secure": true, "user": "you@example.com" },
+  "sieve": { "host": "mail.example.com", "port": 4190, "user": "you@example.com" },
+  "password": "your mailbox password"
+}
+```
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\senderban\Senderban.exe" --add-account=C:\full\path\account.json
+```
+
+Start Senderban again. To offer **Block at server**: under **Advanced** in the **Blocked senders**
+window enter your MXroute server, user name and API key, tick **Offer "Block at server" for single
+addresses**, and restart Senderban.
+
+## Provider support
+
+| Provider                          | Mechanism                           | Target | Evidence                        |
+| --------------------------------- | ----------------------------------- | ------ | ------------------------------- |
+| MXroute                           | Sieve (ManageSieve) + blacklist API | v0.1   | measured 2026-10-30             |
+| Gmail / Workspace                 | Gmail filters (own OAuth client)    | v0.1   | measured 2026-10-30, Gmail only |
+| Outlook / Hotmail / Microsoft 365 | Graph message rules                 | v0.2   | documented, not yet measured    |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
-"Measured" means the adapter ran against a real account: for MXroute that is install, in-place update, read-back, uninstall, and one delivered mail from a blocked sender filed into Junk by the generated script (2026-10-24), on a mailbox with no existing Sieve script.
-Not yet measured on MXroute: adding the `include` to a user's already-active script, and an envelope-sender match on its own (the test mail had the same From and envelope address).
+"Measured" means it ran against a real account.
+Not yet measured on MXroute: adding the `include` to a user's already-active Sieve script, and an
+envelope-sender match on its own (the test mail had the same From and envelope address).
+Other servers that speak IMAP and ManageSieve may work; none was tried.
+
+## Uninstall
+
+Rules live on your mail server, so uninstalling does not lift a block: **Unblock** each sender first.
+Windows removes the program but keeps `%APPDATA%\Senderban` (encrypted account secrets, the block
+list, logs). Before uninstalling, remove each Gmail account under _Gmail accounts_ in the _Blocked
+senders_ window (that also revokes Senderban's access at Google), switch the blacklist off under
+_Advanced_ and then remove the MXroute key; then delete the folder yourself. IMAP passwords are kept
+encrypted in the same folder.
+Details and what was measured: [docs/adr/0010-windows-installer.md](docs/adr/0010-windows-installer.md).
 
 ## Development
 
@@ -51,29 +130,14 @@ npm test
 ```
 
 Layout: `packages/core` (provider-agnostic logic, TypeScript) and `apps/desktop` (Electron shell).
-Architecture decisions are in [docs/adr](docs/adr).
+Architecture decisions are in [docs/adr](docs/adr). Changes per version: [CHANGELOG.md](CHANGELOG.md).
 
-### Windows installer (not released yet)
+Build the installer:
 
 ```sh
 npm run build
 npm run dist -w apps/desktop   # apps/desktop/release/Senderban-Setup-<version>.exe
 ```
-
-A per-user installer (no administrator rights). It is **unsigned** for v0.1, so Windows SmartScreen
-shows a warning on first run. A tagged build in GitHub Actions also writes `SHA256SUMS` and a build
-provenance attestation. Check a download against the release workflow and the tag it came from:
-
-```sh
-gh attestation verify Senderban-Setup-X.Y.Z.exe --repo senderban/senderban \
-  --signer-workflow senderban/senderban/.github/workflows/release.yml \
-  --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners
-```
-
-**Uninstall:** Windows removes the program but keeps `%APPDATA%\Senderban` (encrypted account secrets, the block list, logs). Before
-uninstalling, remove each Gmail account under _Gmail accounts_ in the _Blocked senders_ window (that also revokes Senderban's access at
-Google) and remove an MXroute key under _Advanced_; then delete the folder yourself. IMAP passwords are kept encrypted in the same folder.
-Details and what was measured: [docs/adr/0010-windows-installer.md](docs/adr/0010-windows-installer.md).
 
 ## License
 

@@ -6,7 +6,7 @@
     <title>Senderban</title>
     <meta
       name="description"
-      content="Block a sender once, from the Windows notification, on every mail account you own. Open source, pre-alpha."
+      content="Block a sender once, from the Windows notification, on every mail account you own. Open source, early release."
     />
     <meta name="color-scheme" content="light dark" />
     <style>
@@ -85,16 +85,20 @@
         Block a sender once, from the Windows notification, on every mail account you own.
       </p>
       <p class="status">
-        <strong>Pre-alpha. Nothing works yet.</strong> There is no installer and no release. The
-        code is the foundation only.
+        <strong>v0.1, early release.</strong> Windows only, for MXroute and Gmail. The installer is
+        unsigned, so Windows SmartScreen warns on first run.
+      </p>
+      <p>
+        <a href="https://github.com/senderban/senderban/releases/latest"
+          >Download the latest release</a
+        >
       </p>
 
-      <h2>How it will work</h2>
+      <h2>How it works</h2>
       <p>
-        A new mail arrives and a notification offers <strong>Block sender</strong>. One click writes
-        a rule on the mail provider's own server, so the block also applies on your phone, in
-        webmail and in whichever mail client you use. The result is shown per account and can be
-        undone.
+        A new mail arrives and a Windows notification offers to block the sender. One click writes a
+        rule on the mail provider's own server, so the block also applies on your phone, in webmail
+        and in whichever mail client you use. Every block can be undone.
       </p>
 
       <h2>What it reads and writes</h2>
@@ -107,11 +111,11 @@
 
       <h2>Gmail</h2>
       <p>
-        Gmail support is in development. It signs in through your own Google Cloud project and asks
-        for two permissions only: message metadata, to show the sender and subject in the
-        notification, and basic mail settings, to create the filters that block a sender. Nothing
-        leaves your device. Senderban's use and transfer to any other app of information received
-        from Google APIs will adhere to the
+        Senderban signs in to Gmail through your own Google Cloud project and asks for two
+        permissions only: message metadata, to show the sender and subject in the notification, and
+        basic mail settings, to create the filters that block a sender. Nothing leaves your device.
+        Senderban's use and transfer to any other app of information received from Google APIs will
+        adhere to the
         <a href="https://developers.google.com/terms/api-services-user-data-policy"
           >Google API Services User Data Policy</a
         >, including the Limited Use requirements. Details in the
