@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-30
+
 ### Changed
 
 - The MXroute API key now lives apart from your mailboxes. Removing a mailbox leaves the key alone,
