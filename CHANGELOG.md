@@ -29,6 +29,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 - A mail too large to read no longer stops notifications for its mailbox: Senderban steps past it
   and says how many messages it did not announce.
 - More private and reserved names are refused as a mail server (`.arpa`, `.onion`, `.svc`).
+- A vacation message with an odd quote in it no longer makes the active Sieve script unreadable.
+  A script Senderban cannot read is not edited.
 - The password field counts bytes, as the check behind it does.
 
 ### Security

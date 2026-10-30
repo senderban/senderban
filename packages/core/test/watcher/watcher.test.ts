@@ -4,6 +4,7 @@ import {
   AccountWatcher,
   FatalWatchError,
   SUBJECT_MAX,
+  SUBJECT_SCAN_MAX,
   sanitizeSubject,
   toIncoming,
   parseSpamScore,
@@ -85,6 +86,7 @@ function setup(sessions: readonly (FakeSession | (() => Promise<FakeSession>))[]
   const seen: IncomingMessage[] = [];
   const states: WatcherState[] = [];
   const overflow: number[] = [];
+  const unreadable: number[] = [];
   let connects = 0;
   const watcher = new AccountWatcher({
     accountId: "acc",
@@ -97,11 +99,12 @@ function setup(sessions: readonly (FakeSession | (() => Promise<FakeSession>))[]
     cursors,
     onMessage: (_id, m) => seen.push(m),
     onOverflow: (_id, n) => overflow.push(n),
+    onUnreadable: (_id, n) => unreadable.push(n),
     onState: (_id, s) => states.push(s),
     backoff: BACKOFF,
     random: () => 1,
   });
-  return { watcher, cursors, seen, states, overflow, connects: () => connects };
+  return { watcher, cursors, seen, states, overflow, unreadable, connects: () => connects };
 }
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
@@ -113,12 +116,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("sanitizeSubject and a very long subject", () => {
+  it("keeps every character it can hold, past the scan limit too", () => {
+    expect(sanitizeSubject("a".repeat(SUBJECT_SCAN_MAX * 2))).toBe("a".repeat(SUBJECT_MAX));
+  });
+
+  it("looks at a bounded part only, and keeps what a person reads", () => {
+    const start = `Invoice ${"x".repeat(50)}`;
+    expect(sanitizeSubject(start + " ".repeat(SUBJECT_SCAN_MAX) + "hidden")).toBe(start);
+  });
+});
+
 describe("AccountWatcher and a mail too large to read", () => {
   it("steps past it after one reconnect and tells the person, instead of looping for good", async () => {
     const first = new FakeSession([msg(1)]);
     const second = new FakeSession([msg(1), msg(2), msg(3)]);
     const third = new FakeSession([msg(1), msg(2), msg(3)]);
-    const { watcher, seen, cursors, overflow, connects } = setup([first, second, third]);
+    const { watcher, seen, cursors, unreadable, connects } = setup([first, second, third]);
     watcher.start();
     await flush();
     first.drop(new UnreadableMailError("a mail is too large to read"));
@@ -126,7 +140,7 @@ describe("AccountWatcher and a mail too large to read", () => {
     expect(connects()).toBe(2);
     expect(watcher.current).toBe("watching");
     expect(cursors.get("acc")?.lastUid).toBe(3);
-    expect(overflow).toEqual([2]);
+    expect(unreadable).toEqual([2]);
     expect(seen).toEqual([]);
     expect(second.fetches).toBe(0);
     second.deliver(msg(4));
@@ -195,14 +209,14 @@ describe("AccountWatcher and a mail too large to read", () => {
   it("forgets a pending skip when the watcher is started again", async () => {
     const first = new FakeSession([msg(1)]);
     const second = new FakeSession([msg(1), msg(2)]);
-    const { watcher, overflow, seen } = setup([first, second]);
+    const { watcher, unreadable, seen } = setup([first, second]);
     watcher.start();
     await flush();
     first.drop(new UnreadableMailError("a mail is too large to read"));
     await watcher.stop();
     watcher.start();
     await flush();
-    expect(overflow).toEqual([]);
+    expect(unreadable).toEqual([]);
     expect(seen.map((m) => m.uid)).toEqual([2]);
     await watcher.stop();
   });
@@ -210,26 +224,26 @@ describe("AccountWatcher and a mail too large to read", () => {
   it("moves nothing and says nothing when no mail lies past the cursor", async () => {
     const first = new FakeSession([msg(1)]);
     const second = new FakeSession([msg(1)]);
-    const { watcher, overflow } = setup([first, second]);
+    const { watcher, unreadable } = setup([first, second]);
     watcher.start();
     await flush();
     first.drop(new UnreadableMailError("a mail is too large to read"));
     await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
     expect(watcher.current).toBe("watching");
-    expect(overflow).toEqual([]);
+    expect(unreadable).toEqual([]);
     await watcher.stop();
   });
 
   it("keeps the backoff for an ordinary failure: the mail is not skipped", async () => {
     const first = new FakeSession([msg(1)]);
     const second = new FakeSession([msg(1), msg(2)]);
-    const { watcher, seen, overflow } = setup([first, second]);
+    const { watcher, seen, unreadable } = setup([first, second]);
     watcher.start();
     await flush();
     first.drop(new Error("connection reset"));
     await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
     expect(seen.map((m) => m.uid)).toEqual([2]);
-    expect(overflow).toEqual([]);
+    expect(unreadable).toEqual([]);
     await watcher.stop();
   });
 });

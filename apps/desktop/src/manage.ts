@@ -314,7 +314,7 @@ export class ManageWindow {
           confirm: () =>
             this.#ask({
               message: "Send this password to this server?",
-              detail: `Senderban will sign in to ${host} as ${address}. Whoever runs that server receives the password, now and at every start. Compare the name with your MXroute welcome mail.`,
+              detail: `Server: ${host}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your MXroute welcome mail, letter by letter. The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
               yes: "Sign in",
               signal: abort.signal,
             }),
@@ -344,7 +344,7 @@ export class ManageWindow {
             this.#ask({
               message: `Remove ${label}?`,
               detail:
-                "Senderban deletes its rules from this mailbox and forgets the password on this device. Mail from blocked senders then reaches this inbox again.",
+                "Senderban deletes its rules from this mailbox and forgets the password and any MXroute key on this device. Mail from blocked senders then reaches this inbox again. Anything on your MXroute blacklist stays there.",
               yes: "Remove",
             }),
           confirmLeaveRules: (label) =>

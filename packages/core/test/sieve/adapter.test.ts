@@ -404,6 +404,57 @@ describe("sieveStateForReinstall", () => {
   });
 });
 
+describe("SieveAdapter and a script it cannot read", () => {
+  const unreadable = 'require ["fileinto"];\nif true { fileinto "Open;\n';
+  const blocked = [entry(1, "exactAddress", "a@example.com")];
+
+  it("does not delete the rules under an include nobody could see", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, blocked, initialSieveState());
+    server.scripts.set("mine", unreadable);
+    server.active = "mine";
+    expect(await failure(adapter.uninstall(result.state))).toBe("REJECTED");
+    expect(server.scripts.has("senderban-rules")).toBe(true);
+    expect(server.scripts.get("mine")).toBe(unreadable);
+  });
+
+  it("never edits it to add the include", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("mine", unreadable);
+    server.active = "mine";
+    expect(await failure(sync(adapter, blocked, initialSieveState()))).toBe("REJECTED");
+    expect(server.scripts.get("mine")).toBe(unreadable);
+  });
+
+  it("takes the include out of a script with a vacation text, which it can read", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("mine", 'require ["vacation"];\nvacation text:\nHe said "back\n.\n;\n');
+    server.active = "mine";
+    const { result } = await sync(adapter, blocked, initialSieveState());
+    expect(hasInclude(server.scripts.get("mine") ?? "", "senderban-rules")).toBe(true);
+    await adapter.uninstall(result.state);
+    expect(hasInclude(server.scripts.get("mine") ?? "", "senderban-rules")).toBe(false);
+    expect(server.scripts.has("senderban-rules")).toBe(false);
+  });
+
+  it("does not delete a rules script the person edited, as `apply` would not overwrite it", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, blocked, initialSieveState());
+    const edited = `${server.scripts.get("senderban-rules") ?? ""}\n# mine\n`;
+    server.scripts.set("senderban-rules", edited);
+    expect(await failure(adapter.uninstall(result.state))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("senderban-rules")).toBe(edited);
+  });
+
+  it("stops an uninstall when the signal ends", async () => {
+    const { adapter } = setup();
+    const { result } = await sync(adapter, blocked, initialSieveState());
+    const abort = new AbortController();
+    abort.abort(new Error("out of time"));
+    await expect(adapter.uninstall(result.state, abort.signal)).rejects.toThrow("out of time");
+  });
+});
+
 describe("SieveAdapter.uninstall and a script of that name", () => {
   it("leaves a rules script that is not ours, and changes nothing", async () => {
     const { server, adapter } = setup();

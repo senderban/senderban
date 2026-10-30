@@ -28,7 +28,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { createSieveLifecycle, dropImapAccount, removeImapAccount } =
+const { SIEVE_UNINSTALL_MS, createSieveLifecycle, dropImapAccount, removeImapAccount } =
   await import("../src/remove-account.js");
 const { loadAccounts, saveAccounts } = await import("../src/accounts-file.js");
 
@@ -210,13 +210,13 @@ describe("createSieveLifecycle", () => {
     const onDone = vi.fn();
     const onHold = vi.fn();
     const setState = vi.fn();
-    const settled = vi.fn(() => Promise.resolve());
+    const attemptDone = vi.fn(() => Promise.resolve());
     return {
       lifecycle: createSieveLifecycle({
         lanes: new Map(lanes),
         skipped: new Set(skipped),
         store: { getState: () => state, setState },
-        settled,
+        attemptDone,
         log,
         onHold,
         onResumed,
@@ -227,7 +227,7 @@ describe("createSieveLifecycle", () => {
       onDone,
       onHold,
       setState,
-      settled,
+      attemptDone,
     };
   };
 
@@ -244,8 +244,8 @@ describe("createSieveLifecycle", () => {
         return Promise.resolve(after);
       },
     });
-    const { lifecycle, setState, settled, onHold } = make([[ID, adapter]], withRules);
-    settled.mockImplementation(() => {
+    const { lifecycle, setState, attemptDone, onHold } = make([[ID, adapter]], withRules);
+    attemptDone.mockImplementation(() => {
       order.push("settled");
       return Promise.resolve();
     });
@@ -262,6 +262,15 @@ describe("createSieveLifecycle", () => {
     const none = make([[ID, lane()]]);
     expect(await none.lifecycle.prepare(ID)).toBe("ready");
     expect(uninstall).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives the uninstall a total deadline: a removal holds every other account change", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const { lifecycle } = make([[ID, lane()]], withRules);
+    await lifecycle.prepare(ID);
+    expect(timeout).toHaveBeenCalledWith(SIEVE_UNINSTALL_MS);
+    expect(uninstall.mock.calls[0]?.[1]).toBe(timeout.mock.results[0]?.value);
+    timeout.mockRestore();
   });
 
   it("calls a running round that will not end rules left, and never uninstalls beside it", async () => {
@@ -306,12 +315,13 @@ describe("createSieveLifecycle", () => {
   it("gives up with rules left when the engine does not settle in time, without uninstalling", async () => {
     vi.useFakeTimers();
     try {
-      const { lifecycle, settled } = make([[ID, lane()]], withRules);
-      settled.mockImplementation(() => new Promise<void>(() => undefined));
+      const { lifecycle, attemptDone, log } = make([[ID, lane()]], withRules);
+      attemptDone.mockImplementation(() => new Promise<void>(() => undefined));
       const reply = lifecycle.prepare(ID);
       await vi.advanceTimersByTimeAsync(SIEVE_SUSPEND_WAIT_MS);
       expect(await reply).toBe("rules-left");
       expect(uninstall).not.toHaveBeenCalled();
+      expect(JSON.stringify(log.mock.calls)).toContain("BUSY");
     } finally {
       vi.useRealTimers();
     }
@@ -415,7 +425,7 @@ describe("the removal against a real engine", () => {
       lanes: new Map([[ID, adapter]]),
       skipped: new Set(),
       store,
-      settled: (id) => engine.settled(id),
+      attemptDone: (id) => engine.attemptDone(id),
       log: vi.fn(),
       onHold: vi.fn(),
       onResumed: vi.fn(),
@@ -460,7 +470,7 @@ describe("a failed uninstall against a real engine", () => {
       lanes: new Map([[ID, adapter]]),
       skipped: new Set(),
       store,
-      settled: (id) => engine.settled(id),
+      attemptDone: (id) => engine.attemptDone(id),
       log: vi.fn(),
       onHold: vi.fn(),
       onResumed: vi.fn(),

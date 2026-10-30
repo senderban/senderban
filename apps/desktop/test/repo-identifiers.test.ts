@@ -263,7 +263,8 @@ describe("check-identifiers.ts in a git repository", () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain("commit messages:");
     expect(r.out).not.toContain(real);
-  });
+    // Many git processes: past the default 5 s when a full run loads the machine.
+  }, 30_000);
 
   it("fails when the denylist is required (a push to this repository) and missing", () => {
     const r = run([], {

@@ -209,6 +209,15 @@ describe("MXroute key (advanced)", () => {
     expect(parse({ ...stored, enabled: "yes" }).success).toBe(false);
   });
 
+  it("lower-cases the server: a look-alike capital then shows in the question", () => {
+    const parsed = AccountAddSchema.parse({
+      address: "you@example.com",
+      host: "maIl.example.com",
+      password: "pw",
+    });
+    expect(parsed.host).toBe("mail.example.com");
+  });
+
   it("refuses an id that could take another lane's id, also from a file", () => {
     const added = { ...account(), password: "pw" };
     delete (added as { passwordCipher?: string }).passwordCipher;

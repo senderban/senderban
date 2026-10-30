@@ -11,6 +11,11 @@ import type { Gate } from "../gate.js";
 
 export const SUBJECT_MAX = 200;
 /**
+ * Characters of a raw subject that are looked at, at most. Cleaning runs on the main process, and a sender picks the length; 8x
+ * the kept length leaves room for the padding a cleaned subject loses.
+ */
+export const SUBJECT_SCAN_MAX = SUBJECT_MAX * 8;
+/**
  * Unit: SpamAssassin points. MXroute adds `X-Spam-Score: 1.6 (+)` (seen on a real message, 2026-10-25);
  * typical scores run -15..+50, so a value outside this range is not trusted and shown as "no score".
  */
@@ -83,6 +88,8 @@ export interface WatcherOptions {
   readonly onMessage: (accountId: string, message: IncomingMessage) => void;
   /** More new messages than `maxPerDrain`: the older `skipped` ones were not announced. */
   readonly onOverflow?: (accountId: string, skipped: number) => void;
+  /** A mail too large to read was stepped past, with whatever came in beside it; `skipped` counts UIDs, an upper bound. */
+  readonly onUnreadable?: (accountId: string, skipped: number) => void;
   readonly onState?: (accountId: string, state: WatcherState, detail?: string) => void;
   readonly maxPerDrain?: number;
   readonly backoff?: { readonly baseMs: number; readonly maxMs: number; readonly stableMs: number };
@@ -95,7 +102,13 @@ const CONTROL_AND_BIDI = /[\p{Cc}\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
 
 /** Header text is hostile: it is shown in a system toast, so strip what can spoof or break it. */
 export function sanitizeSubject(raw: string): string {
-  return raw.replace(CONTROL_AND_BIDI, " ").replace(/\s+/gu, " ").trim().slice(0, SUBJECT_MAX);
+  // A copy, not `slice` alone: a slice can keep the whole raw subject alive for as long as the message is held.
+  return Buffer.from(raw.slice(0, SUBJECT_SCAN_MAX), "utf8")
+    .toString("utf8")
+    .replace(CONTROL_AND_BIDI, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, SUBJECT_MAX);
 }
 
 const SPAM_SCORE_LINE = /^x-spam-score:[ \t]*(-?\d{1,3}(?:\.\d{1,2})?)(?=[ \t]*(?:\(|\r|\n|$))/gimu;
@@ -327,7 +340,7 @@ export class AccountWatcher {
       const lastUid = session.uidNext - 1;
       if (lastUid > cursor.lastUid) {
         cursors.set(accountId, { uidValidity: session.uidValidity, lastUid });
-        this.options.onOverflow?.(accountId, lastUid - cursor.lastUid);
+        this.options.onUnreadable?.(accountId, lastUid - cursor.lastUid);
         return;
       }
     }

@@ -515,6 +515,13 @@ async function start(): Promise<Runtime> {
             `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced.`,
           );
         },
+        onUnreadable: (accountId, skipped) => {
+          log("unreadable-mail", { account: accountTag(accountId), skipped });
+          notice(
+            "Senderban",
+            `A mail in ${labels.get(accountId) ?? accountId} was too large to read, so up to ${String(skipped)} new messages were not announced. Check that inbox.`,
+          );
+        },
         onState: (accountId, state, detail) => {
           const previous = states.get(accountId);
           states.set(accountId, state);
@@ -665,7 +672,7 @@ async function start(): Promise<Runtime> {
     skipped: skippedAccounts,
     store,
     log,
-    settled: (accountId) => engine.settled(accountId),
+    attemptDone: (accountId) => engine.attemptDone(accountId),
     // A failed round during the removal is not news: the removal reports its own outcome.
     onHold: (accountId, held) => {
       heldSieveLanes.hold(accountId, held);

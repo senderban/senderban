@@ -13,6 +13,9 @@ import { settleWithin } from "./deadline.js";
 import { accountTag } from "./log.js";
 import type { Log } from "./log.js";
 
+/** Longest the uninstall may take, once the lane is quiet. A removal holds every other account change, so it needs one total. */
+export const SIEVE_UNINSTALL_MS = 60_000;
+
 export type AccountRemoveResult =
   | "removed"
   /** Removed, but the account had an MXroute key: what it put on the blacklist stays there. */
@@ -31,7 +34,7 @@ export interface SieveLane {
   suspend(): Promise<boolean>;
   resume(): void;
   retire(): void;
-  uninstall(state: OpaqueState): Promise<OpaqueState>;
+  uninstall(state: OpaqueState, signal: AbortSignal): Promise<OpaqueState>;
 }
 
 /**
@@ -58,8 +61,8 @@ export interface SieveLifecycleDeps {
     getState(accountId: string): OpaqueState | undefined;
     setState(accountId: string, state: OpaqueState): void;
   };
-  /** Resolves when the engine has saved the result of the lane's last round. */
-  readonly settled: (accountId: string) => Promise<void>;
+  /** Resolves when a round that reached the provider has saved its result. */
+  readonly attemptDone: (accountId: string) => Promise<void>;
   /** A lane is held still (true) or free again (false): the app keeps its own "working on it" notices quiet meanwhile. */
   readonly onHold: (accountId: string, held: boolean) => void;
   /** A held lane is free again: it must catch up with what happened meanwhile (a sync). */
@@ -82,18 +85,22 @@ export function createSieveLifecycle(deps: SieveLifecycleDeps): SieveRulesLifecy
       // The engine saves a Sieve round's state after `apply` returned, so the adapter going idle is not yet the end of it.
       const round = { quiet: false };
       const stilled = lane.suspend().then(async (idle) => {
-        if (idle) await deps.settled(accountId);
+        if (idle) await deps.attemptDone(accountId);
         round.quiet = idle;
       });
       await settleWithin(stilled, SIEVE_SUSPEND_WAIT_MS);
-      if (!round.quiet) return "rules-left";
+      if (!round.quiet) {
+        deps.log("sieve-uninstall-failed", { account: accountTag(accountId), code: "BUSY" });
+        return "rules-left";
+      }
       const state = deps.store.getState(accountId) ?? initialSieveState();
       try {
         // Marked first: a crash during the uninstall must not leave a state that says everything is in place.
         deps.store.setState(accountId, sieveStateForReinstall(state));
         // Always, even when the state says nothing is there: a lost state must not leave rules behind. It goes by script
         // name, keeps to what is ours, and costs one login at a person's click.
-        deps.store.setState(accountId, await lane.uninstall(state));
+        const signal = AbortSignal.timeout(SIEVE_UNINSTALL_MS);
+        deps.store.setState(accountId, await lane.uninstall(state, signal));
         return "ready";
       } catch (error) {
         const code = error instanceof AdapterError ? error.code : "UNKNOWN";

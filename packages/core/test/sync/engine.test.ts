@@ -176,6 +176,31 @@ const track = <T extends { engine: SyncEngine }>(s: T): T => {
   return s;
 };
 
+describe("attemptDone", () => {
+  it("does not wait for a round still queued for a slot: it has written nothing", async () => {
+    const { store, engine, add } = track(setup({ maxConcurrent: 1 }));
+    const stalled = add("a");
+    add("b");
+    let release: () => void = () => undefined;
+    stalled.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.add(addr());
+    const first = engine.sync("a");
+    const second = engine.sync("b");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stalled.applyCalls).toBe(1);
+    let settled = false;
+    void engine.settled("b").then(() => {
+      settled = true;
+    });
+    await engine.attemptDone("b");
+    expect(settled).toBe(false);
+    release();
+    await Promise.all([first, second]);
+  });
+});
+
 describe("SyncEngine.sync", () => {
   it("reports unchanged without touching the journal when nothing differs", async () => {
     const { store, engine, add } = track(setup());

@@ -172,6 +172,7 @@ function failure(accountId: string, error: unknown): FailedOutcome {
  * provider error (it returns a `failed` outcome).
  */
 export class SyncEngine {
+  readonly #attempts = new Map<string, Promise<SyncOutcome>>();
   readonly #store: Store;
   readonly #accounts = new Map<string, EngineAccount>();
   readonly #lanes = new Map<string, Lane>();
@@ -322,6 +323,14 @@ export class SyncEngine {
     return this.#settled(accountId);
   }
 
+  /**
+   * Resolves once the round that reached the provider, if one did, has saved its result. A round still waiting for a slot is
+   * not waited for: at 50 lanes that is minutes behind stalled rounds, and it has written nothing.
+   */
+  async attemptDone(accountId: string): Promise<void> {
+    await this.#attempts.get(accountId);
+  }
+
   /** Resolves once the lane has no round running or queued. */
   async #settled(accountId: string): Promise<void> {
     const lane = this.#lanes.get(accountId);
@@ -402,7 +411,7 @@ export class SyncEngine {
     const { outcome, skipped } = await this.#gateFor(accountId)(async () =>
       this.#disposed
         ? { outcome: failure(accountId, new Error("engine disposed")), skipped: true }
-        : { outcome: await this.#attempt(accountId), skipped: false },
+        : { outcome: await this.#tracked(accountId), skipped: false },
     );
     if (skipped) return outcome;
     this.#noteAuth(accountId, outcome);
@@ -413,6 +422,14 @@ export class SyncEngine {
       // a listener must not break the lane
     }
     return outcome;
+  }
+
+  #tracked(accountId: string): Promise<SyncOutcome> {
+    const attempt = this.#attempt(accountId).finally(() => {
+      this.#attempts.delete(accountId);
+    });
+    this.#attempts.set(accountId, attempt);
+    return attempt;
   }
 
   #wanted(): Blocklist {

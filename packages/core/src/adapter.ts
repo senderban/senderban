@@ -100,5 +100,5 @@ export interface BlockAdapter {
   verify(state: OpaqueState, signal?: AbortSignal): Promise<Drift>;
   cleanup?(selector: { readonly address: string }): Promise<ApplyResult>;
   /** Removes everything this adapter wrote and restores the user's own rules; returns the empty state. */
-  uninstall?(state: OpaqueState): Promise<OpaqueState>;
+  uninstall?(state: OpaqueState, signal?: AbortSignal): Promise<OpaqueState>;
 }

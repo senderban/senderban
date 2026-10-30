@@ -1,4 +1,5 @@
 import { ImapFlow } from "imapflow";
+import type { FetchMessageObject } from "imapflow";
 import type { IncomingMessage, MailboxSession } from "./watcher.js";
 import { FatalWatchError, UnreadableMailError, toIncoming } from "./watcher.js";
 
@@ -27,6 +28,12 @@ export const FETCH_SCAN_MAX = 1_000;
 export const MAX_IMAP_LINE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAP_LITERAL_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAP_RESPONSE_BYTES = 8 * 1024 * 1024;
+/**
+ * Parse tree nodes in one response. Each costs about 100 bytes of heap, so this bounds parsing as the bytes bound reading. An
+ * address costs up to 15 nodes in an ENVELOPE (From, Sender and Reply-To repeat it), so this passes a full 100 KiB header, the
+ * Postfix default: a mail must not have to be rare to be read, since one that is not read costs its neighbours a notification.
+ */
+export const MAX_IMAP_RESPONSE_TOKENS = 250_000;
 
 /** imapflow's words for an answer past a limit. It ends the connection, and after login only a mail can have caused it. */
 const OVERSIZED_CODES: ReadonlySet<string> = new Set([
@@ -54,6 +61,15 @@ function isOversized(error: unknown): boolean {
  */
 export function fetchStartUid(lastUid: number, uidNext: number): number {
   return Math.max(lastUid + 1, uidNext - FETCH_LIMIT);
+}
+
+/** One row reduced to what is kept, while streaming: the raw envelope of a kept row could hold megabytes of addresses. */
+async function* reduceRows(
+  rows: AsyncIterable<FetchMessageObject>,
+): AsyncGenerator<IncomingMessage | null> {
+  for await (const row of rows) {
+    yield toIncoming(row.uid, row.envelope?.from?.[0]?.address, row.envelope?.subject, row.headers);
+  }
 }
 
 /** Streams `rows`, keeps the newest `keep`, and stops reading after `scanMax` rows. Memory is O(keep). */
@@ -143,6 +159,7 @@ export function imapflowConnector(
       maxLineLength: MAX_IMAP_LINE_BYTES,
       maxLiteralSize: MAX_IMAP_LITERAL_BYTES,
       maxResponseSize: MAX_IMAP_RESPONSE_BYTES,
+      maxResponseTokens: MAX_IMAP_RESPONSE_TOKENS,
     });
 
     let existsListener: (() => void) | null = null;
@@ -178,28 +195,20 @@ export function imapflowConnector(
         uidValidity: mailbox.uidValidity.toString(),
         uidNext: openUidNext,
         async fetchSince(uid: number): Promise<IncomingMessage[]> {
-          const out: IncomingMessage[] = [];
           const rows = await keepNewest(
-            client.fetch(
-              `${String(fetchStartUid(uid, openUidNext))}:*`,
-              { uid: true, envelope: true, headers: ["x-spam-score"] },
-              { uid: true },
+            reduceRows(
+              client.fetch(
+                `${String(fetchStartUid(uid, openUidNext))}:*`,
+                { uid: true, envelope: true, headers: ["x-spam-score"] },
+                { uid: true },
+              ),
             ),
             FETCH_LIMIT,
             FETCH_SCAN_MAX,
           ).catch((error: unknown) => {
             throw error instanceof Error ? fromMail(error) : error;
           });
-          for (const row of rows) {
-            const incoming = toIncoming(
-              row.uid,
-              row.envelope?.from?.[0]?.address,
-              row.envelope?.subject,
-              row.headers,
-            );
-            if (incoming !== null) out.push(incoming);
-          }
-          return out;
+          return rows.filter((row) => row !== null);
         },
         onExists(listener) {
           existsListener = listener;

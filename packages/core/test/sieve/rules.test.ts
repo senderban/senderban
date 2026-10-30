@@ -4,6 +4,7 @@ import type { Blocklist } from "../../src/blocklist.js";
 import {
   DEFAULT_RENDER_OPTIONS,
   hasInclude,
+  includeState,
   insertInclude,
   removeInclude,
   renderMain,
@@ -115,6 +116,37 @@ describe("parseRequireBlock", () => {
     expect(parseRequireBlock("require text:\nfileinto\n.\n;")).toBeNull();
     expect(parseRequireBlock('require ["a" "b"];')).toBeNull();
     expect(parseRequireBlock("/* never closed")).toBeNull();
+  });
+});
+
+describe("multi-line strings", () => {
+  const vacation = (body: string) =>
+    `require ["vacation"];\nvacation text:\n${body}\n.\n;\ninclude :personal "senderban-rules";\n`;
+
+  it.each([
+    ["an odd quote", 'He said "back on Monday'],
+    ["an open comment", "see /* here"],
+    ["a hash", "# not a comment"],
+    ["a doubled dot", ".."],
+    ["a quote after a doubled dot", '..\n"odd'],
+  ])("reads a script past %s in a vacation text", (_name, body) => {
+    expect(includeState(vacation(body), "senderban-rules")).toBe("yes");
+  });
+
+  it("does not take an include line inside a text for a real one", () => {
+    const script = 'vacation text:\ninclude :personal "senderban-rules";\n.\n;\n';
+    expect(includeState(script, "senderban-rules")).toBe("no");
+  });
+
+  it("does not read `text:` inside a word or a string", () => {
+    expect(stripComments('foo_text:\n"a"')).not.toBeNull();
+    expect(includeState('"text:" ; include "senderban-rules";', "senderban-rules")).toBe("yes");
+  });
+
+  it("calls a text with no end unreadable, never no", () => {
+    expect(includeState("vacation text:\nnever ends\n", "senderban-rules")).toBe("unreadable");
+    expect(includeState('"open', "senderban-rules")).toBe("unreadable");
+    expect(hasInclude('"open', "senderban-rules")).toBe(false);
   });
 });
 

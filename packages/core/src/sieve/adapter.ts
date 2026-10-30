@@ -16,6 +16,7 @@ import {
   SCRIPT_NAME,
   assertScriptName,
   hasInclude,
+  includeState,
   insertInclude,
   isOurMain,
   isOurRules,
@@ -202,7 +203,11 @@ async function ensureInclude(
   // The user's own active script: add one include line, never activate anything else.
   const before = await session.getScript(active.name);
   if (before === null) throw new AdapterError("REMOTE_CHANGED", "active script disappeared");
-  if (hasInclude(before, state.rulesName)) return null;
+  const present = includeState(before, state.rulesName);
+  if (present === "yes") return null;
+  if (present === "unreadable") {
+    throw new AdapterError("REJECTED", "active script could not be read, so it was not edited");
+  }
 
   if (scriptBytes(before) > MAX_BACKUP_BYTES) {
     throw new AdapterError("REJECTED", "active script too large to back up before editing");
@@ -411,15 +416,20 @@ export class SieveAdapter implements BlockAdapter {
    * user's script points at something that is gone. The user's own script gets back its original
    * text; our own main script is deactivated and deleted.
    */
-  async uninstall(state: OpaqueState): Promise<OpaqueState> {
+  async uninstall(state: OpaqueState, signal?: AbortSignal): Promise<OpaqueState> {
     const current = parseState(state);
-    return withSession(this.#options.connect, async (session) => {
+    const uninstall = async (session: SieveSession): Promise<OpaqueState> => {
       const scripts = await session.listScripts();
       const active = scripts.find((s) => s.active);
       // Before anything changes: a script of that name without our marker is someone else's, and gets no copy here.
       if (scripts.some((s) => s.name === current.rulesName)) {
         const rules = await session.getScript(current.rulesName);
-        if (rules !== null && !isOurRules(rules)) {
+        // The hash, as `apply` does it: a rule the person added to our script is theirs and has no other copy.
+        const edited =
+          rules !== null &&
+          current.rulesSha256 !== null &&
+          scriptSha256(rules) !== current.rulesSha256;
+        if (rules !== null && (edited || !isOurRules(rules))) {
           throw new AdapterError("REMOTE_CHANGED", `script "${current.rulesName}" is not ours`);
         }
       }
@@ -433,7 +443,12 @@ export class SieveAdapter implements BlockAdapter {
         await session.deleteScript(current.mainName);
       } else if (active !== undefined) {
         const text = await session.getScript(active.name);
-        if (text !== null && hasInclude(text, current.rulesName)) {
+        const included = text === null ? "no" : includeState(text, current.rulesName);
+        // Deleting the rules script under an include nobody could see would break every delivery to this mailbox.
+        if (included === "unreadable") {
+          throw new AdapterError("REJECTED", "active script could not be read");
+        }
+        if (text !== null && included === "yes") {
           const original =
             current.includeBackup?.scriptName === active.name
               ? current.includeBackup.content
@@ -460,7 +475,8 @@ export class SieveAdapter implements BlockAdapter {
         includeBackup: null,
       };
       return { adapterId: SIEVE_ADAPTER_ID, data: next };
-    });
+    };
+    return withSession(this.#options.connect, uninstall, signal);
   }
 
   async verify(state: OpaqueState, signal?: AbortSignal): Promise<Drift> {

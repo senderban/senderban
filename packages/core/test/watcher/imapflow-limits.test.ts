@@ -5,6 +5,7 @@ import {
   MAX_IMAP_LINE_BYTES,
   MAX_IMAP_LITERAL_BYTES,
   MAX_IMAP_RESPONSE_BYTES,
+  MAX_IMAP_RESPONSE_TOKENS,
   imapflowConnector,
 } from "../../src/watcher/imapflow-session.js";
 
@@ -67,6 +68,12 @@ describe("imapflowConnector limits", () => {
     const big = String(MAX_IMAP_LITERAL_BYTES + 1);
     const port = await hostile(`* OK {${big}}\r\n`, Buffer.alloc(0), 0);
     await expect(connect(port)).rejects.toMatchObject({ code: "LiteralTooLarge" });
+  });
+
+  it("stops parsing one response of many small tokens", async () => {
+    const line = `* 1 FETCH (${"1 ".repeat(MAX_IMAP_RESPONSE_TOKENS + 10)})\r\n`;
+    const port = await hostile("* OK ready\r\n", Buffer.from(line), line.length);
+    await expect(connect(port)).rejects.toThrow();
   });
 
   it("cuts off one response that spreads over many literals", async () => {

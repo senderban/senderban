@@ -30,7 +30,7 @@ const AC_REPLY = {
   unreachable: ["error", "Could not reach this server. Check its name and try again."],
   "tls-refused": [
     "error",
-    "This server's certificate could not be verified, so no password was sent to it. Check its name. Nothing was saved.",
+    "This server's certificate could not be verified, so Senderban stopped. Check its name. Nothing was saved.",
   ],
   cancelled: ["warn", "Cancelled. Nothing was saved."],
   busy: ["warn", "A check is still running."],

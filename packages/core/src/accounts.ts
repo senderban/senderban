@@ -270,7 +270,8 @@ export const AccountAddSchema = z.strictObject({
   // process's own confirmation are what protect the password.
   host: Host.refine((value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value), {
     message: "not a public host name",
-  }),
+    // Lower case: DNS does not care, and in a dialog a capital I then shows as an i, not as an l.
+  }).transform((value) => value.toLowerCase()),
   password: Password,
 });
 export type AccountAddInput = z.infer<typeof AccountAddSchema>;

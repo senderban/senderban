@@ -102,6 +102,27 @@ export function parseRequireBlock(script: string): RequireBlock | null {
   }
 }
 
+/** RFC 5228 s2.4.2: `text:` at the start of a token opens a multi-line string. */
+function isMultilineStart(script: string, at: number): boolean {
+  if (script.slice(at, at + 5).toLowerCase() !== "text:") return false;
+  return at === 0 || !/[A-Za-z0-9_:]/.test(script.charAt(at - 1));
+}
+
+/**
+ * Where a multi-line string ends: after the first line that is a lone dot (a dot that starts a data line is doubled, so `..`
+ * does not end it). Quotes and comment marks inside are plain text. Null when no such line exists.
+ */
+function multilineEnd(script: string, at: number): number | null {
+  let line = script.indexOf("\n", at);
+  while (line !== -1) {
+    const next = script.indexOf("\n", line + 1);
+    const stop = next === -1 ? script.length : next;
+    if (script.slice(line + 1, stop) === ".") return stop;
+    line = next;
+  }
+  return null;
+}
+
 /** Replaces comments with spaces (keeps offsets); string contents are left alone. Null if malformed. */
 export function stripComments(script: string): string | null {
   let out = "";
@@ -123,6 +144,11 @@ export function stripComments(script: string): string | null {
       if (close === -1) return null;
       out += script.slice(i, close + 2).replace(/[^\n]/g, " ");
       i = close + 2;
+    } else if (isMultilineStart(script, i)) {
+      const end = multilineEnd(script, i);
+      if (end === null) return null;
+      out += script.slice(i, end).replace(/[^\n]/g, " ");
+      i = end;
     } else {
       out += c;
       i += 1;

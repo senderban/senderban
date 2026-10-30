@@ -104,13 +104,21 @@ export const isOurMain = (script: string): boolean =>
 export const isOurRules = (script: string): boolean =>
   normalizeNewlines(script).split("\n").includes(RULES_MARKER);
 
-/** True when the script (comments ignored) already runs `include :personal "<rulesName>"`. */
-export function hasInclude(script: string, rulesName: string): boolean {
+/**
+ * Whether the script (comments ignored) runs `include :personal "<rulesName>"`. `unreadable`: it could not be parsed, so
+ * nobody knows, and a caller must not write as if the answer were no.
+ */
+export function includeState(script: string, rulesName: string): "yes" | "no" | "unreadable" {
   const code = stripComments(normalizeNewlines(script));
-  if (code === null) return false;
+  if (code === null) return "unreadable";
   assertScriptName(rulesName);
-  return new RegExp(`(^|[;{}\\s])include\\s+(:[a-z]+\\s+)*"${rulesName}"\\s*;`, "i").test(code);
+  const include = new RegExp(`(^|[;{}\\s])include\\s+(:[a-z]+\\s+)*"${rulesName}"\\s*;`, "i");
+  return include.test(code) ? "yes" : "no";
 }
+
+/** True only for an include that was read; for a script that could not be read, ask `includeState`. */
+export const hasInclude = (script: string, rulesName: string): boolean =>
+  includeState(script, rulesName) === "yes";
 
 /**
  * Adds our `include` line to a script we do not own, right after its `require` block (a `require`
