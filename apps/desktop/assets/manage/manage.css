@@ -167,7 +167,7 @@ input:focus-visible {
   margin-top: 12px;
 }
 #account-list,
-#mxroute-accounts,
+#mxroute-keys,
 #google-accounts {
   margin: 10px 0 0;
   padding: 0;
@@ -177,7 +177,7 @@ input:focus-visible {
   gap: 10px;
 }
 #account-list li,
-#mxroute-accounts li,
+#mxroute-keys li,
 #google-accounts li {
   padding: 10px 12px;
   border: 1px solid var(--line);
@@ -185,7 +185,7 @@ input:focus-visible {
   background: var(--surface);
 }
 #account-form,
-#mxroute-accounts form,
+#mxroute-new form,
 #google-client-form {
   display: flex;
   flex-direction: column;

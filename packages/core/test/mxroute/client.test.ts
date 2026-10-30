@@ -181,6 +181,43 @@ describe("MXroute client requests", () => {
   });
 });
 
+describe("MXroute client domains", () => {
+  it("reads the login's domains from the fixed host, naming no domain", async () => {
+    const { fake, client } = setup();
+    expect(await client.domains()).toEqual(["example.com"]);
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0]?.url).toBe(`${MXROUTE_API}/domains`);
+    expect(fake.calls[0]?.method).toBe("GET");
+    expect(fake.calls[0]?.headers["X-API-Key"]).toBe(KEY);
+  });
+
+  it("maps a refused key to AUTH_REQUIRED and a busy server to TRANSIENT", async () => {
+    const { fake, client } = setup();
+    fake.forced.push(401);
+    expect((await code(client.domains()))?.code).toBe("AUTH_REQUIRED");
+    fake.forced.push(403);
+    expect((await code(client.domains()))?.code).toBe("AUTH_REQUIRED");
+    fake.forced.push(503);
+    expect((await code(client.domains()))?.code).toBe("TRANSIENT");
+  });
+
+  it("reports the call under its own name", async () => {
+    const fake = new FakeMxroute();
+    const calls: unknown[] = [];
+    const client = createMxrouteClient({
+      server: "mx.example.net",
+      username: "exampleuser",
+      getKey: () => Promise.resolve(KEY),
+      fetch: fake.fetch,
+      onCall: (call) => {
+        calls.push(call);
+      },
+    });
+    await client.domains();
+    expect(calls).toEqual([{ op: "domains", status: 200, ms: expect.any(Number) as number }]);
+  });
+});
+
 describe("MXroute client list", () => {
   it("returns the entries of a well-formed answer", async () => {
     const { fake, client } = setup();

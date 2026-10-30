@@ -84,7 +84,8 @@ password is stored encrypted on this device.
 
 **Remove** next to the account deletes Senderban's rules from the mail server, then the password. If
 the rules cannot be deleted it says so and asks you first. Senders on the MXroute blacklist stay
-there until you delete them in your MXroute panel.
+there until you delete them in your MXroute panel. Your MXroute API key stays too: it has its own
+**Remove key** under **Advanced**.
 
 The form uses IMAP over TLS on port 993 and ManageSieve on port 4190, with the mail address as user
 name. For any other setup, quit Senderban from the tray and save this as `account.json` with your
@@ -112,8 +113,9 @@ folder, change the password.
 Then start Senderban again.
 
 To offer **Block at server**: under **Advanced** in the **Blocked senders**
-window enter your MXroute server, user name and API key, tick **Offer "Block at server" for single
-addresses**, and restart Senderban.
+window enter your MXroute server, user name and API key once (it covers every mailbox and domain on
+your MXroute account), tick **Offer "Block at server"** for each mail domain you want, and restart
+Senderban.
 
 ## Provider support
 

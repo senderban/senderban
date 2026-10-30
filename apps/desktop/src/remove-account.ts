@@ -7,7 +7,7 @@ import {
   sieveStateForReinstall,
   sieveStateHoldsRules,
 } from "@senderban/core";
-import type { OpaqueState } from "@senderban/core";
+import type { ImapAccountConfig, OpaqueState } from "@senderban/core";
 import { loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
 import { settleWithin } from "./deadline.js";
 import { accountTag } from "./log.js";
@@ -199,6 +199,8 @@ export interface AccountRemoveSteps {
   readonly rules: () => Promise<SieveRulesLifecycle>;
   /** Runs once, after the account left the file. It must not throw: the account is gone by then. */
   readonly onRemoved: () => Promise<void>;
+  /** After the account left the file: is a blacklist left that no mailbox tends? The MXroute key itself stays either way. */
+  readonly blacklistOutlives: (account: ImapAccountConfig) => Promise<boolean>;
 }
 
 /**
@@ -244,5 +246,7 @@ export async function removeImapAccount(
   rules.done(accountId, rulesRemain);
   await steps.onRemoved();
   if (rulesRemain) return "removed-rules-remain";
-  return account.mxroute === undefined ? "removed" : "removed-blacklist-remains";
+  // Not knowing is the case to warn about: the account is gone by now, this only picks the sentence.
+  const remains = await steps.blacklistOutlives(account).catch(() => true);
+  return remains ? "removed-blacklist-remains" : "removed";
 }

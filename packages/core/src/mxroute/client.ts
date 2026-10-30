@@ -39,12 +39,14 @@ export interface MxrouteClientOptions {
 }
 
 export interface MxrouteCall {
-  readonly op: "list" | "add" | "remove";
+  readonly op: "domains" | "list" | "add" | "remove";
   readonly status: number | null;
   readonly ms: number;
 }
 
 export interface MxrouteClient {
+  /** Every domain of the login: the cheapest call that proves a key without naming a domain. */
+  domains(signal?: AbortSignal): Promise<readonly string[]>;
   /** Every blacklist entry of the domain. */
   list(domain: string, signal?: AbortSignal): Promise<readonly string[]>;
   /** Adds one entry; an entry that is already there counts as added (409). */
@@ -189,24 +191,32 @@ export function createMxrouteClient(options: MxrouteClientOptions): MxrouteClien
 
   const base = (domain: string): string => `/domains/${encodeURIComponent(domain)}/spam/blacklist`;
 
+  /** Both reads answer with the same list of strings. */
+  async function readList(
+    path: string,
+    what: "domains" | "list",
+    signal: AbortSignal | undefined,
+  ): Promise<readonly string[]> {
+    const { status, response } = await call("GET", path, what, signal);
+    if (status !== 200) {
+      await response.body?.cancel();
+      throw failure(status, what);
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(await readBounded(response));
+    } catch (error) {
+      if (error instanceof AdapterError) throw error;
+      throw new AdapterError("TRANSIENT", `MXroute ${what} answer is malformed`);
+    }
+    const parsed = ListAnswer.safeParse(json);
+    if (!parsed.success) throw new AdapterError("TRANSIENT", `MXroute ${what} answer is malformed`);
+    return parsed.data.data;
+  }
+
   return {
-    async list(domain, signal) {
-      const { status, response } = await call("GET", base(domain), "list", signal);
-      if (status !== 200) {
-        await response.body?.cancel();
-        throw failure(status, "list");
-      }
-      let json: unknown;
-      try {
-        json = JSON.parse(await readBounded(response));
-      } catch (error) {
-        if (error instanceof AdapterError) throw error;
-        throw new AdapterError("TRANSIENT", "MXroute list answer is malformed");
-      }
-      const parsed = ListAnswer.safeParse(json);
-      if (!parsed.success) throw new AdapterError("TRANSIENT", "MXroute list answer is malformed");
-      return parsed.data.data;
-    },
+    domains: (signal) => readList("/domains", "domains", signal),
+    list: (domain, signal) => readList(base(domain), "list", signal),
     async add(domain, entry, signal) {
       if (
         !BLACKLIST_ENTRY.test(entry) ||

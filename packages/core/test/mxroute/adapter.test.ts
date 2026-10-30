@@ -159,6 +159,7 @@ describe("MxrouteAdapter.retire", () => {
     const adapter: MxrouteAdapter = new MxrouteAdapter({
       accountId: LANE,
       client: {
+        domains: () => Promise.resolve([]),
         list: () => Promise.resolve([]),
         add: (_domain, value) => {
           adds.push(value);

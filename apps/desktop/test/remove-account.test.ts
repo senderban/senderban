@@ -83,6 +83,7 @@ const steps = (
   confirmLeaveRules: () => Promise.resolve(false),
   rules: () => Promise.resolve(lifecycle),
   onRemoved: () => Promise.resolve(),
+  blacklistOutlives: () => Promise.resolve(false),
   ...over,
 });
 
@@ -159,21 +160,25 @@ describe("removeImapAccount", () => {
     expect(await ids()).toContain(ID);
   });
 
-  it("says that the MXroute blacklist stays", async () => {
-    const base = imapAccount(ID);
-    await saveAccounts(path, [
-      {
-        ...base,
-        mxroute: {
-          server: "mx.example.net",
-          username: "exampleuser",
-          apiKeyCipher: CIPHER,
-          enabled: true,
-        },
-      },
-    ]);
+  it("says that the MXroute blacklist stays when no mailbox is left on it", async () => {
     const { lifecycle } = rules("ready");
-    expect(await removeImapAccount(path, ID, steps(lifecycle))).toBe("removed-blacklist-remains");
+    const outlives = vi.fn(() => Promise.resolve(true));
+    const reply = await removeImapAccount(path, ID, {
+      ...steps(lifecycle),
+      blacklistOutlives: outlives,
+    });
+    expect(reply).toBe("removed-blacklist-remains");
+    expect(outlives).toHaveBeenCalledWith(expect.objectContaining({ id: ID }));
+  });
+
+  it("warns when it cannot tell: the account is gone by then", async () => {
+    const { lifecycle } = rules("ready");
+    const reply = await removeImapAccount(path, ID, {
+      ...steps(lifecycle),
+      blacklistOutlives: () => Promise.reject(new Error("unreadable")),
+    });
+    expect(reply).toBe("removed-blacklist-remains");
+    expect(await ids()).not.toContain(ID);
   });
 
   it("frees the lane when the rules step throws, and keeps the account", async () => {

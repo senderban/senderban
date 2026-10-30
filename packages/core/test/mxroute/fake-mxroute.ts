@@ -44,6 +44,11 @@ export class FakeMxroute {
     if (forced !== undefined) return new Response(null, { status: forced });
 
     const path = new URL(url).pathname;
+    if (path === "/domains" && (init?.method ?? "GET") === "GET") {
+      return new Response(JSON.stringify({ success: true, data: ["example.com"] }), {
+        status: 200,
+      });
+    }
     const base = /^\/domains\/[^/]+\/spam\/blacklist/.exec(path);
     if (base === null) return new Response(null, { status: 404 });
     const method = init?.method ?? "GET";

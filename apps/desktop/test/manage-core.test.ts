@@ -62,7 +62,7 @@ beforeEach(() => {
   new ManageWindow("assets", {
     list,
     unblock,
-    mxrouteList: () => Promise.resolve([]),
+    mxrouteList: () => Promise.resolve({ accounts: [], keys: [], keysUnreadable: false }),
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
     mxrouteEnable: () => Promise.resolve("saved"),

@@ -134,14 +134,17 @@
         <summary>Advanced</summary>
         <h2>MXroute API key</h2>
         <p class="muted">
-          For MXroute mailboxes only. The key is stored encrypted on this device and never shown
-          again. Senderban checks it with MXroute when you save it, and uses it only for an account
-          where you switch it on below. Make a key at panel.mxroute.com/api-keys.php, where the
-          server and user name are also shown; if MXroute lets you limit a key, give it the least
-          access that works.
+          For MXroute mailboxes only. One key covers every mailbox and domain on your MXroute
+          account. It is stored encrypted on this device and never shown again, and removing a
+          mailbox leaves it here. Senderban checks it with MXroute when you save it, and uses it
+          only for a domain where you switch it on below. Make a key at
+          panel.mxroute.com/api-keys.php, where the server and user name are also shown; if MXroute
+          lets you limit a key, give it the least access that works.
         </p>
-        <ul id="mxroute-accounts" aria-label="MXroute API keys"></ul>
-        <p id="mxroute-empty" class="muted" hidden>No account is set up yet.</p>
+        <ul id="mxroute-keys" aria-label="MXroute API keys"></ul>
+        <p id="mxroute-empty" class="muted" hidden>No key saved yet.</p>
+        <p id="mxroute-notice" class="status" role="status"></p>
+        <div id="mxroute-new"></div>
       </details>
     </main>
     <script src="manage.js"></script>

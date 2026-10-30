@@ -47,7 +47,7 @@ const AC_REMOVE_REPLY = {
   removed: ["ok", "Removed. Restart Senderban to finish."],
   "removed-blacklist-remains": [
     "warn",
-    "Removed. Senders it put on the MXroute blacklist stay there: delete them in your MXroute panel. Restart Senderban to finish.",
+    "Removed. Senders it put on the MXroute blacklist stay there: delete them in your MXroute panel. Your API key stays under Advanced. Restart Senderban to finish.",
   ],
   "removed-rules-remain": [
     "warn",

@@ -11,9 +11,17 @@ import {
   MXROUTE_LIMITS,
   MxrouteEnableSchema,
   MxrouteInputSchema,
+  MxrouteKeyRefSchema,
   isEntryId,
 } from "@senderban/core";
-import type { AccountAddInput, BlockEntry, GoogleClientInput } from "@senderban/core";
+import type {
+  AccountAddInput,
+  BlockEntry,
+  GoogleClientInput,
+  MxrouteEnableInput,
+  MxrouteInput,
+  MxrouteKeyRef,
+} from "@senderban/core";
 import { BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import type { AccountAddResult } from "./add-account.js";
@@ -23,19 +31,10 @@ import type {
   GoogleRemoveReply,
   GoogleSignInOutcome,
 } from "./google-accounts.js";
+import type { MxroutePage, MxrouteSaveResult } from "./mxroute-settings.js";
 import type { AccountRemoveResult } from "./remove-account.js";
 
 const PAGE = "manage/manage.html";
-
-/** What the page may know about an account's MXroute key: never the key, never its ciphertext. */
-export interface ManageMxrouteAccount {
-  readonly accountId: string;
-  readonly label: string;
-  readonly hasKey: boolean;
-  readonly enabled: boolean;
-  readonly server: string | null;
-  readonly username: string | null;
-}
 
 /** What the page shows after an unblock; the same line the person reads in the window. */
 export interface ManageOutcome {
@@ -68,15 +67,17 @@ export interface ManageHandlers {
   readonly list: () => readonly ManageEntry[];
   /** Takes the entry off the list and every account; describes what happened. */
   readonly unblock: (id: string) => Promise<ManageOutcome>;
-  /** Advanced: the accounts with their MXroute key status (the key itself stays in the main process). */
-  readonly mxrouteList: () => Promise<readonly ManageMxrouteAccount[]>;
+  /** The mailboxes and the MXroute keys (the key itself stays in the main process). */
+  readonly mxrouteList: () => Promise<MxroutePage>;
   /** Stores the key encrypted. The input has already passed the core schema. */
-  readonly mxrouteSave: (
-    input: ReturnType<typeof MxrouteInputSchema.parse>,
-  ) => Promise<MxrouteOutcome>;
-  readonly mxrouteRemove: (accountId: string) => Promise<MxrouteOutcome>;
-  /** Switches the account's MXroute blacklist on or off (takes effect when Senderban starts). */
-  readonly mxrouteEnable: (accountId: string, enabled: boolean) => Promise<MxrouteOutcome>;
+  readonly mxrouteSave: (input: MxrouteInput) => Promise<MxrouteSaveResult>;
+  /** Forgets a key on this device once the person said yes; no mailbox changes. */
+  readonly mxrouteRemove: (
+    ref: MxrouteKeyRef,
+    confirm: () => Promise<boolean>,
+  ) => Promise<MxrouteSaveResult>;
+  /** Switches one domain's MXroute blacklist on or off (takes effect when Senderban starts). */
+  readonly mxrouteEnable: (input: MxrouteEnableInput) => Promise<MxrouteSaveResult>;
   /** Tries the logins, then stores the account. The input has already passed the core schema. */
   readonly accountAdd: (
     input: AccountAddInput,
@@ -131,7 +132,9 @@ export class ManageWindow {
     ipcMain.handle("manage:mxroute-save", (event, value: unknown) =>
       this.#mxrouteSave(event, value),
     );
-    ipcMain.handle("manage:mxroute-remove", (event, id: unknown) => this.#mxrouteRemove(event, id));
+    ipcMain.handle("manage:mxroute-remove", (event, value: unknown) =>
+      this.#mxrouteRemove(event, value),
+    );
     ipcMain.handle("manage:mxroute-enable", (event, value: unknown) =>
       this.#mxrouteEnable(event, value),
     );
@@ -249,7 +252,7 @@ export class ManageWindow {
     try {
       // The limits come from here so the page never invents its own numbers.
       return {
-        accounts: await this.#handlers.mxrouteList(),
+        ...(await this.#handlers.mxrouteList()),
         limits: MXROUTE_LIMITS,
         addLimits: ACCOUNT_ADD_LIMITS,
         restartPending: this.#restartPending,
@@ -278,20 +281,28 @@ export class ManageWindow {
     const parsed = MxrouteEnableSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#step(() =>
-        this.#handlers.mxrouteEnable(parsed.data.accountId, parsed.data.enabled),
-      );
+      return await this.#step(() => this.#handlers.mxrouteEnable(parsed.data));
     } catch (error) {
       this.#handlers.onError("manage:mxroute-enable", error);
       return "failed";
     }
   }
 
-  async #mxrouteRemove(event: IpcMainInvokeEvent, id: unknown): Promise<MxrouteReply> {
+  async #mxrouteRemove(event: IpcMainInvokeEvent, value: unknown): Promise<MxrouteReply> {
     if (!this.#trusted(event)) return "denied";
-    if (typeof id !== "string" || !ACCOUNT_ID.test(id)) return "invalid";
+    const parsed = MxrouteKeyRefSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
     try {
-      return await this.#step(() => this.#handlers.mxrouteRemove(id));
+      return await this.#step(() =>
+        this.#handlers.mxrouteRemove(parsed.data, () =>
+          this.#ask({
+            message: `Remove the MXroute key for ${parsed.data.username}?`,
+            detail:
+              "Your mailboxes stay, and it can no longer be used for any of them. Addresses Senderban put on your MXroute blacklist stay there: Unblock cannot take them off without the key, so switch the blacklist off first, start Senderban once, or delete them in your MXroute panel. The key itself stays valid until you delete it at panel.mxroute.com/api-keys.php.",
+            yes: "Remove key",
+          }),
+        ),
+      );
     } catch (error) {
       this.#handlers.onError("manage:mxroute-remove", error);
       return "failed";
@@ -344,7 +355,7 @@ export class ManageWindow {
             this.#ask({
               message: `Remove ${label}?`,
               detail:
-                "Senderban deletes its rules from this mailbox and forgets the password and any MXroute key on this device. Mail from blocked senders then reaches this inbox again. Anything on your MXroute blacklist stays there.",
+                "Senderban deletes its rules from this mailbox and forgets the password on this device. Mail from blocked senders then reaches this inbox again. Your MXroute API key stays, and anything on your MXroute blacklist stays there.",
               yes: "Remove",
             }),
           confirmLeaveRules: (label) =>
@@ -488,8 +499,6 @@ type RestartReply = "restarting" | "busy" | "denied";
 type GoogleFailure = { readonly reply: "invalid" | "denied" | "failed" };
 
 /** What the main process says about a key change; each one is a fixed word the page turns into a sentence. */
-export type MxrouteOutcome =
-  "saved" | "unknown-account" | "no-key" | "no-domain" | "key-refused" | "unreachable";
-type MxrouteReply = MxrouteOutcome | "invalid" | "denied" | "failed";
+type MxrouteReply = MxrouteSaveResult | "invalid" | "denied" | "failed";
 type AccountAddReply = AccountAddResult | "busy" | "invalid" | "denied" | "failed";
 type AccountRemoveReply = AccountRemoveResult | "busy" | "invalid" | "denied" | "failed";

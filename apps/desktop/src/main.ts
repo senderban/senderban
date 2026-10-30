@@ -32,6 +32,7 @@ import type {
   GmailWatcherState,
   ImapAccountConfig,
   IncomingMessage,
+  MxrouteKeyRef,
   OwnMail,
   SyncOutcome,
   UnblockResult,
@@ -77,9 +78,11 @@ import { accountTag, createLog } from "./log.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
 import {
+  blacklistOutlives,
   listMxroute,
-  mailDomain,
-  mxrouteGroupKey,
+  loadMxrouteKeys,
+  migrateMxrouteKeys,
+  mxrouteGroups,
   removeMxroute,
   saveMxroute,
   setMxrouteEnabled,
@@ -323,8 +326,35 @@ async function setPaused(value: boolean): Promise<void> {
   updateTray();
 }
 
+/**
+ * The MXroute keys for this run. Trouble with them never stops the app: without a key there is no blacklist lane, and
+ * Sieve goes on blocking. What 0.1.2 and older kept inside a mailbox moves to the key file first.
+ */
+async function startMxrouteKeys(keysPath: string, accountsPath: string) {
+  try {
+    const moved = await migrateMxrouteKeys(keysPath, accountsPath);
+    if (moved > 0) log("mxroute-migrated", { accounts: moved });
+  } catch {
+    // A move that stopped halfway has written the key file: the keys below still work, and the next start finishes it.
+    log("mxroute-keys-failed", { step: "move" });
+  }
+  try {
+    return await loadMxrouteKeys(keysPath);
+  } catch {
+    log("mxroute-keys-failed", { step: "read" });
+    return [];
+  }
+}
+
+/** Never the key, the user name or the server. */
+const keyTag = (key: MxrouteKeyRef): string => accountTag(`${key.username}@${key.server}`);
+
 async function start(): Promise<Runtime> {
   const dir = app.getPath("userData");
+  const mxrouteKeys = await startMxrouteKeys(
+    join(dir, "mxroute-keys.json"),
+    join(dir, "accounts.json"),
+  );
   const configured = await loadAccounts(join(dir, "accounts.json"));
   // IMAP/Sieve accounts get a watcher and a Sieve lane; a Gmail account gets a background filter lane and a new-mail
   // watcher (below).
@@ -369,17 +399,7 @@ async function start(): Promise<Runtime> {
   );
   const watchers = new Map<string, AccountWatcher>();
   const lanes = accounts.map((a) => a.id);
-  // One MXroute lane per (server, user, domain): the blacklist belongs to the domain, so five mailboxes on
-  // it would otherwise send the same entries five times. The first account owns the lane and its key.
-  const mxrouteGroups = new Map<string, { owner: string; mirror: boolean }>();
-  for (const account of accounts) {
-    const key = mxrouteGroupKey(account);
-    if (key === null || account.mxroute === undefined) continue;
-    const group = mxrouteGroups.get(key);
-    if (group === undefined)
-      mxrouteGroups.set(key, { owner: account.id, mirror: account.mxroute.enabled });
-    else group.mirror ||= account.mxroute.enabled;
-  }
+  const blacklists = mxrouteGroups(mxrouteKeys, accounts);
   // One gate for every watcher: start, resume and unpause open at most MAX_CONCURRENT_LOGINS logins at once.
   const loginGate = createGate(MAX_CONCURRENT_LOGINS);
   const sieveLanes = new Map<string, SieveLane>();
@@ -417,23 +437,20 @@ async function start(): Promise<Runtime> {
     }
     sieveLanes.set(account.id, sieveAdapter);
 
-    const groupKey = mxrouteGroupKey(account);
-    const group = groupKey === null ? undefined : mxrouteGroups.get(groupKey);
-    if (account.mxroute !== undefined && group?.owner === account.id) {
+    const group = blacklists.get(account.id);
+    if (group?.owner === account.id) {
       // A second lane next to the Sieve one: it mirrors single addresses onto the MXroute blacklist, or, while
       // the person has it switched off, only takes back what it put there (no request when it put nothing).
       const laneId = mxrouteLaneId(account.id);
-      const domain = mailDomain(account);
+      const { key, domain } = group;
       try {
-        if (domain === null) throw new Error("no mail domain");
-        const { mxroute } = account;
         const mxrouteAdapter = new MxrouteAdapter({
           accountId: laneId,
           mirror: group.mirror,
           client: createMxrouteClient({
-            server: mxroute.server,
-            username: mxroute.username,
-            getKey: () => decryptPassword(mxroute.apiKeyCipher),
+            server: key.server,
+            username: key.username,
+            getKey: () => decryptPassword(key.apiKeyCipher),
             // Operation, HTTP status and duration only: no key, no address.
             onCall: (call) => {
               log("mxroute-call", { account: accountTag(account.id), ...call });
@@ -457,11 +474,7 @@ async function start(): Promise<Runtime> {
     }
 
     // Every mailbox on a domain whose lane is live and switched on gets the server-side refusal, not only the owner.
-    if (
-      groupKey !== null &&
-      group?.mirror === true &&
-      mxrouteLanes.has(mxrouteLaneId(group.owner))
-    ) {
+    if (group?.mirror === true && mxrouteLanes.has(mxrouteLaneId(group.owner))) {
       rejectingAccounts.add(account.id);
     }
 
@@ -682,16 +695,13 @@ async function start(): Promise<Runtime> {
     },
     // A removed account no longer takes part in a block or an Unblock.
     onDone: (accountId, rulesRemain) => {
-      const key = accounts.find((a) => a.id === accountId);
-      const group = key === undefined ? null : mxrouteGroupKey(key);
       dropImapAccount(accountId, rulesRemain, {
         lanes,
         labels,
         mxrouteLanes,
         mxrouteAdapters,
         rejectingAccounts,
-        blacklistGroup: () =>
-          accounts.filter((a) => group !== null && mxrouteGroupKey(a) === group).map((a) => a.id),
+        blacklistGroup: (id) => blacklists.get(id)?.members ?? [],
         pending,
         store,
         settled: (id) => engine.settled(id),
@@ -825,6 +835,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     const accountsPath = join(app.getPath("userData"), "accounts.json");
+    const keysPath = join(app.getPath("userData"), "mxroute-keys.json");
     const assets = join(import.meta.dirname, "../assets");
     const googleDeps: GoogleDeps = {
       accountsPath,
@@ -962,21 +973,24 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         }));
       },
       onError: logIpcError,
-      mxrouteList: () => listMxroute(accountsPath),
+      mxrouteList: async () => {
+        const page = await listMxroute(keysPath, accountsPath);
+        if (page.keysUnreadable) log("mxroute-keys-failed", {});
+        return page;
+      },
       mxrouteSave: async (input) => {
-        const result = await saveMxroute(accountsPath, input);
-        // Account tag and outcome only: never the key, the user name or the server.
-        log("mxroute-saved", { account: accountTag(input.accountId), result });
+        const result = await saveMxroute(keysPath, input);
+        log("mxroute-saved", { key: keyTag(input), result });
         return result;
       },
-      mxrouteRemove: async (accountId) => {
-        const result = await removeMxroute(accountsPath, accountId);
-        log("mxroute-removed", { account: accountTag(accountId), result });
+      mxrouteRemove: async (ref, confirm) => {
+        const result = await removeMxroute(keysPath, ref, confirm);
+        log("mxroute-removed", { key: keyTag(ref), result });
         return result;
       },
-      mxrouteEnable: async (accountId, enabled) => {
-        const result = await setMxrouteEnabled(accountsPath, accountId, enabled);
-        log("mxroute-enabled", { account: accountTag(accountId), enabled, result });
+      mxrouteEnable: async (input) => {
+        const result = await setMxrouteEnabled(keysPath, accountsPath, input);
+        log("mxroute-enabled", { key: keyTag(input), enabled: input.enabled, result });
         return result;
       },
       accountAdd: async (input, request) => {
@@ -1023,6 +1037,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
             await googleDeps.onAccountsChanged?.();
             manage?.notifyChanged();
           },
+          blacklistOutlives: (account) => blacklistOutlives(keysPath, accountsPath, account),
         });
         log("account-removed", {
           account: accountTag(accountId),

@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld("senderban", {
   unblock: (id) => ipcRenderer.invoke("manage:unblock", id),
   mxrouteList: () => ipcRenderer.invoke("manage:mxroute-list"),
   mxrouteSave: (input) => ipcRenderer.invoke("manage:mxroute-save", input),
-  mxrouteRemove: (accountId) => ipcRenderer.invoke("manage:mxroute-remove", accountId),
+  mxrouteRemove: (key) => ipcRenderer.invoke("manage:mxroute-remove", key),
   mxrouteEnable: (input) => ipcRenderer.invoke("manage:mxroute-enable", input),
   accountAdd: (input) => ipcRenderer.invoke("manage:account-add", input),
   accountRemove: (accountId) => ipcRenderer.invoke("manage:account-remove", accountId),

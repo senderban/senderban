@@ -7,8 +7,12 @@ import {
   GoogleClientFileSchema,
   GoogleClientInputSchema,
   GoogleSignInRequestSchema,
+  MXROUTE_KEY_LIMITS,
   MXROUTE_LIMITS,
+  MxrouteEnableSchema,
   MxrouteInputSchema,
+  MxrouteKeyRefSchema,
+  MxrouteKeysFileSchema,
   NewAccountSchema,
   accountFromForm,
   isImapAccount,
@@ -176,7 +180,6 @@ describe("MXroute key (advanced)", () => {
     apiKeyCipher: "AAECAw==",
   };
   const typed = {
-    accountId: "main",
     server: "mx.example.net",
     username: "reseller|exampleuser",
     apiKey: "k".repeat(MXROUTE_LIMITS.apiKey.min),
@@ -247,10 +250,62 @@ describe("MXroute key (advanced)", () => {
       { ...typed, username: "a\nX-Evil: 1" },
       { ...typed, server: "mail.example.com/path" },
       { ...typed, server: "a b" },
-      { ...typed, accountId: "bad id" },
+      { ...typed, accountId: "main" },
       { ...typed, extra: true },
     ];
     for (const input of bad) expect(MxrouteInputSchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("MXroute key file", () => {
+  const login = { server: "mx.example.net", username: "exampleuser" };
+  const key = (username: string, domains: { domain: string; enabled: boolean }[]) => ({
+    server: login.server,
+    username,
+    apiKeyCipher: "AAECAw==",
+    domains,
+  });
+  const parse = (keys: unknown) => MxrouteKeysFileSchema.safeParse({ version: 1, keys });
+  const on = (domain: string) => ({ domain, enabled: true });
+
+  it("holds a key with its domains, and a key with none", () => {
+    expect(parse([key("a", [on("example.com")]), key("b", [])]).success).toBe(true);
+    expect(parse([]).success).toBe(true);
+  });
+
+  it("refuses plaintext, an unknown field and another version", () => {
+    expect(parse([{ ...key("a", []), apiKey: "secret-key-1234" }]).success).toBe(false);
+    expect(parse([{ ...key("a", []), extra: 1 }]).success).toBe(false);
+    expect(MxrouteKeysFileSchema.safeParse({ version: 2, keys: [] }).success).toBe(false);
+  });
+
+  it("keeps one key per login and one key per domain", () => {
+    expect(parse([key("a", []), key("a", [])]).success).toBe(false);
+    expect(parse([key("a", [on("example.com")]), key("b", [on("example.com")])]).success).toBe(
+      false,
+    );
+  });
+
+  it("bounds keys and domains by count, and each domain as a domain", () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => key(`u${String(i)}`, []));
+    expect(parse(many(MXROUTE_KEY_LIMITS.keys.max)).success).toBe(true);
+    expect(parse(many(MXROUTE_KEY_LIMITS.keys.max + 1)).success).toBe(false);
+    const domains = (n: number) =>
+      Array.from({ length: n }, (_, i) => on(`d${String(i)}.example.com`));
+    expect(parse([key("a", domains(MXROUTE_KEY_LIMITS.domains.max))]).success).toBe(true);
+    expect(parse([key("a", domains(MXROUTE_KEY_LIMITS.domains.max + 1))]).success).toBe(false);
+    for (const domain of ["EXAMPLE.com", "localhost", "a b.example", "x\r\ny.example"]) {
+      expect(parse([key("a", [on(domain)])]).success).toBe(false);
+    }
+  });
+
+  it("names a key by its login, and a switch by login and domain, with nothing else", () => {
+    expect(MxrouteKeyRefSchema.safeParse(login).success).toBe(true);
+    expect(MxrouteKeyRefSchema.safeParse({ ...login, apiKey: "x" }).success).toBe(false);
+    const change = { ...login, domain: "example.com", enabled: false };
+    expect(MxrouteEnableSchema.safeParse(change).success).toBe(true);
+    expect(MxrouteEnableSchema.safeParse({ ...change, accountId: "main" }).success).toBe(false);
+    expect(MxrouteEnableSchema.safeParse({ ...change, domain: "../x" }).success).toBe(false);
   });
 });
 

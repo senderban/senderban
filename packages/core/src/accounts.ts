@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ADDRESS_LIMITS, mailboxKey, parseAddress } from "./address.js";
+import { ADDRESS_LIMITS, mailboxKey, parseAddress, validateDomain } from "./address.js";
 import { ACCOUNT_ID, MAX_ACCOUNTS } from "./sync/engine.js";
 
 // RFC 1035 §2.3.4: a host name is at most 253 characters of letters, digits, dots and hyphens
@@ -48,22 +48,77 @@ export const MxrouteKey = z
   .max(MXROUTE_LIMITS.apiKey.max)
   .regex(/^[!-~]+$/u);
 
-/** What a person types for one account's MXroute key. The plaintext key lives only until it is encrypted. */
+/**
+ * What a person types for an MXroute key. A key belongs to the MXroute login, not to a mailbox: every mailbox and domain
+ * on that login shares it (ADR 0011). The plaintext key lives only until it is encrypted.
+ */
 export const MxrouteInputSchema = z.strictObject({
-  accountId: z.string().regex(ACCOUNT_ID),
   server: Host,
   username: MxrouteUser,
   apiKey: MxrouteKey,
 });
 export type MxrouteInput = z.infer<typeof MxrouteInputSchema>;
 
-/** Switching one account's blacklist lane on or off. */
+/** Names one stored key: the login it belongs to. */
+export const MxrouteKeyRefSchema = z.strictObject({ server: Host, username: MxrouteUser });
+export type MxrouteKeyRef = z.infer<typeof MxrouteKeyRefSchema>;
+
+/** A mail domain as `mailDomain` returns it, valid by the same check (which also refuses capitals). RFC 1035 length. */
+const MxrouteDomain = z
+  .string()
+  .min(HOST_LENGTH.min)
+  .max(HOST_LENGTH.max)
+  .refine((value) => validateDomain(value) === null, { message: "not a mail domain" });
+
+/** Switching the blacklist of one domain on or off, under one key. */
 export const MxrouteEnableSchema = z.strictObject({
-  accountId: z.string().regex(ACCOUNT_ID),
+  server: Host,
+  username: MxrouteUser,
+  domain: MxrouteDomain,
   enabled: z.boolean(),
 });
+export type MxrouteEnableInput = z.infer<typeof MxrouteEnableSchema>;
 
-/** What is stored: the key as safeStorage ciphertext only. */
+/**
+ * Unit: count. One login per mailbox is the most a person has. A key keeps a domain after its last mailbox left (the
+ * blacklist is still there), so the domain count is capped apart from the mailbox count.
+ */
+export const MXROUTE_KEY_LIMITS = {
+  keys: { max: MAX_ACCOUNTS },
+  domains: { max: MAX_ACCOUNTS },
+} as const;
+
+/** The stored key: ciphertext only. `domains` are the ones it was switched on for at least once, kept off after that. */
+const MxrouteStoredKeySchema = z.strictObject({
+  server: Host,
+  username: MxrouteUser,
+  apiKeyCipher: Ciphertext,
+  domains: z
+    .array(z.strictObject({ domain: MxrouteDomain, enabled: z.boolean() }))
+    .max(MXROUTE_KEY_LIMITS.domains.max),
+});
+export type MxrouteStoredKey = z.infer<typeof MxrouteStoredKeySchema>;
+
+/** `mxroute-keys.json`, next to `accounts.json`, so that removing a mailbox leaves the key alone. */
+export const MxrouteKeysFileSchema = z
+  .strictObject({
+    version: z.literal(1),
+    keys: z.array(MxrouteStoredKeySchema).max(MXROUTE_KEY_LIMITS.keys.max),
+  })
+  .refine(
+    (file) => new Set(file.keys.map((k) => `${k.server}|${k.username}`)).size === file.keys.length,
+    { message: "duplicate key" },
+  )
+  // A blacklist has one writer: two keys over one domain would each take the other's entries for their own.
+  .refine(
+    (file) => {
+      const domains = file.keys.flatMap((k) => k.domains.map((d) => d.domain));
+      return new Set(domains).size === domains.length;
+    },
+    { message: "domain on two keys" },
+  );
+
+/** The form 0.1.2 and older stored a key in, inside a mailbox. Only read: start-up moves it to `mxroute-keys.json`. */
 const MxrouteConfig = z.strictObject({
   server: Host,
   username: MxrouteUser,
@@ -79,7 +134,7 @@ export const ImapAccountConfigSchema = z.strictObject({
   imap: z.strictObject({ host: Host, port: Port, secure: z.boolean(), user: User }),
   sieve: z.strictObject({ host: Host, port: Port, user: User }),
   passwordCipher: Ciphertext,
-  /** Advanced, off by default: lets Senderban ask the MXroute server to refuse a sender at the door. */
+  /** Legacy: see `MxrouteConfig`. Nothing writes it any more. */
   mxroute: MxrouteConfig.optional(),
 });
 export type ImapAccountConfig = z.infer<typeof ImapAccountConfigSchema>;

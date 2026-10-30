@@ -4,6 +4,20 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Changed
+
+- The MXroute API key now lives apart from your mailboxes. Removing a mailbox leaves the key alone,
+  even the last one; **Remove key** under **Advanced** is the only way to delete it, and it asks
+  first. One key covers every mailbox and domain on your MXroute account, and a key stored by an
+  older version moves over by itself.
+- **Block at server** is now switched on per mail domain, and a mailbox removed and added back keeps
+  the choice.
+
+### Fixed
+
+- Removing the mailbox that held the key no longer switches **Block at server** off for good on the
+  other mailboxes of that domain: they pick it up at the next restart.
+
 ## [0.1.2] - 2026-10-30
 
 ### Added
