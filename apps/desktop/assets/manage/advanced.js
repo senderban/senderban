@@ -38,6 +38,11 @@ function field(id, labelText, input) {
   return wrap;
 }
 
+// Main remembers that a restart is due; this shows the button without waiting for the next open.
+function offerRestart() {
+  document.dispatchEvent(new window.Event("senderban-restart-due"));
+}
+
 function textInput(limit) {
   const input = document.createElement("input");
   input.type = "text";
@@ -88,6 +93,7 @@ async function switchBlacklist(key, domain, box, message) {
       enabled: wanted,
     });
     if (reply === "saved") {
+      offerRestart();
       setMessage(
         message,
         "ok",
@@ -215,7 +221,10 @@ async function saveKey(inputs, message) {
     inputs.key.value = "";
     const [tone, text] = MX_REPLY[reply] ?? MX_REPLY.failed;
     setMessage(message, tone, text);
-    if (reply === "saved") await loadKeys();
+    if (reply === "saved") {
+      await loadKeys();
+      offerRestart();
+    }
   } catch {
     inputs.key.value = "";
     setMessage(message, "error", "Could not save. See the log.");
@@ -231,6 +240,7 @@ async function removeKey(key, message) {
     const reply = await mxApi.mxrouteRemove({ server: key.server, username: key.username });
     if (reply === "saved") {
       await loadKeys();
+      offerRestart();
       setMessage(mxEls.form.querySelector(".status"), "", "");
       setMessage(
         mxEls.notice,

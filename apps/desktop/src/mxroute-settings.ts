@@ -5,15 +5,19 @@ import {
   MxrouteKeysFileSchema,
   createMxrouteClient,
   isImapAccount,
+  mxrouteLaneId,
+  mxrouteStateHolds,
   validateDomain,
 } from "@senderban/core";
 import type {
   AccountConfig,
   ImapAccountConfig,
+  MxrouteCall,
   MxrouteEnableInput,
   MxrouteInput,
   MxrouteKeyRef,
   MxrouteStoredKey,
+  OpaqueState,
 } from "@senderban/core";
 import {
   decryptPassword,
@@ -69,23 +73,32 @@ export type KeyCheck = (input: MxrouteInput) => Promise<void>;
 /** Asks MXroute for the domain's blacklist with the stored key: can this key reach this domain? */
 export type DomainCheck = (key: MxrouteStoredKey, domain: string) => Promise<void>;
 
-const checkKey: KeyCheck = async (input) => {
-  const client = createMxrouteClient({
-    server: input.server,
-    username: input.username,
-    getKey: () => Promise.resolve(input.apiKey),
-  });
-  await client.domains();
-};
+/** Hears the operation, HTTP status and duration of a check: no key, no address. */
+type OnCall = (call: MxrouteCall) => void;
 
-const checkDomain: DomainCheck = async (key, domain) => {
-  const client = createMxrouteClient({
-    server: key.server,
-    username: key.username,
-    getKey: () => decryptPassword(key.apiKeyCipher),
-  });
-  await client.list(domain);
-};
+export const keyCheck =
+  (onCall?: OnCall): KeyCheck =>
+  async (input) => {
+    const client = createMxrouteClient({
+      server: input.server,
+      username: input.username,
+      getKey: () => Promise.resolve(input.apiKey),
+      ...(onCall === undefined ? {} : { onCall }),
+    });
+    await client.domains();
+  };
+
+export const domainCheck =
+  (onCall?: OnCall): DomainCheck =>
+  async (key, domain) => {
+    const client = createMxrouteClient({
+      server: key.server,
+      username: key.username,
+      getKey: () => decryptPassword(key.apiKeyCipher),
+      ...(onCall === undefined ? {} : { onCall }),
+    });
+    await client.list(domain);
+  };
 
 /** A failed check as a fixed word. */
 function checkFailed(error: unknown): "key-refused" | "unreachable" {
@@ -104,7 +117,15 @@ export async function loadMxrouteKeys(path: string): Promise<MxrouteStoredKey[]>
     throw error;
   }
   if (size > KEYS_FILE_MAX_BYTES) throw new Error("key file is larger than any valid one");
-  const parsed = MxrouteKeysFileSchema.safeParse(JSON.parse(await readFile(path, "utf8")));
+  const text = await readFile(path, "utf8");
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // A JSON.parse message quotes the input.
+    throw new Error("key file is not valid JSON");
+  }
+  const parsed = MxrouteKeysFileSchema.safeParse(json);
   if (!parsed.success) throw new Error("key file failed validation");
   return parsed.data.keys;
 }
@@ -124,7 +145,7 @@ export function mailDomain(account: ImapAccountConfig): string | null {
     : null;
 }
 
-/** One blacklist in use: a domain under a key, with the mailboxes on it. The first mailbox owns the engine lane. */
+/** One blacklist in use: a domain under a key, with the mailboxes on it. One of them owns the engine lane. */
 export interface MxrouteGroup {
   readonly key: MxrouteStoredKey;
   readonly domain: string;
@@ -140,6 +161,7 @@ export interface MxrouteGroup {
 export function mxrouteGroups(
   keys: readonly MxrouteStoredKey[],
   accounts: readonly ImapAccountConfig[],
+  hasLaneState: (accountId: string) => boolean = () => false,
 ): Map<string, MxrouteGroup> {
   const onDomain = new Map<string, string[]>();
   for (const account of accounts) {
@@ -151,7 +173,9 @@ export function mxrouteGroups(
   for (const key of keys) {
     for (const { domain, enabled } of key.domains) {
       const members = onDomain.get(domain);
-      const owner = members?.[0];
+      // The mailbox with the lane's record keeps it (0.1.2 gave the lane to the first mailbox with a key): a new owner
+      // would start empty and could no longer take back what the old lane put on the blacklist.
+      const owner = members?.find(hasLaneState) ?? members?.[0];
       if (members === undefined || owner === undefined) continue;
       const group = { key, domain, owner, members, mirror: enabled };
       for (const id of members) groups.set(id, group);
@@ -192,7 +216,7 @@ export async function listMxroute(keysPath: string, accountsPath: string): Promi
 export async function saveMxroute(
   path: string,
   input: MxrouteInput,
-  check: KeyCheck = checkKey,
+  check: KeyCheck = keyCheck(),
 ): Promise<MxrouteSaveResult> {
   try {
     await check(input);
@@ -224,7 +248,7 @@ export async function setMxrouteEnabled(
   keysPath: string,
   accountsPath: string,
   input: MxrouteEnableInput,
-  check: DomainCheck = checkDomain,
+  check: DomainCheck = domainCheck(),
 ): Promise<MxrouteSaveResult> {
   const keys = await loadMxrouteKeys(keysPath);
   const key = keys.find((k) => sameKey(k, input));
@@ -262,10 +286,12 @@ export async function setMxrouteEnabled(
 
 /**
  * Forgets the key on this device, after the person's yes: without it Unblock can no longer reach the blacklist. It does
- * not revoke the key: that is done on panel.mxroute.com/api-keys.php.
+ * not revoke the key: that is done on panel.mxroute.com/api-keys.php. A copy that a failed move left inside a mailbox goes
+ * first, or the next start would bring the key back.
  */
 export async function removeMxroute(
   path: string,
+  accountsPath: string,
   ref: MxrouteKeyRef,
   confirm: () => Promise<boolean>,
 ): Promise<MxrouteSaveResult> {
@@ -275,11 +301,38 @@ export async function removeMxroute(
   return serialized(async () => {
     const keys = await loadMxrouteKeys(path);
     if (!keys.some((k) => sameKey(k, ref))) return "unknown-key";
+    const accounts = await loadAccounts(accountsPath);
+    const holds = (a: AccountConfig): boolean =>
+      isImapAccount(a) && a.mxroute !== undefined && sameKey(a.mxroute, ref);
+    if (accounts.some(holds)) {
+      await saveAccounts(
+        accountsPath,
+        accounts.map((a) => (holds(a) ? withoutKey(a) : a)),
+      );
+    }
     await saveMxrouteKeys(
       path,
       keys.filter((k) => !sameKey(k, ref)),
     );
     return "saved";
+  });
+}
+
+/**
+ * True when a blacklist with no running lane still holds the address: Unblock cannot take it off, and its mail goes on
+ * being refused. The stored state of the lane is the record, and it outlives the key.
+ */
+export function strandedOnBlacklist(
+  value: string,
+  accountIds: readonly string[],
+  liveLanes: readonly string[],
+  getState: (laneId: string) => OpaqueState | undefined,
+): boolean {
+  return accountIds.some((id) => {
+    const laneId = mxrouteLaneId(id);
+    if (liveLanes.includes(laneId)) return false;
+    const state = getState(laneId);
+    return state !== undefined && mxrouteStateHolds(state, value);
   });
 }
 
@@ -300,12 +353,16 @@ export async function blacklistOutlives(
   return !left.some((a) => mailDomain(a) === domain);
 }
 
-/** The keys that 0.1.2 and older stored inside mailboxes, added to `keys`. The first of two for one login wins. */
+/**
+ * The keys that 0.1.2 and older stored inside mailboxes, added to `keys`. The first of two for one login wins. A domain
+ * already in `keys` keeps what the person chose there: a copy left by a failed move is older than that choice.
+ */
 export function keysFromAccounts(
   accounts: readonly ImapAccountConfig[],
   keys: readonly MxrouteStoredKey[],
 ): MxrouteStoredKey[] {
   const next = keys.map((k) => ({ ...k, domains: [...k.domains] }));
+  const chosen = new Set(keys.flatMap((k) => k.domains.map((d) => d.domain)));
   for (const account of accounts) {
     const { mxroute } = account;
     if (mxroute === undefined) continue;
@@ -316,14 +373,15 @@ export function keysFromAccounts(
       next.push(key);
     }
     const domain = mailDomain(account);
-    if (domain === null) continue;
-    const entry = key.domains.findIndex((d) => d.domain === domain);
-    if (entry >= 0) {
-      // Several mailboxes shared one blacklist: it was on when any of them had it on.
-      const was = key.domains[entry];
-      if (was !== undefined && mxroute.enabled) key.domains[entry] = { ...was, enabled: true };
-    } else if (!next.some((k) => k.domains.some((d) => d.domain === domain))) {
+    if (domain === null || chosen.has(domain)) continue;
+    const holder = next.find((k) => k.domains.some((d) => d.domain === domain));
+    if (holder === undefined) {
       key.domains.push({ domain, enabled: mxroute.enabled });
+    } else if (mxroute.enabled) {
+      // Several mailboxes shared one blacklist: it was on when any of them had it on, under either login.
+      holder.domains = holder.domains.map((d) =>
+        d.domain === domain ? { domain, enabled: true } : d,
+      );
     }
   }
   return next;

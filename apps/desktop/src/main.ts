@@ -32,6 +32,7 @@ import type {
   GmailWatcherState,
   ImapAccountConfig,
   IncomingMessage,
+  MxrouteCall,
   MxrouteKeyRef,
   OwnMail,
   SyncOutcome,
@@ -67,7 +68,12 @@ import {
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
 import { SHUTDOWN_CAP_MS, SHUTDOWN_DEADLINE_MS, settleWithin, stopThenClose } from "./deadline.js";
-import { createSieveLifecycle, dropImapAccount, removeImapAccount } from "./remove-account.js";
+import {
+  createSieveLifecycle,
+  dropImapAccount,
+  dropMxrouteKey,
+  removeImapAccount,
+} from "./remove-account.js";
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
 import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
@@ -79,6 +85,8 @@ import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
 import {
   blacklistOutlives,
+  domainCheck,
+  keyCheck,
   listMxroute,
   loadMxrouteKeys,
   migrateMxrouteKeys,
@@ -86,6 +94,7 @@ import {
   removeMxroute,
   saveMxroute,
   setMxrouteEnabled,
+  strandedOnBlacklist,
 } from "./mxroute-settings.js";
 import { Toasts } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
@@ -121,6 +130,8 @@ interface Runtime {
   /** What removing or signing out a Gmail account does about its filters (google-accounts.ts). */
   readonly gmail: GmailFilterLifecycle;
   readonly sieve: SieveRulesLifecycle;
+  /** Stops the lanes of a key the person removed. */
+  readonly retireMxrouteKey: (ref: MxrouteKeyRef) => void;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
@@ -224,6 +235,13 @@ function describe(result: BlockResult, labels: ReadonlyMap<string, string>): Toa
         result.otherAccounts === 0
           ? ""
           : ` ${String(result.otherAccounts)} other place(s) are updating in the background.`;
+      // A toast outlives the choice it offered: the key may have been removed while it was on screen.
+      if (result.action === "reject" && !rejectingAccounts.has(result.accountId)) {
+        return {
+          tone: "warn",
+          text: `${result.target}: rule verified on ${where}, but the server will not refuse this sender: the MXroute blacklist is not in use. Its mail goes to Junk.${others}`,
+        };
+      }
       if (result.action === "reject") {
         return {
           tone: "ok",
@@ -399,7 +417,11 @@ async function start(): Promise<Runtime> {
   );
   const watchers = new Map<string, AccountWatcher>();
   const lanes = accounts.map((a) => a.id);
-  const blacklists = mxrouteGroups(mxrouteKeys, accounts);
+  const blacklists = mxrouteGroups(
+    mxrouteKeys,
+    accounts,
+    (id) => store.getState(mxrouteLaneId(id)) !== undefined,
+  );
   // One gate for every watcher: start, resume and unpause open at most MAX_CONCURRENT_LOGINS logins at once.
   const loginGate = createGate(MAX_CONCURRENT_LOGINS);
   const sieveLanes = new Map<string, SieveLane>();
@@ -757,6 +779,16 @@ async function start(): Promise<Runtime> {
     own,
     gmail,
     sieve,
+    retireMxrouteKey: (ref) => {
+      dropMxrouteKey(ref, blacklists.values(), {
+        lanes,
+        labels,
+        mxrouteLanes,
+        mxrouteAdapters,
+        rejectingAccounts,
+        pending,
+      });
+    },
   };
 }
 
@@ -979,17 +1011,32 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return page;
       },
       mxrouteSave: async (input) => {
-        const result = await saveMxroute(keysPath, input);
+        const onCall = (call: MxrouteCall) => {
+          log("mxroute-call", { key: keyTag(input), ...call });
+        };
+        const result = await saveMxroute(keysPath, input, keyCheck(onCall));
         log("mxroute-saved", { key: keyTag(input), result });
         return result;
       },
       mxrouteRemove: async (ref, confirm) => {
-        const result = await removeMxroute(keysPath, ref, confirm);
+        const result = await removeMxroute(keysPath, accountsPath, ref, confirm);
         log("mxroute-removed", { key: keyTag(ref), result });
+        if (result === "saved") {
+          await ready.promise.then(
+            (current) => {
+              current.retireMxrouteKey(ref);
+            },
+            () => undefined,
+          );
+          updateTray();
+        }
         return result;
       },
       mxrouteEnable: async (input) => {
-        const result = await setMxrouteEnabled(keysPath, accountsPath, input);
+        const onCall = (call: MxrouteCall) => {
+          log("mxroute-call", { key: keyTag(input), ...call });
+        };
+        const result = await setMxrouteEnabled(keysPath, accountsPath, input, domainCheck(onCall));
         log("mxroute-enabled", { key: keyTag(input), enabled: input.enabled, result });
         return result;
       },
@@ -1086,8 +1133,15 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return reply;
       },
       unblock: async (id) => {
-        const { store, engine, lanes, labels } = await ready.promise;
+        const { store, engine, lanes, labels, accounts } = await ready.promise;
         const value = store.list().find((e) => e.id === id)?.value ?? "This sender";
+        // Read before the Unblock: a lane that is gone cannot take the address off, and its mail goes on being refused.
+        const stranded = strandedOnBlacklist(
+          value,
+          accounts.map((a) => a.id),
+          lanes,
+          (laneId) => store.getState(laneId),
+        );
         const accountIds = lanes;
         // The window reports every account's outcome itself; background notices would repeat it.
         for (const accountId of accountIds) clicking.add(accountId);
@@ -1114,9 +1168,14 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         });
         const outcome = describeUnblock(value, result, labels);
         // A Gmail account with no lane keeps its filter: the person is told, or "unblocked" would read as done.
-        return result.status === "unblocked"
-          ? { ...outcome, text: outcome.text + gmailSkippedNote(gmailSkipped) }
-          : outcome;
+        if (result.status !== "unblocked") return outcome;
+        const withGmail = outcome.text + gmailSkippedNote(gmailSkipped);
+        return stranded
+          ? {
+              tone: "warn",
+              text: `${withGmail} It may still be on your MXroute blacklist, which refuses its mail: delete it in your MXroute panel.`,
+            }
+          : { ...outcome, text: withGmail };
       },
     });
     tray = new Tray(nativeImage.createFromPath(join(assets, "icon.ico")));

@@ -20,6 +20,7 @@ const {
   loadMxrouteKeys,
   migrateMxrouteKeys,
   mxrouteGroups,
+  strandedOnBlacklist,
   removeMxroute,
   saveMxroute,
   setMxrouteEnabled,
@@ -100,22 +101,37 @@ describe("MXroute key storage", () => {
   it("removes a key on request and touches no mailbox", async () => {
     await saveMxroute(keys, input, ok);
     const accountsBefore = await readFile(file, "utf8");
-    expect(await removeMxroute(keys, login, yes)).toBe("saved");
+    expect(await removeMxroute(keys, file, login, yes)).toBe("saved");
     expect(await loadMxrouteKeys(keys)).toEqual([]);
     expect(await readFile(keys, "utf8")).not.toContain("apiKeyCipher");
     expect(await readFile(file, "utf8")).toBe(accountsBefore);
   });
 
+  it("takes a copy left inside a mailbox with it, so the next start cannot bring the key back", async () => {
+    await saveMxroute(keys, input, ok);
+    const legacy = { ...login, apiKeyCipher: "AAECAw==", enabled: true };
+    const otherLogin = { ...legacy, username: "other" };
+    await saveAccounts(file, [
+      { ...account("a"), mxroute: legacy },
+      { ...account("b"), mxroute: otherLogin },
+    ]);
+    expect(await removeMxroute(keys, file, login, yes)).toBe("saved");
+    const left = (await loadAccounts(file)).filter(isImapAccount);
+    expect(left[0]?.mxroute).toBeUndefined();
+    expect(left[1]?.mxroute).toEqual(otherLogin);
+    expect(keysFromAccounts(left.slice(0, 1), await loadMxrouteKeys(keys))).toEqual([]);
+  });
+
   it("keeps the key when the person says no", async () => {
     await saveMxroute(keys, input, ok);
-    expect(await removeMxroute(keys, login, () => Promise.resolve(false))).toBe("cancelled");
+    expect(await removeMxroute(keys, file, login, () => Promise.resolve(false))).toBe("cancelled");
     expect(await loadMxrouteKeys(keys)).toHaveLength(1);
   });
 
   it("answers for a key that went while the question was open", async () => {
     await saveMxroute(keys, input, ok);
-    const reply = await removeMxroute(keys, login, async () => {
-      await removeMxroute(keys, login, yes);
+    const reply = await removeMxroute(keys, file, login, async () => {
+      await removeMxroute(keys, file, login, yes);
       return true;
     });
     expect(reply).toBe("unknown-key");
@@ -126,7 +142,7 @@ describe("MXroute key storage", () => {
     const before = await readFile(keys, "utf8");
     const other = { ...login, username: "zzz" };
     const ask = vi.fn(yes);
-    expect(await removeMxroute(keys, other, ask)).toBe("unknown-key");
+    expect(await removeMxroute(keys, file, other, ask)).toBe("unknown-key");
     expect(ask).not.toHaveBeenCalled();
     expect(
       await setMxrouteEnabled(keys, file, { ...onDomain("example.com", true), ...other }),
@@ -284,6 +300,61 @@ describe("switching a domain's blacklist", () => {
   });
 });
 
+describe("unreadable files", () => {
+  const MARK = "fragment-of-the-file";
+
+  it("never quotes a damaged key file in the error", async () => {
+    await writeFile(keys, `{"version":1,"keys":${MARK}`);
+    const failure: unknown = await loadMxrouteKeys(keys).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).not.toContain("fragment");
+  });
+
+  it("never quotes a damaged accounts file in the error", async () => {
+    await writeFile(file, `{"version":1,"accounts":${MARK}`);
+    const failure: unknown = await loadAccounts(file).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).not.toContain("fragment");
+  });
+});
+
+describe("strandedOnBlacklist", () => {
+  const VALUE = "x@sender.example";
+  const state = (applied: string[]) => ({
+    adapterId: "mxroute",
+    data: {
+      domain: "example.com",
+      applied: applied.map((value) => ({
+        id: "6f1c1a52-7f0e-4c55-9d2a-3b0f4a9e1c10",
+        match: "exactAddress",
+        value,
+        action: "reject",
+        createdAt: "2026-10-30T00:00:00.000Z",
+      })),
+      rejected: [],
+    },
+  });
+  const held = (id: string) => (id === "a.mxroute" ? state([VALUE]) : undefined);
+
+  it("is true when a lane that is gone had put the address there", () => {
+    expect(strandedOnBlacklist(VALUE, ["a", "b"], ["a", "b"], held)).toBe(true);
+  });
+
+  it("is false while the lane runs: it takes the address off itself", () => {
+    expect(strandedOnBlacklist(VALUE, ["a", "b"], ["a", "a.mxroute", "b"], held)).toBe(false);
+  });
+
+  it("is false for an address the lane never held, or no lane at all", () => {
+    expect(strandedOnBlacklist("y@sender.example", ["a"], ["a"], held)).toBe(false);
+    expect(strandedOnBlacklist(VALUE, ["a"], ["a"], () => undefined)).toBe(false);
+  });
+
+  it("says so when the record cannot be read", () => {
+    const broken = () => ({ adapterId: "mxroute", data: { nonsense: true } });
+    expect(strandedOnBlacklist(VALUE, ["a"], ["a"], broken)).toBe(true);
+  });
+});
+
 describe("mxrouteGroups", () => {
   const key = (domains: { domain: string; enabled: boolean }[], username = "exampleuser") => ({
     ...login,
@@ -305,6 +376,16 @@ describe("mxrouteGroups", () => {
     });
     expect(groups.get("b")).toBe(groups.get("a"));
     expect(groups.has("c")).toBe(false);
+  });
+
+  it("leaves the lane with the mailbox that has its record", () => {
+    const groups = mxrouteGroups(
+      [key([{ domain: "example.com", enabled: true }])],
+      [account("a"), account("b")],
+      (id) => id === "b",
+    );
+    expect(groups.get("a")?.owner).toBe("b");
+    expect(groups.get("a")?.members).toEqual(["a", "b"]);
   });
 
   it("hands the lane to the next mailbox once the first is gone", () => {
@@ -420,6 +501,25 @@ describe("moving keys out of the mailboxes (0.1.2 and older)", () => {
     );
     expect(moved.map((k) => k.username)).toEqual(["exampleuser", "other"]);
     expect(moved[1]?.domains).toEqual([]);
+  });
+
+  it("turns a shared domain on when the second login had it on", () => {
+    const moved = keysFromAccounts(
+      [legacy("a", false), legacy("b", true, "example.com", "other")].filter(isImapAccount),
+      [],
+    );
+    expect(moved[0]?.domains).toEqual([{ domain: "example.com", enabled: true }]);
+    expect(moved[1]?.domains).toEqual([]);
+  });
+
+  it("does not switch a domain back on that the key file has off", () => {
+    const stored = {
+      ...login,
+      apiKeyCipher: "AAECAw==",
+      domains: [{ domain: "example.com", enabled: false }],
+    };
+    const moved = keysFromAccounts([legacy("a", true)].filter(isImapAccount), [stored]);
+    expect(moved[0]?.domains).toEqual([{ domain: "example.com", enabled: false }]);
   });
 
   it("merges into a key file left by a start that stopped halfway, and finishes the job", async () => {

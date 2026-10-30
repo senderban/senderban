@@ -331,6 +331,38 @@ describe("manage:account-add", () => {
     expect(after.restartPending).toBe(true);
   });
 
+  it("offers the restart after a key is removed", async () => {
+    const pending = async () =>
+      ((await call("manage:mxroute-list", trusted)) as { restartPending: boolean }).restartPending;
+    expect(await pending()).toBe(false);
+    await call("manage:mxroute-remove", trusted, login);
+    expect(await pending()).toBe(true);
+  });
+
+  it("offers the restart after a key is saved", async () => {
+    await call("manage:mxroute-save", trusted, good);
+    const list = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(list.restartPending).toBe(true);
+  });
+
+  it("offers the restart after a domain is switched, and not after a refused switch", async () => {
+    const pending = async () =>
+      ((await call("manage:mxroute-list", trusted)) as { restartPending: boolean }).restartPending;
+    const input = { ...login, domain: "example.com", enabled: true };
+    mxrouteEnable.mockResolvedValueOnce("key-refused");
+    await call("manage:mxroute-enable", trusted, input);
+    expect(await pending()).toBe(false);
+    await call("manage:mxroute-enable", trusted, input);
+    expect(await pending()).toBe(true);
+  });
+
+  it("does not offer a restart when a key was not removed", async () => {
+    mxrouteRemove.mockResolvedValueOnce("cancelled");
+    await call("manage:mxroute-remove", trusted, login);
+    const list = (await call("manage:mxroute-list", trusted)) as { restartPending: boolean };
+    expect(list.restartPending).toBe(false);
+  });
+
   it("does not offer a restart when nothing was stored", async () => {
     accountAdd.mockResolvedValueOnce("login-refused");
     await call("manage:account-add", trusted, form);

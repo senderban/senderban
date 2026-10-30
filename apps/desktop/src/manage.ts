@@ -269,7 +269,9 @@ export class ManageWindow {
     const parsed = MxrouteInputSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#step(() => this.#handlers.mxrouteSave(parsed.data));
+      const result = await this.#step(() => this.#handlers.mxrouteSave(parsed.data));
+      if (result === "saved") this.#restartPending = true;
+      return result;
     } catch (error) {
       this.#handlers.onError("manage:mxroute-save", error);
       return "failed";
@@ -281,7 +283,9 @@ export class ManageWindow {
     const parsed = MxrouteEnableSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#step(() => this.#handlers.mxrouteEnable(parsed.data));
+      const result = await this.#step(() => this.#handlers.mxrouteEnable(parsed.data));
+      if (result === "saved") this.#restartPending = true;
+      return result;
     } catch (error) {
       this.#handlers.onError("manage:mxroute-enable", error);
       return "failed";
@@ -293,7 +297,7 @@ export class ManageWindow {
     const parsed = MxrouteKeyRefSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#step(() =>
+      const result = await this.#step(() =>
         this.#handlers.mxrouteRemove(parsed.data, () =>
           this.#ask({
             message: `Remove the MXroute key for ${parsed.data.username}?`,
@@ -303,6 +307,8 @@ export class ManageWindow {
           }),
         ),
       );
+      if (result === "saved") this.#restartPending = true;
+      return result;
     } catch (error) {
       this.#handlers.onError("manage:mxroute-remove", error);
       return "failed";

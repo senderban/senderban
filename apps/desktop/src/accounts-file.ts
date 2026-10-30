@@ -17,7 +17,15 @@ export async function loadAccounts(path: string): Promise<AccountConfig[]> {
     throw error;
   }
   if (size > FILE_MAX_BYTES) throw new Error("accounts file is larger than any valid one");
-  const parsed = AccountsFileSchema.safeParse(JSON.parse(await readFile(path, "utf8")));
+  const text = await readFile(path, "utf8");
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // A JSON.parse message quotes the input.
+    throw new Error("accounts file is not valid JSON");
+  }
+  const parsed = AccountsFileSchema.safeParse(json);
   if (!parsed.success) throw new Error("accounts file failed validation");
   return parsed.data.accounts;
 }

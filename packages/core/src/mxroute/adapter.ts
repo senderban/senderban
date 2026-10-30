@@ -67,6 +67,15 @@ export function initialMxrouteState(domain: string): OpaqueState {
   return { adapterId: MXROUTE_ADAPTER_ID, data };
 }
 
+/** True when the lane put this address on the blacklist. A state that cannot be read counts as true: it may have. */
+export function mxrouteStateHolds(state: OpaqueState, value: string): boolean {
+  try {
+    return parseState(state).applied.some((e) => e.value === value);
+  } catch {
+    return true;
+  }
+}
+
 function parseState(state: OpaqueState): MxrouteState {
   if (state.adapterId !== MXROUTE_ADAPTER_ID) {
     throw new AdapterError("REJECTED", "state belongs to another adapter");

@@ -215,6 +215,11 @@ acEls.restart.addEventListener("click", () => {
   );
 });
 
+// A key saved or removed under Advanced also waits for a restart.
+document.addEventListener("senderban-restart-due", () => {
+  void acLoad({ quiet: true });
+});
+
 let acLoaded = false;
 acEls.details.addEventListener("toggle", () => {
   if (acEls.details.open && !acLoaded) {

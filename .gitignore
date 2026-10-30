@@ -17,6 +17,8 @@ client_secret*.json
 accounts.json
 google-client.json
 settings.json
+mxroute-keys.json
+*.tmp
 *.db
 *.db-wal
 *.db-shm

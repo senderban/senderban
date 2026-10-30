@@ -29,6 +29,18 @@ describe("the tracked tree", () => {
   });
 });
 
+describe("the ignore rules", () => {
+  it("keep every app data file out of a commit, with its temporary copy", () => {
+    const files = ["accounts.json", "google-client.json", "settings.json", "mxroute-keys.json"];
+    const names = files.flatMap((f) => [f, `${f}.0a1b.tmp`]);
+    const ignored = execFileSync("git", ["check-ignore", ...names], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(ignored.trim().split(/\r?\n/)).toEqual(names);
+  });
+});
+
 describe("scanText: what is caught", () => {
   it("an address, a URL host and a quoted server name", () => {
     const text = [

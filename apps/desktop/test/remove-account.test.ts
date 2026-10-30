@@ -28,8 +28,13 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { SIEVE_UNINSTALL_MS, createSieveLifecycle, dropImapAccount, removeImapAccount } =
-  await import("../src/remove-account.js");
+const {
+  SIEVE_UNINSTALL_MS,
+  createSieveLifecycle,
+  dropImapAccount,
+  dropMxrouteKey,
+  removeImapAccount,
+} = await import("../src/remove-account.js");
 const { loadAccounts, saveAccounts } = await import("../src/accounts-file.js");
 
 const CIPHER = Buffer.from("opaque-cipher-bytes").toString("base64");
@@ -524,6 +529,96 @@ describe("a failed uninstall against a real engine", () => {
     expect(outcome.status).toBe("applied");
     expect([...server.scripts.values()].join("\n")).toContain("a@example.com");
     engine.dispose();
+  });
+});
+
+describe("dropImapAccount after its key was removed", () => {
+  it("still forgets the lane's record with the mailbox", async () => {
+    const lane = mxrouteLaneId(ID);
+    const forgetAccount = vi.fn();
+    dropImapAccount(ID, false, {
+      lanes: [ID],
+      labels: new Map(),
+      mxrouteLanes: new Set(),
+      mxrouteAdapters: new Map([[lane, { retire: vi.fn() }]]),
+      rejectingAccounts: new Set(),
+      blacklistGroup: () => [ID],
+      pending: { dropAccount: vi.fn() },
+      store: { forgetAccount, forgetCursor: vi.fn() },
+      settled: () => Promise.resolve(),
+      sieveLanes: new Map(),
+      watchers: new Map(),
+      states: new Map(),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(forgetAccount).toHaveBeenCalledWith(lane);
+  });
+});
+
+describe("dropMxrouteKey", () => {
+  const LANE = mxrouteLaneId(ID);
+  const OTHER_LANE = mxrouteLaneId("other@example.org");
+  const ref = { server: "mx.example.net", username: "exampleuser" };
+  const stored = (username: string) => ({
+    server: ref.server,
+    username,
+    apiKeyCipher: CIPHER,
+    domains: [],
+  });
+  const group = (username: string, owner: string, members: string[]) => ({
+    key: stored(username),
+    domain: "example.com",
+    owner,
+    members,
+    mirror: true,
+  });
+  const live = () => {
+    const retireLane = vi.fn();
+    const retireOther = vi.fn();
+    const dropAccount = vi.fn();
+    return {
+      retireLane,
+      retireOther,
+      dropAccount,
+      state: {
+        lanes: [ID, LANE, "sibling@example.com", "other@example.org", OTHER_LANE],
+        labels: new Map([
+          [LANE, `${ID} (MXroute)`],
+          [OTHER_LANE, "other (MXroute)"],
+        ]),
+        mxrouteLanes: new Set([LANE, OTHER_LANE]),
+        mxrouteAdapters: new Map([
+          [LANE, { retire: retireLane }],
+          [OTHER_LANE, { retire: retireOther }],
+        ]),
+        rejectingAccounts: new Set([ID, "sibling@example.com", "other@example.org"]),
+        pending: { dropAccount },
+      },
+    };
+  };
+
+  it("stops every lane of the key once and leaves other keys running", () => {
+    const { state, retireLane, retireOther, dropAccount } = live();
+    const shared = group("exampleuser", ID, [ID, "sibling@example.com"]);
+    const other = group("other", "other@example.org", ["other@example.org"]);
+    // One group per mailbox in the map: the shared one arrives twice.
+    dropMxrouteKey(ref, [shared, shared, other], state);
+    expect(retireLane).toHaveBeenCalledTimes(1);
+    expect(retireOther).not.toHaveBeenCalled();
+    expect(state.mxrouteLanes.has(LANE)).toBe(false);
+    expect(state.mxrouteLanes.has(OTHER_LANE)).toBe(true);
+    expect(state.lanes).toEqual([ID, "sibling@example.com", "other@example.org", OTHER_LANE]);
+    expect([...state.rejectingAccounts]).toEqual(["other@example.org"]);
+    expect(state.labels.has(LANE)).toBe(false);
+    expect(dropAccount).toHaveBeenCalledWith(LANE);
+  });
+
+  it("does nothing for a key with no lane", () => {
+    const { state, retireLane } = live();
+    dropMxrouteKey({ ...ref, username: "nobody" }, [group("exampleuser", ID, [ID])], state);
+    expect(retireLane).not.toHaveBeenCalled();
+    expect(state.lanes).toHaveLength(5);
   });
 });
 

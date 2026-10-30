@@ -7,11 +7,12 @@ import {
   sieveStateForReinstall,
   sieveStateHoldsRules,
 } from "@senderban/core";
-import type { ImapAccountConfig, OpaqueState } from "@senderban/core";
+import type { ImapAccountConfig, MxrouteKeyRef, OpaqueState } from "@senderban/core";
 import { loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
 import { settleWithin } from "./deadline.js";
 import { accountTag } from "./log.js";
 import type { Log } from "./log.js";
+import type { MxrouteGroup } from "./mxroute-settings.js";
 
 /** Longest the uninstall may take, once the lane is quiet. A removal holds every other account change, so it needs one total. */
 export const SIEVE_UNINSTALL_MS = 60_000;
@@ -153,6 +154,32 @@ export interface LiveAccounts {
 }
 
 /**
+ * Takes a removed key's lanes out of the running app, so the key is not used again before the restart. Their state stays:
+ * it is the record of what is on the blacklist, for Unblock's warning and for the same key saved again.
+ */
+export function dropMxrouteKey(
+  ref: MxrouteKeyRef,
+  groups: Iterable<MxrouteGroup>,
+  live: Pick<
+    LiveAccounts,
+    "lanes" | "labels" | "mxrouteLanes" | "mxrouteAdapters" | "rejectingAccounts" | "pending"
+  >,
+): void {
+  for (const group of groups) {
+    if (group.key.server !== ref.server || group.key.username !== ref.username) continue;
+    const laneId = mxrouteLaneId(group.owner);
+    if (!live.mxrouteLanes.has(laneId)) continue;
+    live.mxrouteAdapters.get(laneId)?.retire();
+    live.mxrouteLanes.delete(laneId);
+    for (const id of group.members) live.rejectingAccounts.delete(id);
+    const at = live.lanes.indexOf(laneId);
+    if (at >= 0) live.lanes.splice(at, 1);
+    live.labels.delete(laneId);
+    live.pending.dropAccount(laneId);
+  }
+}
+
+/**
  * Takes a removed account out of the running app. An MXroute lane it owned goes with it: the lane stays in the engine until the
  * restart the window offers, but its key is not used again, and the mailboxes that shared it stop promising a refusal.
  */
@@ -171,8 +198,8 @@ export function dropImapAccount(accountId: string, rulesRemain: boolean, live: L
     live.labels.delete(id);
     live.pending.dropAccount(id);
   }
-  // After its last round: a round in flight would write the row back.
-  if (ownedLane) {
+  // After its last round: a round in flight would write the row back. A lane stopped with its key still has a row.
+  if (live.mxrouteAdapters.has(laneId)) {
     void live
       .settled(laneId)
       .then(() => {
