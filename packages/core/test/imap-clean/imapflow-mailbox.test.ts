@@ -11,11 +11,12 @@ const stubClient = (over: Stub = {}): ImapFlow =>
   ({
     mailbox: { uidNext: 11, readOnly: false },
     capabilities: new Map([["MOVE", true]]),
+    enabled: new Set<string>(),
     usable: true,
     ...over,
   }) as unknown as ImapFlow;
 
-const hooks = () => ({ reading: { old: false } });
+const hooks = () => ({ reading: { old: false, oversized: false } });
 
 async function* rows(items: readonly Stub[]) {
   await Promise.resolve();
@@ -26,6 +27,26 @@ describe("canMove", () => {
   it.each([
     [{ capabilities: new Map([["MOVE", true]]) }, true],
     [{ capabilities: new Map([["IMAP4rev2", true]]) }, true],
+    // Listed beside rev1 and never enabled: rev1 rules apply, and the library would send a plain EXPUNGE.
+    [
+      {
+        capabilities: new Map([
+          ["IMAP4rev1", true],
+          ["IMAP4rev2", true],
+        ]),
+      },
+      false,
+    ],
+    [
+      {
+        capabilities: new Map([
+          ["IMAP4rev1", true],
+          ["IMAP4rev2", true],
+        ]),
+        enabled: new Set(["IMAP4REV2"]),
+      },
+      true,
+    ],
     [{ capabilities: new Map([["UIDPLUS", true]]) }, true],
     // COPY + plain EXPUNGE would also delete whatever else the person marked \Deleted.
     [{ capabilities: new Map() }, false],
@@ -110,6 +131,61 @@ describe("readFrom", () => {
     await cleanMailboxOf(stubClient({ fetch }), shared).readFrom([1]);
     expect(seen).toEqual([true]);
     expect(shared.reading.old).toBe(false);
+  });
+
+  it("keeps to what was asked for, whatever else the server sends", async () => {
+    const fetch = vi.fn(() =>
+      rows([
+        { uid: 7, envelope: { from: [{ address: "a@x.example" }] } },
+        { uid: 99, envelope: { from: [{ address: "b@x.example" }] } },
+      ]),
+    );
+    const box = cleanMailboxOf(stubClient({ fetch }), hooks());
+    expect(await box.readFrom([7])).toEqual([{ uid: 7, from: "a@x.example" }]);
+  });
+
+  it("stops reading a server that streams without end", async () => {
+    let served = 0;
+    const fetch = vi.fn(async function* () {
+      await Promise.resolve();
+      for (;;) {
+        served += 1;
+        yield { uid: 1, envelope: { from: [{ address: "a@x.example" }] } };
+      }
+    });
+    await cleanMailboxOf(stubClient({ fetch }), hooks()).readFrom([1]);
+    expect(served).toBe(5);
+  });
+
+  it("does not read silence as no match", async () => {
+    const fetch = vi.fn(() => rows([]));
+    const box = cleanMailboxOf(stubClient({ fetch }), hooks());
+    await expect(box.readFrom([1])).rejects.toMatchObject({ code: "TRANSIENT" });
+  });
+
+  it("reads a failed fetch on a live connection as a refusal", async () => {
+    const fetch = vi.fn(async function* () {
+      await Promise.resolve();
+      yield* [];
+      throw new Error("NO");
+    });
+    const box = cleanMailboxOf(stubClient({ fetch }), hooks());
+    await expect(box.readFrom([1])).rejects.toMatchObject({ code: "REJECTED" });
+  });
+
+  it("names a limit the stream only saw as the connection closing", async () => {
+    const shared = hooks();
+    const fetch = vi.fn(async function* () {
+      await Promise.resolve();
+      yield* [];
+      // imapflow's order: the stream fails first, the limit reaches the 'error' event after it.
+      setImmediate(() => {
+        shared.reading.oversized = true;
+      });
+      throw Object.assign(new Error("closed"), { code: "NoConnection" });
+    });
+    const box = cleanMailboxOf(stubClient({ fetch, usable: false }), shared);
+    await expect(box.readFrom([1])).rejects.toBeInstanceOf(UnreadableMailError);
   });
 
   it("names an answer past a limit, and ends the mark", async () => {

@@ -295,6 +295,25 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
   notice("Senderban", `The block list is not up to date on ${label} (${why}). ${next}`);
 }
 
+/** Mail a past-mail pass has moved so far, per lane: the person hears one number when the pass ends. At most one per cleaning lane. */
+const cleanedMail = new Map<string, number>();
+
+/** Moving old mail out of an inbox is a change the person should see, and Unblock does not undo it. */
+function noticeCleaned(id: string, label: string, event: CleanEvent): void {
+  if (event.kind !== "retro") return;
+  const total = (cleanedMail.get(id) ?? 0) + event.moved;
+  if ((event.left ?? 0) > 0) {
+    cleanedMail.set(id, total);
+    return;
+  }
+  cleanedMail.delete(id);
+  if (total === 0) return;
+  notice(
+    "Senderban",
+    `${String(total)} older message(s) from blocked senders moved out of the inbox of ${label}, to Junk or Trash. Unblock does not bring them back.`,
+  );
+}
+
 /** A server that refuses the move leaves blocked mail in the Inbox: said once, not per mail. */
 function noticeCleanFailure(id: string, label: string, event: CleanEvent): void {
   if (event.kind !== "arrival") return;
@@ -329,7 +348,7 @@ function describe(result: BlockResult, labels: ReadonlyMap<string, string>): Toa
       if (cleanLanes.has(result.accountId)) {
         return {
           tone: "ok",
-          text: `✓ ${result.target}: Senderban moves its mail in ${where} to ${destination(folderAction(result.action))} while it runs, and is clearing the last ${String(RETRO_DAYS)} days. This is no rule on the server.${others}`,
+          text: `✓ ${result.target}: while it runs, Senderban moves its mail in ${where} to ${destination(folderAction(result.action))}, also from the last ${String(RETRO_DAYS)} days. This is no rule on the server, and Unblock does not bring moved mail back.${others}`,
         };
       }
       // A toast outlives the choice it offered: the key may have been removed while it was on screen.
@@ -577,6 +596,8 @@ async function start(): Promise<Runtime> {
       const previous = states.get(accountId);
       states.set(accountId, state);
       updateTray();
+      // Its list rows depend on this: nothing moves while the watcher is away.
+      if (cleanLanes.has(accountId)) manage?.notifyListSoon();
       log("watcher", { account: accountTag(accountId), state, detail });
       if (state === "halted" && previous !== "halted") {
         notice(
@@ -689,6 +710,7 @@ async function start(): Promise<Runtime> {
         onClean: (event) => {
           log("clean", { account: accountTag(account.id), ...event });
           noticeCleanFailure(account.id, account.clean.address, event);
+          noticeCleaned(account.id, account.clean.address, event);
         },
       });
       engine.addAccount({ id: account.id, initialState: initialCleanState(), adapter });
@@ -696,7 +718,7 @@ async function start(): Promise<Runtime> {
       log("account-skipped", { account: accountTag(account.id) });
       notice(
         "Senderban",
-        `${account.clean.address} could not start: its id clashes with another account. Remove it under Accounts and add it again.`,
+        `${account.clean.address} could not start: its id clashes with another account, or its saved state cannot be read. Remove it under Accounts and add it again.`,
       );
       continue;
     }
@@ -706,7 +728,7 @@ async function start(): Promise<Runtime> {
     labels.set(account.id, account.clean.address);
     // A queue left by a round that found the mailbox away goes on as soon as there is one.
     link.onOpen(() => {
-      engine.requestSync(account.id);
+      if (adapter.hasWork) engine.requestSync(account.id);
     });
     const { host, port, secure, user } = account.clean;
     watchers.set(
@@ -948,6 +970,7 @@ async function start(): Promise<Runtime> {
     retireClean: (accountId) => {
       cleanLanes.delete(accountId);
       cleanFailing.delete(accountId);
+      cleanedMail.delete(accountId);
       dropCleanAccount(accountId, {
         cleanLanes: cleanAdapters,
         lanes,
@@ -1177,7 +1200,12 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const view = laneViewOf({
           entries,
           running: runtime?.lanes ?? [],
-          failed: [...unsynced, ...unconfirmed],
+          // A cleaning lane moves nothing while its watcher is away: its entries are not confirmed then, whatever the last round said.
+          failed: [
+            ...unsynced,
+            ...unconfirmed,
+            ...[...cleanLanes].filter((id) => states.get(id) !== "watching"),
+          ],
           mxroute: mxrouteLanes,
           gmail: gmailLanes,
           settled: gmailSettled,

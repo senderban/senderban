@@ -17,6 +17,12 @@ import type { CleanFolders, CleanLink, CleanMailbox, CleanRow } from "./session.
 
 // Not exported from index.ts, like the session it extends: it pulls in a Node-only library.
 
+/**
+ * Rows read per UID asked for, at most. 5x, as `FETCH_SCAN_MAX` leaves the watcher: a server may add unasked FETCH rows for flag
+ * changes, and one that streams without end is cut off here.
+ */
+const READ_SCAN_FACTOR = 5;
+
 /** A server's answer to a SEARCH is outside input: a list longer than the range asked for, or a stray number, is not used. */
 const Uids = z.array(CleanUid).max(RETRO_MAX_UIDS);
 
@@ -48,14 +54,18 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
     const code = isTemporaryCommandRefusal(error) ? "TRANSIENT" : "REJECTED";
     return new AdapterError(code, what, { cause: error });
   };
+  /** A function, so the compiler does not assume the flag is still false after an await. */
+  const limitHit = (): boolean => hooks.reading.oversized;
   return {
     canMove() {
       const mailbox = client.mailbox;
       if (mailbox === false || mailbox.readOnly === true) return false;
       const has = (name: string): boolean => client.capabilities.has(name);
       // MOVE, or COPY + UID EXPUNGE. Without UIDPLUS the library falls back to a plain EXPUNGE, which also deletes for good
-      // anything else the person has marked \Deleted.
-      return has("MOVE") || has("IMAP4rev2") || has("UIDPLUS");
+      // anything else the person has marked \Deleted. RFC 9051 folds both into IMAP4rev2, but only a session that runs it has
+      // them, and the library decides the same way (`isRev2Active`): a server may list rev2 beside rev1 and stay in rev1.
+      const rev2 = client.enabled.has("IMAP4REV2") || (has("IMAP4rev2") && !has("IMAP4rev1"));
+      return has("MOVE") || has("UIDPLUS") || rev2;
     },
     topUid() {
       return client.mailbox === false ? 0 : Math.max(0, client.mailbox.uidNext - 1);
@@ -72,20 +82,33 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
     },
     async readFrom(uids) {
       if (uids.length > CLEAN_UIDS_PER_COMMAND) throw new RangeError("too many messages at once");
+      const asked = new Set(uids);
       const rows: CleanRow[] = [];
+      let scanned = 0;
       // A limit hit here is about old mail: it must not make the watcher skip new mail (see `OpenHooks`).
       hooks.reading.old = true;
+      hooks.reading.oversized = false;
       try {
         const stream = client.fetch(uidSet(uids), { uid: true, envelope: true }, { uid: true });
         for await (const row of reduceRows(stream)) {
-          if (row !== null) rows.push({ uid: row.uid, from: row.from });
+          scanned += 1;
+          // Only what was asked for: a server decides what it sends, not what is moved.
+          if (row !== null && asked.has(row.uid)) rows.push({ uid: row.uid, from: row.from });
+          if (scanned >= uids.length * READ_SCAN_FACTOR) break;
         }
       } catch (error) {
-        if (isOversized(error)) throw new UnreadableMailError("a mail is too large to read");
-        throw error;
+        // The stream only sees the connection close; what closed it arrives as an event on the same turn or the next.
+        await new Promise((resolve) => setImmediate(resolve));
+        if (isOversized(error) || limitHit()) {
+          throw new UnreadableMailError("a mail is too large to read");
+        }
+        throw refused(error, "server refused to read the messages");
       } finally {
         hooks.reading.old = false;
       }
+      // UIDs the search just found. An empty answer is a refusal the library does not raise, or mail gone meanwhile: either way, not "no match".
+      if (scanned === 0)
+        throw new AdapterError("TRANSIENT", "server returned none of the messages");
       return rows;
     },
     async folders(): Promise<CleanFolders> {

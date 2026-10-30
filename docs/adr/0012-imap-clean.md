@@ -23,7 +23,8 @@ list row and the result toast.
    imapflow's 15 s: new mail shows up only in IDLE, so 15 s would be the delay on a blocked mail arriving just after a move. A
    `CleanLink` hands the session to the adapter and takes it back when it closes.
 3. **The rules are local.** The engine drives the lane like any other: `plan` diffs the list against the lane's state, and `apply`
-   writes that state. The state is what `screen` enforces, so the engine's exclusion of the person's own mail holds here too. `verify`
+   writes that state. `screen` enforces the list the last `plan` was given, so an Unblock stops the moving even after a failed round,
+   and the engine's exclusion of the person's own mail holds here too. `verify`
    sends no command: there is nothing to read back, so it reports whether the mailbox is connected, and says **drifted** when it is
    not, because then nothing is moving.
 4. **On arrival.** The watcher hands every new mail of a drain to `screen` before announcing, also past the 5 it announces. A blocked
@@ -31,13 +32,16 @@ list row and the result toast.
    refusal would hold back every later mail; a lost connection keeps the cursor, so the next session looks again. More than one fetch can
    take (200 mails), an unreadable mail stepped over, or a renumbered mailbox (UIDVALIDITY) queues every rule for the past-mail pass.
 5. **Past mail.** A new entry also clears the last 30 days, and at most 50,000 UIDs. A pass walks 5,000-UID windows down from the top
-   with `UID SEARCH UID lo:hi SINCE d` until one comes back empty, then runs `UID SEARCH UID floor:top OR FROM ...`, 16 terms at a time.
+   with `UID SEARCH UID lo:hi SINCE d` until one comes back empty, then runs `UID SEARCH UID floor:top OR FROM ...`, 8 entries at a time.
+   A queue of more than 32 entries, as on a first run, reads the envelopes of those UIDs once instead: 2,500 mails took 0.44 s against
+   6.5 s of 313 searches on Dovecot.
    FROM is a substring match over the header, display name included, so each candidate's ENVELOPE is read and matched locally: a
-   server's search result alone never moves a mail. A round stops after 10 s, keeps its queue in state, and the engine goes on 30-60 s
-   later. A queue waits with no timer while the mailbox is away; the next session starts the round. The arrival date, not the sent date,
+   server's search result alone never moves a mail. A round stops after 10 s, keeps its queue and how far it read in state, and the engine goes on 30-60 s
+   later. Every round gets through at least one step however slow the server is, and no round starts over, so a queue always ends. A queue waits with no timer while the mailbox is away; the next session starts the round. The arrival date, not the sent date,
    decides: mail moved in from elsewhere keeps an old date and sits above newer UIDs, which only widens what is read. A window whose
    UIDs were all removed ends the walk early; older mail then stays where it is.
-6. **Moving.** `UID MOVE` (RFC 6851), or COPY with `UID EXPUNGE` (RFC 4315). Without either the account is refused: imapflow's fallback
+6. **Moving.** `UID MOVE` (RFC 6851), or COPY with `UID EXPUNGE` (RFC 4315). IMAP4rev2 counts only when the session really runs it: a
+   server may list rev2 beside rev1 and stay in rev1. Without either the account is refused: imapflow's fallback
    would send a plain EXPUNGE, which also deletes for good whatever else the person has marked `\Deleted`. The folder comes from
    SPECIAL-USE (RFC 6154), or from imapflow's table of localised names, or is created as `Junk`/`Trash`. `reject` files like Junk,
    as on Sieve: IMAP cannot refuse at the door. Junk wins where two rules meet, also as on Sieve.
@@ -50,12 +54,15 @@ list row and the result toast.
   sender's to write, so neither is a security boundary.
 - A person who drags a blocked sender's mail back to the Inbox gives it a new UID, and Senderban moves it again. Unblock is the way out.
 - A refused move is a decision, not a retry: the mail stays in the Inbox, the person is told once, and read-back reports it until a
-  move works. Only a new entry or a gap looks at that mail again.
+  move works. Only a new entry or a gap looks at that mail again. The library hides the server's reason for a refused MOVE, so a
+  throttled move counts as refused too.
 - There is no deadline per command, only the engine's 60 s per round. A provider whose SEARCH outlasts it costs the connection, and the
   new session starts the round again. After 3 such rounds in a row past-mail clearing rests for 30 min and waits for the next list change
   or session after that; rules on new mail go on working. How long SEARCH takes on a real provider is not measured.
-- A mail too large to read during a past-mail pass gives up that SEARCH's batch of up to 16 senders, logged as `failed`: the connection
-  ends on it, and the same read would end the next one.
+- Three rounds cut off in a row, by a lost connection as well, rest past-mail clearing the same way, so one mail or one bad session
+  cannot turn into a login loop.
+- A mail too large to read during a past-mail pass gives up the messages of that one read, at most 200, logged as `failed`: the
+  connection ends on it, and the same read would end the next one.
 - Provider SEARCH may differ from RFC 9051's substring rule. That can only miss mail, because rows are matched locally, but it has not
   been measured on any provider.
 - Concurrent connection limits are not documented by Apple, and no official Yahoo page was found; third-party figures disagree (5 to

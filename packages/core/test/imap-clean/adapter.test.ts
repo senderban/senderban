@@ -9,7 +9,8 @@ import {
   RETRO_HOLD_MS,
   RETRO_MAX_UIDS,
   RETRO_ROUND_MS,
-  RETRO_TERMS,
+  RETRO_BATCH,
+  RETRO_SCAN_ABOVE,
   RETRO_WINDOW_UIDS,
   SWEEP_ALL_GAP_MS,
   initialCleanState,
@@ -135,7 +136,8 @@ async function round(adapter: ImapCleanAdapter, list: Blocklist, state: OpaqueSt
   return adapter.apply(await adapter.plan(list, state));
 }
 
-const dataOf = (state: OpaqueState) => state.data as { applied: BlockEntry[]; retro: string[] };
+const dataOf = (state: OpaqueState) =>
+  state.data as { applied: BlockEntry[]; retro: string[]; pass: unknown };
 
 describe("ImapCleanAdapter capabilities", () => {
   it("never claims a block on the server", () => {
@@ -263,14 +265,14 @@ describe("clearing past mail", () => {
     expect(box.listed).toBe(1);
   });
 
-  it("sends at most RETRO_TERMS addresses per search, and every entry once", async () => {
-    const list = Array.from({ length: RETRO_TERMS * 2 + 1 }, (_, i) =>
+  it("sends at most RETRO_BATCH entries per search, and every entry once", async () => {
+    const list = Array.from({ length: RETRO_BATCH * 2 + 1 }, (_, i) =>
       entry(i, `u${String(i)}@blocked.example`),
     );
     const box = new FakeBox().fill([[1, "friend@friend.example"]]);
     const { adapter } = rig(box);
     await round(adapter, list, initialCleanState());
-    expect(box.searches.map((s) => s.length)).toEqual([RETRO_TERMS, RETRO_TERMS, 1]);
+    expect(box.searches.map((s) => s.length)).toEqual([RETRO_BATCH, RETRO_BATCH, 1]);
   });
 
   it("moves in commands of at most CLEAN_UIDS_PER_COMMAND, never one per mail", async () => {
@@ -321,7 +323,7 @@ describe("clearing past mail", () => {
   });
 
   it("stops at the round's time and leaves the rest for the engine to go on with", async () => {
-    const list = Array.from({ length: RETRO_TERMS + 1 }, (_, i) =>
+    const list = Array.from({ length: RETRO_BATCH + 1 }, (_, i) =>
       entry(i, `u${String(i)}@blocked.example`),
     );
     const box = new FakeBox().fill([[1, "friend@friend.example"]]);
@@ -356,16 +358,149 @@ describe("clearing past mail", () => {
     expect(result.failed).toEqual([]);
   });
 
-  it("gives up one batch, not the queue, on a mail too large to read", async () => {
-    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+  it("gives up one read, and goes on below it, on a mail too large to read", async () => {
+    const rows = Array.from(
+      { length: CLEAN_UIDS_PER_COMMAND + 5 },
+      (_, i) => [i + 1, "a@blocked.example"] as const,
+    );
+    const box = new FakeBox().fill(rows);
     box.unreadable = true;
     const { adapter, events } = rig(box);
-    const list = Array.from({ length: RETRO_TERMS + 2 }, (_, i) =>
-      i === 0 ? entry(i, "a@blocked.example") : entry(i, `u${String(i)}@blocked.example`),
+    const first = await round(adapter, [entry(1, "a@blocked.example")], initialCleanState());
+    expect(events[0]).toMatchObject({ failed: CLEAN_UIDS_PER_COMMAND, left: 1 });
+    box.unreadable = false;
+    await adapter.apply(await adapter.plan([entry(1, "a@blocked.example")], first.state));
+    expect(box.moves.flatMap((m) => m.uids).sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("gets through a step however slow the search, so a queue always ends", async () => {
+    const a = entry(1, "x@blocked.example");
+    const rows = Array.from(
+      { length: CLEAN_UIDS_PER_COMMAND * 2 },
+      (_, i) => [i + 1, "x@blocked.example"] as const,
     );
+    const box = new FakeBox().fill(rows);
+    const { adapter, clock } = rig(box);
+    box.onSearch = () => {
+      clock.now += RETRO_ROUND_MS * 2;
+    };
+    const first = await round(adapter, [a], initialCleanState());
+    expect(box.moves).toHaveLength(1);
+    expect(first.deferred).toBe(1);
+    const second = await adapter.apply(await adapter.plan([a], first.state));
+    expect(box.mail.size).toBe(0);
+    expect(dataOf(second.state)).toMatchObject({ retro: [], pass: null });
+  });
+
+  it("does not read the same false candidates twice", async () => {
+    const a = entry(1, "x@blocked.example");
+    // A display name holds the address: the search finds them, and nothing moves, so only the saved pass can end this.
+    const rows = Array.from(
+      { length: CLEAN_UIDS_PER_COMMAND * 2 },
+      (_, i) => [i + 1, "x@blocked.example.friend.example"] as const,
+    );
+    const box = new FakeBox().fill(rows);
+    const { adapter, clock } = rig(box);
+    const read = vi.spyOn(box, "readFrom");
+    read.mockImplementation((uids) => {
+      clock.now += RETRO_ROUND_MS;
+      return Promise.resolve(uids.map((uid) => ({ uid, from: box.mail.get(uid) ?? "" })));
+    });
+    const first = await round(adapter, [a], initialCleanState());
+    expect(read).toHaveBeenCalledTimes(1);
+    const second = await adapter.apply(await adapter.plan([a], first.state));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(dataOf(second.state).retro).toEqual([]);
+  });
+
+  it("reads a long queue's window once, with no search", async () => {
+    const list = Array.from({ length: RETRO_SCAN_ABOVE + 1 }, (_, i) =>
+      entry(i, `u${String(i)}@blocked.example`),
+    );
+    const box = new FakeBox().fill([
+      [1, "u7@blocked.example"],
+      [2, "friend@friend.example"],
+    ]);
+    const { adapter } = rig(box);
     const result = await round(adapter, list, initialCleanState());
-    expect(dataOf(result.state).retro).toHaveLength(2);
-    expect(events[0]).toMatchObject({ failed: 1, left: 2 });
+    expect(box.searches).toEqual([]);
+    expect(box.reads).toBe(1);
+    expect([...box.mail.keys()]).toEqual([2]);
+    expect(dataOf(result.state).retro).toEqual([]);
+  });
+
+  it("searches a domain precisely, with subdomains only when asked", async () => {
+    const box = new FakeBox().fill([
+      [1, "a@king.example"],
+      [2, "a@booking.example"],
+    ]);
+    const { adapter } = rig(box);
+    const after = await round(
+      adapter,
+      [entry(1, "king.example", "exactDomain")],
+      initialCleanState(),
+    );
+    expect(box.searches).toEqual([["@king.example"]]);
+    expect(box.reads).toBe(1);
+    await round(
+      adapter,
+      [entry(1, "king.example", "exactDomain"), entry(2, "wide.example", "subdomains")],
+      after.state,
+    );
+    expect(box.searches.at(-1)).toEqual(["@wide.example", ".wide.example"]);
+  });
+
+  it("starts a pass over when the entries it stood for changed", async () => {
+    const a = entry(1, "a@blocked.example");
+    const b = entry(2, "b@blocked.example");
+    const pass = { size: 2, below: 2 };
+    const state = {
+      adapterId: "imap-clean",
+      data: { applied: [a, b], retro: [a.id, b.id], pass },
+    };
+    const box = new FakeBox().fill([
+      [1, "b@blocked.example"],
+      [5, "b@blocked.example"],
+    ]);
+    const { adapter } = rig(box, state);
+    await round(adapter, [b], state);
+    expect(box.mail.size).toBe(0);
+  });
+
+  it("keeps a pass when a new entry joins behind it", async () => {
+    const a = entry(1, "a@blocked.example");
+    const b = entry(2, "b@blocked.example");
+    const state = {
+      adapterId: "imap-clean",
+      data: { applied: [a], retro: [a.id], pass: { size: 1, below: 3 } },
+    };
+    const box = new FakeBox().fill([
+      [1, "a@blocked.example"],
+      [4, "a@blocked.example"],
+      [5, "b@blocked.example"],
+    ]);
+    const { adapter } = rig(box, state);
+    await round(adapter, [a, b], state);
+    expect([...box.mail.keys()]).toEqual([4]);
+  });
+
+  it("asks for a round on a new session only with work waiting", async () => {
+    const a = entry(1, "a@blocked.example");
+    const quiet = rig(new FakeBox(), {
+      adapterId: "imap-clean",
+      data: { applied: [a], retro: [] },
+    });
+    expect(quiet.adapter.hasWork).toBe(false);
+    quiet.adapter.sweepAll();
+    expect(quiet.adapter.hasWork).toBe(true);
+    const queued = rig(null, { adapterId: "imap-clean", data: { applied: [a], retro: [a.id] } });
+    expect(queued.adapter.hasWork).toBe(true);
+    const done = await round(
+      rig(new FakeBox().fill([[1, "x@y.example"]])).adapter,
+      [a],
+      initialCleanState(),
+    );
+    expect(dataOf(done.state).retro).toEqual([]);
   });
 
   it("refuses to work on a server that cannot move by UID", async () => {
@@ -387,6 +522,53 @@ describe("clearing past mail", () => {
       round(adapter, [entry(1, "a@blocked.example")], initialCleanState()),
     ).rejects.toMatchObject({ code: "REJECTED" });
     expect(box.mail.size).toBe(1);
+  });
+
+  it("stops moving on an Unblock even when the round that added the rule failed", async () => {
+    const box = new FakeBox();
+    box.refuseCreate = true;
+    box.found = { junk: null, trash: null };
+    box.fill([[1, "spam@blocked.example"]]);
+    const { adapter } = rig(box);
+    const a = entry(1, "spam@blocked.example");
+    await expect(round(adapter, [a], initialCleanState())).rejects.toMatchObject({
+      code: "REJECTED",
+    });
+    // Nothing was saved, so the plan for an empty list has no change and `apply` never runs.
+    expect((await adapter.plan([], initialCleanState())).changes).toEqual([]);
+    box.refuseCreate = false;
+    const fresh = [incoming(5, "spam@blocked.example")];
+    expect(await adapter.screen(fresh)).toBe(fresh);
+    expect(box.moves).toEqual([]);
+  });
+
+  it("fails a round the server would not finish while the session stays up", async () => {
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    box.loseConnection = true;
+    const { adapter } = rig(box);
+    await expect(
+      round(adapter, [entry(1, "a@blocked.example")], initialCleanState()),
+    ).rejects.toMatchObject({ code: "TRANSIENT" });
+  });
+
+  it("counts lost connections, so one bad mail cannot turn into a login loop", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    const state = { adapterId: "imap-clean", data: { applied: [a], retro: [a.id] } };
+    const { adapter, link } = rig(box, state);
+    link.detach(box);
+    box.onSearch = () => {
+      link.detach(box);
+      throw new Error("socket closed");
+    };
+    for (let i = 0; i < RETRO_ABORTS_MAX; i += 1) {
+      link.attach(box);
+      await round(adapter, [a], state);
+    }
+    const searches = box.searches.length;
+    link.attach(box);
+    expect((await adapter.plan([a], state)).changes).toEqual([]);
+    expect(box.searches).toHaveLength(searches);
   });
 
   it("keeps a request to walk everything through a failed round", async () => {
@@ -491,7 +673,7 @@ describe("clearing past mail", () => {
     const { adapter } = rig(box, state);
     const result = await round(adapter, [], state);
     expect(box.moves).toEqual([]);
-    expect(dataOf(result.state)).toEqual({ applied: [], retro: [] });
+    expect(dataOf(result.state)).toEqual({ applied: [], retro: [], pass: null });
   });
 });
 

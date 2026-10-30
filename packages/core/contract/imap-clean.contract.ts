@@ -168,6 +168,28 @@ describe("imap-clean against Dovecot", () => {
     }
   });
 
+  it("gives up on a mail too large to read, without skipping new mail or looping", async () => {
+    const box = await rig("oversized");
+    try {
+      const pad = "x".repeat(5 * 1024 * 1024);
+      await dovecot.deliver(box.user, {
+        ...mail(`"${pad}" <huge@big.example>`),
+        envelopeFrom: "huge@big.example",
+      });
+      // The watcher steps over it the way it always did, and comes back.
+      await waitFor(() => box.link.current === null, "the connection to end", 10_000);
+      await waitFor(() => box.link.current !== null, "the next session", 30_000);
+
+      await box.sync([entry(6, "exactAddress", "huge@big.example")]);
+      const retro = box.events.find((e) => e.kind === "retro");
+      expect(retro).toMatchObject({ failed: 1, left: 1 });
+      await waitFor(() => box.link.current !== null, "the session after it", 30_000);
+      expect(dovecot.count(box.user, "INBOX")).toBe(1);
+    } finally {
+      await box.stop();
+    }
+  });
+
   it("goes back to moving after the connection comes back", async () => {
     const box = await rig("offline");
     await box.sync([entry(5, "exactDomain", "gone.example")]);

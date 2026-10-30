@@ -113,8 +113,11 @@ export interface ImapConnection {
 
 /** Handed to the opener of a session. */
 export interface OpenHooks {
-  /** Set while old mail is read: a size limit hit then is about that mail, not about new mail the watcher should step over. */
-  readonly reading: { old: boolean };
+  /**
+   * `old` is set while old mail is read: a size limit hit then is about that mail, not about new mail the watcher should step over.
+   * `oversized` says one was hit: the read itself only sees the connection close.
+   */
+  readonly reading: { old: boolean; oversized: boolean };
 }
 
 /** RFC 5530 s3: temporary refusals; AUTHENTICATIONFAILED (and no code) stay permanent. */
@@ -193,12 +196,14 @@ export function imapflowConnector(
     let existsListener: (() => void) | null = null;
     let closeListener: ((cause: Error | null) => void) | null = null;
     let lastError: Error | null = null;
-    const hooks: OpenHooks = { reading: { old: false } };
+    const hooks: OpenHooks = { reading: { old: false, oversized: false } };
     // Only a session that opened reports these two ways, so a limit hit here came from a mail.
-    const fromMail = (error: Error): Error =>
-      isOversized(error) && !hooks.reading.old
-        ? new UnreadableMailError("a mail is too large to read")
-        : error;
+    const fromMail = (error: Error): Error => {
+      if (!isOversized(error)) return error;
+      if (!hooks.reading.old) return new UnreadableMailError("a mail is too large to read");
+      hooks.reading.oversized = true;
+      return error;
+    };
     // Without an 'error' listener EventEmitter throws and takes the app down.
     client.on("error", (error: unknown) => {
       lastError = fromMail(error instanceof Error ? error : new Error("imap error"));
