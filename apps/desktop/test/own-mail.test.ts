@@ -61,6 +61,13 @@ describe("collectOwnMail", () => {
     expect(canRejectSender("boss@other.example", own)).toBe(true);
   });
 
+  it("does not own a whole country suffix for a login directly under it", () => {
+    const own = collectOwnMail([imap("a", "me@co.uk"), gmail("g", "you@com.tr")]);
+    expect([...own.domains]).toEqual([]);
+    expect(canRejectSender("stranger@shop.co.uk", own)).toBe(true);
+    expect(canRejectSender("me@co.uk", own)).toBe(false);
+  });
+
   it("merges both kinds", () => {
     const own = collectOwnMail([imap("a", "me@example.com"), gmail("g", "me@gmail.com")]);
     expect([...own.addresses].sort()).toEqual(["me@example.com", "me@gmail.com"]);

@@ -217,6 +217,8 @@ export const ACCOUNT_ADD_LIMITS = {
 const Password = z
   .string()
   .min(ACCOUNT_ADD_LIMITS.password.min)
+  // Every character is at least one octet: this stops an oversized string before it is scanned and encoded.
+  .max(ACCOUNT_ADD_LIMITS.password.max, { abort: true })
   .refine(
     (value) =>
       !/\p{Cc}/u.test(value) &&
@@ -233,8 +235,9 @@ export type NewAccount = z.infer<typeof NewAccountSchema>;
 
 /** Lane ids end in these (`<account id>.mxroute`, `.gmail`): an account id ending in one could take another lane's id. */
 const LANE_ID_ENDING = /\.(?:mxroute|gmail)$/u;
-/** Names that never lead to a public mail server (RFC 6762, RFC 6761, ICANN's .internal and the usual private ones). */
-const PRIVATE_HOST_ENDING = /\.(?:local|localhost|internal|intranet|lan|home|corp)$/iu;
+/** Names that never lead to a public mail server (RFC 6762, RFC 6761, RFC 8375, ICANN's .internal and the usual private ones). */
+const PRIVATE_HOST_ENDING =
+  /\.(?:local|localhost|localdomain|internal|intranet|lan|home|home\.arpa|corp|test|example|invalid)$/iu;
 /** A dot and an alphabetic top label: this also turns away an IP address and a single-label name. */
 const PUBLIC_HOST_NAME = /\.(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/iu;
 

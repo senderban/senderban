@@ -20,6 +20,8 @@ export interface ManageSieveOptions {
   readonly username: string;
   readonly password: string;
   readonly timeoutMs?: number;
+  /** Stops the sign-in: the socket closes, so the password is not sent after the caller has given up. */
+  readonly signal?: AbortSignal;
   /** Only for private CAs / tests; certificate verification is never switched off. */
   readonly tls?: { readonly ca?: string | Buffer; readonly servername?: string };
 }
@@ -185,14 +187,23 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Pr
 export async function connectManageSieve(options: ManageSieveOptions): Promise<SieveSession> {
   const port = checkOptions(options);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const signal = options.signal;
+  signal?.throwIfAborted();
 
   const raw = tcpConnect({ host: options.host, port });
+  const onAbort = (): void => {
+    raw.destroy();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
     await withTimeout(
       new Promise<void>((resolve, reject) => {
         raw.once("connect", resolve);
         raw.once("error", (e) => {
           reject(new AdapterError("TRANSIENT", `connection error: ${e.message}`));
+        });
+        raw.once("close", () => {
+          reject(new AdapterError("TRANSIENT", "connection closed"));
         });
       }),
       timeoutMs,
@@ -229,6 +240,9 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
         tlsSocket.once("error", (e: Error) => {
           reject(new AdapterError("TRANSIENT", `TLS error: ${e.message}`));
         });
+        tlsSocket.once("close", () => {
+          reject(new AdapterError("TRANSIENT", "connection closed during TLS handshake"));
+        });
       }),
       timeoutMs,
       "TLS handshake",
@@ -242,6 +256,7 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
       throw new AdapterError("CAPABILITY_NOT_SUPPORTED", "server does not offer SASL PLAIN");
     }
 
+    signal?.throwIfAborted();
     const initial = Buffer.from(`\u0000${options.username}\u0000${options.password}`, "utf8");
     secure.write(`AUTHENTICATE "PLAIN" "${initial.toString("base64")}"\r\n`);
     const auth = await secure.read();
@@ -257,6 +272,8 @@ export async function connectManageSieve(options: ManageSieveOptions): Promise<S
   } catch (error) {
     raw.destroy();
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 

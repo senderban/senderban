@@ -8,6 +8,8 @@ import { FatalWatchError, toIncoming } from "./watcher.js";
 export const IDLE_RESTART_MS = 25 * 60_000;
 export const CONNECT_TIMEOUT_MS = 30_000;
 export const GREETING_TIMEOUT_MS = 15_000;
+/** Past this the socket is closed without waiting for LOGOUT: imapflow's own inactivity timer would take 5 minutes. */
+export const LOGOUT_TIMEOUT_MS = 5_000;
 /** Messages fetched per `exists`. More than this in one gap means a burst; the watcher announces few anyway. */
 export const FETCH_LIMIT = 200;
 /**
@@ -172,8 +174,18 @@ export function imapflowConnector(
         async close() {
           existsListener = null;
           closeListener = null;
-          if (client.usable) await client.logout();
-          else client.close();
+          if (!client.usable) {
+            client.close();
+            return;
+          }
+          const timer = setTimeout(() => {
+            client.close();
+          }, LOGOUT_TIMEOUT_MS);
+          try {
+            await client.logout();
+          } finally {
+            clearTimeout(timer);
+          }
         },
       };
     } catch (error) {

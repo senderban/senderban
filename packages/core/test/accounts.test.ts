@@ -358,6 +358,9 @@ describe("AccountAddSchema", () => {
     ["an IP address as the host", { ...form, host: "192.0.2.1" }],
     ["a name without a dot", { ...form, host: "mailserver" }],
     ["a name on this network", { ...form, host: "mail.local" }],
+    ["a home network name", { ...form, host: "mail.home.arpa" }],
+    ["a default local domain", { ...form, host: "mail.localdomain" }],
+    ["a name reserved for tests", { ...form, host: "mail.test" }],
     ["localhost", { ...form, host: "localhost" }],
     ["an address that ends like a lane id", { ...form, address: "you@example.mxroute" }],
     ["a line break in the password", { ...form, password: "a\r\nb" }],
@@ -365,6 +368,14 @@ describe("AccountAddSchema", () => {
     ["a password over 255 octets", { ...form, password: "ş".repeat(128) }],
   ])("refuses %s", (_name, value) => {
     expect(AccountAddSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("stops at the length of an oversized password, before scanning it", () => {
+    const result = AccountAddSchema.safeParse({
+      ...form,
+      password: "p".repeat(ACCOUNT_ADD_LIMITS.password.max + 1),
+    });
+    expect(result.error?.issues).toHaveLength(1);
   });
 
   it("never quotes the input in an issue", () => {

@@ -15,6 +15,12 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 - ManageSieve now checks the certificate of a server reached by IP address against that address.
 - Passwords with control characters or over 255 bytes are refused when an account is added.
+- A ManageSieve login that runs out of time now closes its connection, so the password is not sent
+  after the form has answered.
+- Closing an IMAP session no longer waits more than 5 seconds for the server to answer LOGOUT.
+- Reserved names such as `mail.test` or `mail.home.arpa` are refused as a mail server.
+- An address directly under a country suffix, such as `co.uk`, no longer makes the whole suffix
+  count as your own mail.
 
 ### Known limits
 

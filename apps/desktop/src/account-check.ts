@@ -27,6 +27,7 @@ const liveProbes: AccountProbes = {
       port: account.sieve.port,
       username: account.sieve.user,
       password: account.password,
+      signal: AbortSignal.timeout(ACCOUNT_CHECK_SIEVE_MS),
     });
     void session.close().catch(() => undefined);
   },
