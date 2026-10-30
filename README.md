@@ -78,9 +78,13 @@ from the tray, **Gmail accounts**, paste the client, **Add Gmail account**, **Re
 ### MXroute
 
 Open **Blocked senders** from the tray, **MXroute accounts**, enter the mail address, password and
-server (it is in your MXroute welcome mail), **Add account**, **Restart now**. Senderban signs in
-over IMAP and ManageSieve first and stores nothing unless both work. The password is stored
-encrypted on this device.
+server (it is in your MXroute welcome mail), **Add account**, **Restart now**. Senderban asks you to
+confirm the server, signs in over IMAP and ManageSieve and stores nothing unless both work. The
+password is stored encrypted on this device.
+
+**Remove** next to the account deletes Senderban's rules from the mail server, then the password. If
+the rules cannot be deleted it says so and asks you first. Senders on the MXroute blacklist stay
+there until you delete them in your MXroute panel.
 
 The form uses IMAP over TLS on port 993 and ManageSieve on port 4190, with the mail address as user
 name. For any other setup, quit Senderban from the tray and save this as `account.json` with your
@@ -131,8 +135,8 @@ Rules live on your mail server, so uninstalling does not lift a block: **Unblock
 Windows removes the program but keeps `%APPDATA%\Senderban` (encrypted account secrets, the block
 list, logs). Before uninstalling, remove each Gmail account under _Gmail accounts_ in the _Blocked
 senders_ window (that also revokes Senderban's access at Google), switch the blacklist off under
-_Advanced_ and then remove the MXroute key; then delete the folder yourself. IMAP passwords are kept
-encrypted in the same folder.
+_Advanced_ and then remove the MXroute key, remove each account under _MXroute accounts_; then delete
+the folder yourself.
 Details and what was measured: [docs/adr/0010-windows-installer.md](docs/adr/0010-windows-installer.md).
 
 ## Development

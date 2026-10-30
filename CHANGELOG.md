@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-30
+
 ### Added
 
 - Remove an MXroute mailbox in the **Blocked senders** window. Senderban deletes its rules from the
