@@ -9,6 +9,7 @@ import {
   sieveStateHoldsRules,
 } from "../../src/sieve/adapter.js";
 import { hasInclude, isOurMain } from "../../src/sieve/rules.js";
+import { DEFAULT_RENDER_OPTIONS, renderRules } from "../../src/sieve/rules.js";
 import { FakeSieveServer } from "./fake-server.js";
 
 const entry = (n: number, match: BlockEntry["match"], value: string): BlockEntry => ({
@@ -358,6 +359,43 @@ describe("SieveAdapter failure handling", () => {
       expect([...server.scripts.keys()]).toEqual(["mine"]);
     });
 
+    it("never deletes a rules script this round did not write", async () => {
+      const { server, adapter } = noInclude();
+      const empty = renderRules([], DEFAULT_RENDER_OPTIONS);
+      server.scripts.set("senderban-rules", empty);
+      server.scripts.set("mine", "keep;\n");
+      server.beforeList = (nth) => {
+        if (nth === 2) server.active = "mine";
+      };
+      expect(await failure(sync(adapter, [], initialSieveState()))).toBe(
+        "CAPABILITY_NOT_SUPPORTED",
+      );
+      expect(server.scripts.has("senderban-rules")).toBe(true);
+      expect(server.commands).not.toContain("DELETESCRIPT");
+    });
+
+    it("keeps the refusal as the answer when taking its script back fails", async () => {
+      const { server, adapter } = noInclude();
+      server.scripts.set("mine", "keep;\n");
+      server.afterPut = () => {
+        server.active = "mine";
+        server.failDelete = true;
+      };
+      expect(await failure(sync(adapter, [e("a@evil.example")], initialSieveState()))).toBe(
+        "CAPABILITY_NOT_SUPPORTED",
+      );
+    });
+
+    it("counts its own script in the active place as already done, not as someone's", async () => {
+      const { server, adapter } = noInclude();
+      server.afterPut = () => {
+        server.active = "senderban-rules";
+      };
+      await sync(adapter, [e("a@evil.example")], initialSieveState());
+      expect(server.active).toBe("senderban-rules");
+      expect(server.scripts.has("senderban-rules")).toBe(true);
+    });
+
     it("reports drift when another script took the active place", async () => {
       const { server, adapter } = noInclude();
       const state = await live(adapter, [e("a@evil.example")], initialSieveState());
@@ -403,11 +441,12 @@ describe("SieveAdapter failure handling", () => {
     it("sends one LISTSCRIPTS and one write per change, with include", async () => {
       const { server, adapter } = setup();
       const first = await round(adapter, server, [e("a@evil.example")], initialSieveState());
+      // LISTSCRIPTS behind the first write: a script activated meanwhile is seen, not switched off.
       expect(first.commands).toEqual([
         "GETSCRIPT",
         "HAVESPACE",
-        "LISTSCRIPTS",
         "PUTSCRIPT",
+        "LISTSCRIPTS",
         "GETSCRIPT",
         "PUTSCRIPT",
         "SETACTIVE",

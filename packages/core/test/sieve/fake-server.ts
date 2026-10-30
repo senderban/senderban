@@ -13,8 +13,11 @@ export class FakeSieveServer {
   /** Hooks for failure injection. */
   beforeGet: ((name: string, nth: number) => void) | null = null;
   failSetActiveOnce = false;
-  /** Runs after each PUTSCRIPT: a person acting between two commands of a round. */
+  failDelete = false;
+  /** Run around commands: a person acting between two commands of a round. `nth` counts from 1. */
   afterPut: (() => void) | null = null;
+  beforeList: ((nth: number) => void) | null = null;
+  #lists = 0;
   readonly puts: string[] = [];
   /** Every command sent, in order: what a round costs. */
   readonly commands: string[] = [];
@@ -27,6 +30,8 @@ export class FakeSieveServer {
       extensions: () => this.extensions,
       listScripts: () => {
         this.commands.push("LISTSCRIPTS");
+        this.#lists += 1;
+        this.beforeList?.(this.#lists);
         return Promise.resolve(
           [...this.scripts.keys()].map((name): SieveScriptInfo => ({
             name,
@@ -55,6 +60,9 @@ export class FakeSieveServer {
       },
       deleteScript: (name) => {
         this.commands.push("DELETESCRIPT");
+        if (this.failDelete) {
+          return Promise.reject(new AdapterError("TRANSIENT", "connection dropped"));
+        }
         if (name === this.active) {
           return Promise.reject(new AdapterError("REJECTED", "cannot delete the active script"));
         }

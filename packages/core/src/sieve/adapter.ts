@@ -209,18 +209,21 @@ const ownScriptInTheWay = (): AdapterError =>
 async function ensureRulesRun(
   session: SieveSession,
   state: SieveState,
-  active: SieveScriptInfo | undefined,
+  listed: readonly SieveScriptInfo[] | null,
   justWritten: boolean,
 ): Promise<SieveState["includeBackup"]> {
+  if (listed?.find((s) => s.active)?.name === state.rulesName) return null;
+  // Read here, after any write: SETACTIVE switches off whatever is active, and nothing shows that afterwards.
+  const active = (await session.listScripts()).find((s) => s.active);
   if (active?.name === state.rulesName) return null;
   if (session.extensions().has("include")) return ensureInclude(session, state, active);
-  // SETACTIVE switches off whatever is active and nothing shows it afterwards, so the place is read once more first.
-  if ((await session.listScripts()).some((s) => s.active)) {
-    if (justWritten) await session.deleteScript(state.rulesName);
-    throw ownScriptInTheWay();
+  if (active === undefined) {
+    await session.setActive(state.rulesName);
+    return null;
   }
-  await session.setActive(state.rulesName);
-  return null;
+  // Only a script this round made, and the refusal stays the answer even if the delete fails.
+  if (justWritten) await session.deleteScript(state.rulesName).catch(() => undefined);
+  throw ownScriptInTheWay();
 }
 
 async function ensureInclude(
@@ -431,16 +434,16 @@ export class SieveAdapter implements BlockAdapter {
           throw new AdapterError("QUOTA_EXCEEDED", "server has no room for the rules script");
         }
 
-        // Right before the first write: a refusal after the rules script went up would leave it there, unrecorded.
-        const scripts = await session.listScripts();
-        if (sieveFit(session.extensions(), scripts, state.rulesName) === "own-script") {
+        // Without `include` a person's script can rule the round out, and a refusal after the rules script went up would
+        // leave it there, unrecorded. With `include` nothing can, so such a server is not asked twice.
+        const listed = session.extensions().has("include") ? null : await session.listScripts();
+        if (listed !== null && sieveFit(session.extensions(), listed, state.rulesName) !== "ok") {
           throw ownScriptInTheWay();
         }
 
         // The include target must exist before anything points at it (servers compile includes).
         if (remote === null) await session.putScript(state.rulesName, rules);
-        const active = scripts.find((s) => s.active);
-        const backup = await ensureRulesRun(session, state, active, remote === null);
+        const backup = await ensureRulesRun(session, state, listed, remote === null);
         if (remote !== null && needsWrite) await session.putScript(state.rulesName, rules);
 
         const next: SieveState = {

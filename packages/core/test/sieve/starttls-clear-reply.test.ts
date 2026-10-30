@@ -53,6 +53,8 @@ interface Script {
   readonly login?: string;
   /** The reply to NOOP; a server past TLS may send anything. */
   readonly noop?: string;
+  /** A slow server: each reply to CAPABILITY and NOOP comes this much after the one before. */
+  readonly replyDelayMs?: number;
 }
 
 /** Answers lines over TLS; `heard` keeps what came through it, so a test can show where the password went. */
@@ -72,9 +74,14 @@ async function serve(script: Script): Promise<{ port: number; heard: string[] }>
         for (const line of chunk.toString("utf8").split("\r\n")) {
           if (line === "") continue;
           heard.push(line);
-          if (line === "CAPABILITY") secure.write(REAL_CAPS);
+          const delay = script.replyDelayMs ?? 0;
+          const later = (reply: string, turns: number): void => {
+            if (delay === 0) secure.write(reply);
+            else setTimeout(() => secure.write(reply), delay * turns);
+          };
+          if (line === "CAPABILITY") later(REAL_CAPS, 1);
           else if (line.startsWith("AUTHENTICATE")) secure.write(`${script.login ?? "OK"}\r\n`);
-          else if (line === "NOOP") secure.write(script.noop ?? 'OK "done"\r\n');
+          else if (line === "NOOP") later(script.noop ?? 'OK "done"\r\n', 2);
           else secure.write("OK\r\n");
         }
       });
@@ -92,7 +99,19 @@ const endpoint = (port: number) => ({
   tls: { ca: cert, servername: "localhost" },
 });
 
+// The only cover of the CAPABILITY and NOOP exchange: in CI a missing openssl must show, not skip it.
+it.runIf(process.env["CI"] !== undefined)("has openssl in CI", () => {
+  expect(hasOpenssl).toBe(true);
+});
+
 describe.skipIf(!hasOpenssl)("a server that answers STARTTLS with capabilities in clear", () => {
+  it("gives the whole exchange one deadline, not one per reply", async () => {
+    const { port } = await serve({ clear: FORGED_CAPS, unasked: REAL_CAPS, replyDelayMs: 600 });
+    await expect(probeManageSieve({ ...endpoint(port), timeoutMs: 900 })).rejects.toMatchObject({
+      message: expect.stringContaining("timed out") as string,
+    });
+  });
+
   it("fails rather than go on with no end to the exchange in sight", async () => {
     const { port } = await serve({ clear: FORGED_CAPS, unasked: REAL_CAPS, noop: REAL_CAPS });
     await expect(probeManageSieve(endpoint(port))).rejects.toMatchObject({ code: "TRANSIENT" });

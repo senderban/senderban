@@ -58,13 +58,14 @@ write and one to verify. Nothing shared grows with the account count at 10x or 5
 - Blocked sender delivered over LMTP landed in Junk and another sender in INBOX, with and without `include`
   (`generic-sieve.contract.ts`). Without it: block, deliver, verify, unblock, deliver, uninstall.
 - The real `checkAccount` against Dovecot: ok, refused password, port that is not ManageSieve, closed port (`account-check.contract.ts`).
-- A stand-in for the clear-reply behaviour, with forged capabilities in the clear bytes (`starttls-clear-reply.contract.ts`).
+- A stand-in for the clear-reply behaviour, with forged capabilities in the clear bytes (`starttls-clear-reply.test.ts`, in `npm test`).
 
 ## Accepted risks
 
-- **The active place can still be lost in one round trip.** On a server without `include` a round reads the script list right before its
+- **The active place can still be lost in one round trip.** On a server without `include` a round reads the script list before its
   first write, and again right before `SETACTIVE`. A script the person activates between that last read and `SETACTIVE` is switched off,
-  not edited or deleted, and `verify` then sees our script active and reports nothing wrong. Only the first round of a mailbox can do this.
+  not edited or deleted, and `verify` then sees our script active and reports nothing wrong. Only a round that takes the active place
+  can do this. A server with `include` has a wider window of up to three commands when Senderban's own main script is activated, as it had before this change.
 - **A free host and port reach what they can reach.** "Other mail server" refuses private names and addresses, but a public name may
   resolve to an internal address (DNS rebinding, wildcard DNS services). Each try needs a click in a main-process dialog naming the host
   and port, carries no data of the person's until the probe passes, and answers one fixed word. Resolving the name and refusing private
@@ -77,5 +78,8 @@ write and one to verify. Nothing shared grows with the account count at 10x or 5
 - Any sign-in, rule, delivery or removal at Migadu, mailbox.org or Purelymail. The README says so per provider.
 - `imap.mailbox.org`: its ports are documented, its host only in a user forum. It answered ManageSieve and IMAP under a verified
   certificate on 2026-10-31.
+- **A failed round can strand the rules script.** If a round fails after its first write, for instance on `SETACTIVE`, the script stays on the
+  server unrecorded, and a later round with a different list stops with `REMOTE_CHANGED`. Servers with `include` always had this; on the
+  others it can follow a dropped connection. It should be closed before these presets ship.
 - Junk and Trash folder names at those providers. `fileinto :create` makes a folder of that name if theirs differs.
 - A webmail filter editor that rewrites the active script could drop the `include` line. `verify` reports that as drift.
