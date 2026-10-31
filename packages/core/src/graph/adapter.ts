@@ -210,7 +210,9 @@ export function graphEditedRules(state: OpaqueState): number {
 export function graphStateHoldsDeletable(state: OpaqueState): boolean {
   const parsed = StateSchema.safeParse(state.data);
   if (state.adapterId !== GRAPH_ADAPTER_ID || !parsed.success) return true;
-  return parsed.data.rules.length + parsed.data.intent.length > 0;
+  // An intent that already waited a round cannot be settled by waiting: it is reported as a rule that may remain, not retried.
+  const open = parsed.data.intent.filter((item) => item.waited !== true);
+  return parsed.data.rules.length + open.length > 0;
 }
 
 /** Where account alerts come from: a look-alike of one, blocked after a phishing mail, would silence the real alerts in the middle of the attack. */
@@ -1258,7 +1260,7 @@ export class GraphAdapter implements BlockAdapter {
     const data: GraphState = {
       rules: left,
       edited,
-      intent: [],
+      intent: work.intent,
       junkFolderId: current.junkFolderId,
       capacity: current.capacity,
     };

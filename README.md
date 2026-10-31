@@ -42,7 +42,8 @@ result is shown in the notification, and every block can be undone in the **Bloc
 
 **Other (IMAP)** is no rule on a server: Senderban moves the mail itself, only while it runs. With
 Senderban closed a blocked sender's mail stays in the inbox, and your phone sees it. Blocking someone
-there also moves their mail of the last 30 days out of the inbox.
+there also moves their mail of the last 30 days out of the inbox, and adding the mailbox does this
+for your whole block list at the next start.
 
 - **Block at server** (MXroute, one address, off until you switch it on) puts the address on the
   MXroute blacklist, which covers every mailbox on that mail domain. On the mailbox measured the

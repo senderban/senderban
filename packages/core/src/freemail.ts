@@ -45,6 +45,9 @@ const FREEMAIL_DOMAINS: ReadonlySet<string> = new Set([
  * stops the whole lane (`REJECTED`), so one `yahoo.fr` blocked in 0.1.3 would otherwise end every rule of that account after an update.
  */
 const FREEMAIL_NOT_OFFERED: ReadonlySet<string> = new Set([
+  "mailbox.org",
+  "migadu.com",
+  "purelymail.com",
   "yahoo.fr",
   "yahoo.de",
   "hotmail.fr",

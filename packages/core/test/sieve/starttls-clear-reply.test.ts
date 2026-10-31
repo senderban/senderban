@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { TLSSocket } from "node:tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { connectManageSieve, probeManageSieve } from "../../src/sieve/managesieve.js";
+import { isCertificateRefusal } from "../../src/tls-refusal.js";
 
 // A stand-in for a server that answers STARTTLS with its capabilities in clear behind the reply, the way Purelymail did on
 // 2026-10-31, and says nothing after the handshake until asked. It makes its certificate with openssl, which CI's runners have.
@@ -162,8 +163,13 @@ describe.skipIf(!hasOpenssl)("a server that answers STARTTLS with capabilities i
 
   it("still refuses a certificate it cannot verify", async () => {
     const { port } = await serve({ clear: FORGED_CAPS });
-    await expect(
-      probeManageSieve({ host: "127.0.0.1", port, timeoutMs: 5000 }),
-    ).rejects.toMatchObject({ message: expect.stringContaining("TLS error") as string });
+    const error: unknown = await probeManageSieve({
+      host: "127.0.0.1",
+      port,
+      timeoutMs: 5000,
+    }).catch((e: unknown) => e);
+    expect(isCertificateRefusal(error)).toBe(true);
+    // Fixed words: Node's message quotes the certificate, and an attacker on the path chooses that.
+    expect((error as Error).message).toBe("TLS handshake or certificate refused");
   });
 });

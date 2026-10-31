@@ -150,9 +150,14 @@ function expectOk(response: Response, what: string): void {
   if (response.status !== "OK") throw failure(response, what);
 }
 
-/** Before TLS anyone on the path can write the reply, and an error's text reaches a notification: only the status counts. */
+/**
+ * Before TLS anyone on the path can write the reply, and an error's text reaches a notification: only the status counts, and a refusal
+ * stays one to retry, because a class that stops the lane must come from the server (RFC 5804 §2.2).
+ */
 function expectClearOk(response: Response, what: string): void {
-  if (response.status !== "OK") throw failure({ ...response, text: null }, what);
+  if (response.status !== "OK") {
+    throw new AdapterError("TRANSIENT", `${what}: no usable answer before TLS`);
+  }
 }
 
 function quoted(value: string): string {
@@ -287,8 +292,11 @@ async function overTls<T>(
       new Promise<void>((resolve, reject) => {
         tlsSocket.once("secureConnect", resolve);
         tlsSocket.once("error", (e: Error) => {
-          // The cause keeps Node's error code: a refused certificate must stay distinct from a dead connection.
-          reject(new AdapterError("TRANSIENT", `TLS error: ${e.message}`, { cause: e }));
+          // The cause keeps Node's error code: a refused certificate must stay distinct from a dead connection. Its message
+          // quotes the certificate, which an attacker on the path chooses, so it stays out of the text.
+          reject(
+            new AdapterError("TRANSIENT", "TLS handshake or certificate refused", { cause: e }),
+          );
         });
         tlsSocket.once("close", () => {
           reject(new AdapterError("TRANSIENT", "connection closed during TLS handshake"));

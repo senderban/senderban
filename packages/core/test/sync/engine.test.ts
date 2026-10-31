@@ -214,6 +214,42 @@ describe("a lane with a gate of its own", () => {
     engine.dispose();
     store.close();
   });
+
+  it("does not make a main-gate lane wait for a stuck cleaning lane", async () => {
+    const store = new Store(openDatabase(":memory:"));
+    const engine = new SyncEngine(store, { maxConcurrent: 1 });
+    const stuck = Promise.withResolvers<undefined>();
+    const adapter = (run: () => Promise<undefined>): BlockAdapter => ({
+      id: "x",
+      capabilities: () => {
+        throw new Error("unused");
+      },
+      plan: async (_list, state) => {
+        await run();
+        return { accountId: "x", changes: [], basedOn: state };
+      },
+      apply: () => Promise.reject(new Error("unused")),
+      verify: () => Promise.reject(new Error("unused")),
+    });
+    const initialState = { adapterId: "x", data: null };
+    engine.addAccount({
+      id: "stuck",
+      initialState,
+      cleanGate: true,
+      adapter: adapter(() => stuck.promise),
+    });
+    engine.addAccount({
+      id: "other",
+      initialState,
+      adapter: adapter(() => Promise.resolve(undefined)),
+    });
+    const waiting = engine.sync("stuck");
+    await expect(engine.sync("other")).resolves.toMatchObject({ status: "unchanged" });
+    stuck.resolve(undefined);
+    await waiting;
+    engine.dispose();
+    store.close();
+  });
 });
 
 describe("attemptDone", () => {

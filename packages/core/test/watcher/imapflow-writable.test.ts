@@ -4,6 +4,7 @@ const seen = vi.hoisted(() => ({
   options: [] as Record<string, unknown>[],
   opens: [] as { path: string; readOnly: unknown }[],
   closeListeners: [] as (() => void)[],
+  uidNext: 2,
 }));
 
 vi.mock("imapflow", () => ({
@@ -22,7 +23,7 @@ vi.mock("imapflow", () => ({
     }
     mailboxOpen(path: string, options: { readOnly: unknown }) {
       seen.opens.push({ path, readOnly: options.readOnly });
-      return Promise.resolve({ uidValidity: 1n, uidNext: 2 });
+      return Promise.resolve({ uidValidity: 1n, uidNext: seen.uidNext });
     }
     close(): void {
       // Nothing is open.
@@ -33,7 +34,7 @@ vi.mock("imapflow", () => ({
 const { imapflowConnector, CLEAN_IDLE_DELAY_MS } =
   await import("../../src/watcher/imapflow-session.js");
 const { cleanConnector } = await import("../../src/imap-clean/imapflow-mailbox.js");
-const { CleanLink } = await import("../../src/imap-clean/session.js");
+const { CleanLink, UID_MAX } = await import("../../src/imap-clean/session.js");
 
 const config = { host: "mail.example.test", port: 993, secure: true, user: "u", password: "p" };
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   seen.options.length = 0;
   seen.opens.length = 0;
   seen.closeListeners.length = 0;
+  seen.uidNext = 2;
 });
 
 describe("a session that only watches", () => {
@@ -48,6 +50,18 @@ describe("a session that only watches", () => {
     await imapflowConnector(config)();
     expect(seen.opens).toEqual([{ path: "INBOX", readOnly: true }]);
     expect(seen.options[0]).not.toHaveProperty("autoIdleDelay");
+  });
+});
+
+describe("a server's UIDNEXT", () => {
+  it("is taken up to one past the largest UID", async () => {
+    seen.uidNext = UID_MAX + 1;
+    await expect(imapflowConnector(config)()).resolves.toBeDefined();
+  });
+
+  it("is refused past that: a saved cursor built on it would never read again", async () => {
+    seen.uidNext = UID_MAX + 2;
+    await expect(imapflowConnector(config)()).rejects.toThrow("UIDNEXT");
   });
 });
 

@@ -767,7 +767,12 @@ async function start(): Promise<Runtime> {
           noticeCleaned(account.id, account.clean.address, event);
         },
       });
-      engine.addAccount({ id: account.id, initialState: initialCleanState(), adapter });
+      engine.addAccount({
+        id: account.id,
+        initialState: initialCleanState(),
+        adapter,
+        cleanGate: true,
+      });
     } catch {
       log("account-skipped", { account: accountTag(account.id) });
       notice(
@@ -797,8 +802,8 @@ async function start(): Promise<Runtime> {
         ),
         screen: (fresh) => adapter.screen(fresh),
         onGap: (_, reason) => {
-          // Only a burst can repeat on every drain; these two passed mail nobody looked at.
-          adapter.sweepAll(reason !== "burst");
+          // Renumbering voids the saved pass. A burst or an unreadable mail repeats at a sender's wish, so those keep the hourly limit.
+          adapter.sweepAll(reason === "renumbered");
           engine.requestSync(account.id);
         },
         ...announce,

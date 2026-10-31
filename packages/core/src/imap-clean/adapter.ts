@@ -51,6 +51,8 @@ export const RETRO_ENTRIES_PER_PLAN = 64;
 export const RETRO_ABORTS_MAX = 3;
 /** Unit: milliseconds. Past-mail clearing rests this long then: the rules go on working, and the abort costs a reconnect each time. */
 export const RETRO_HOLD_MS = 1_800_000;
+/** Unit: milliseconds. Each rest in a row doubles up to this: a provider that never finishes must not cost a reconnect every half hour for ever. */
+export const RETRO_HOLD_MAX_MS = 21_600_000;
 /** Unit: milliseconds. A mail flood repeats the gap on every drain; every rule walks the Inbox at most once in this time. */
 export const SWEEP_ALL_GAP_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -186,7 +188,10 @@ export class ImapCleanAdapter implements BlockAdapter {
   #sweptAllAt = Number.NEGATIVE_INFINITY;
   #retroAborts = 0;
   #retroHeldUntil = 0;
+  #retroRestMs = RETRO_HOLD_MS;
   #restTimer: ReturnType<typeof setTimeout> | null = null;
+  #sweepTimer: ReturnType<typeof setTimeout> | null = null;
+  #sweepDue: number | null = null;
   /** The last round threw, so nothing was saved: a new session is worth a round even with an empty queue. */
   #roundFailed = false;
   #retired = false;
@@ -214,16 +219,43 @@ export class ImapCleanAdapter implements BlockAdapter {
     this.#retired = true;
     if (this.#restTimer !== null) clearTimeout(this.#restTimer);
     this.#restTimer = null;
+    if (this.#sweepTimer !== null) clearTimeout(this.#sweepTimer);
+    this.#sweepTimer = null;
+    this.#sweepDue = null;
   }
 
   /**
-   * Mail came in that `screen` never saw: the next round reads the Inbox for every rule. `force` passes the hourly limit, which is
-   * for a flood that repeats on every drain.
+   * Mail came in that `screen` never saw: the next round reads the Inbox for every rule. `force` is for a renumbered mailbox, whose
+   * saved pass is void: it waits the shorter rest instead of the hourly limit, because a sweep restarts a pass. A request inside the
+   * limit is not lost: that mail is still unread, so one sweep at the end of the limit answers every gap inside it.
    */
   sweepAll(force = false): void {
-    if (!force && this.#now() - this.#sweptAllAt < SWEEP_ALL_GAP_MS) return;
+    if (this.#retired) return;
+    const due = this.#sweptAllAt + (force ? RETRO_HOLD_MS : SWEEP_ALL_GAP_MS);
+    if (this.#now() < due) {
+      this.#deferSweep(due);
+      return;
+    }
+    this.#startSweep();
+  }
+
+  #startSweep(): void {
+    if (this.#sweepTimer !== null) clearTimeout(this.#sweepTimer);
+    this.#sweepTimer = null;
+    this.#sweepDue = null;
     this.#sweptAllAt = this.#now();
     this.#sweepAll = true;
+  }
+
+  #deferSweep(due: number): void {
+    if (this.#sweepDue !== null && this.#sweepDue <= due) return;
+    if (this.#sweepTimer !== null) clearTimeout(this.#sweepTimer);
+    this.#sweepDue = due;
+    this.#sweepTimer = setTimeout(() => {
+      this.#startSweep();
+      this.#options.onRested?.();
+    }, due - this.#now());
+    this.#sweepTimer.unref();
   }
 
   /** Whether a round may read the Inbox now. A reconnect must not restart a search the provider just could not finish. */
@@ -408,12 +440,12 @@ export class ImapCleanAdapter implements BlockAdapter {
           moved += await this.#move(box, hits);
           pass = { ...current, below: Math.min(...part) };
           steps += 1;
-          this.#retroAborts = 0;
+          this.#noteProgress();
         }
         if (complete) {
           left.splice(0, current.size);
           pass = null;
-          this.#retroAborts = 0;
+          this.#noteProgress();
         }
       }
     } catch (error) {
@@ -449,16 +481,23 @@ export class ImapCleanAdapter implements BlockAdapter {
     return { left, pass };
   }
 
+  #noteProgress(): void {
+    this.#retroAborts = 0;
+    this.#retroRestMs = RETRO_HOLD_MS;
+  }
+
   #noteAbort(): void {
     this.#retroAborts += 1;
     if (this.#retroAborts < RETRO_ABORTS_MAX) return;
     this.#retroAborts = 0;
-    this.#retroHeldUntil = this.#now() + RETRO_HOLD_MS;
+    const rest = this.#retroRestMs;
+    this.#retroRestMs = Math.min(rest * 2, RETRO_HOLD_MAX_MS);
+    this.#retroHeldUntil = this.#now() + rest;
     if (this.#restTimer !== null) clearTimeout(this.#restTimer);
     this.#restTimer = setTimeout(() => {
       this.#restTimer = null;
       this.#options.onRested?.();
-    }, RETRO_HOLD_MS);
+    }, rest);
     this.#restTimer.unref();
   }
 

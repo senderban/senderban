@@ -431,6 +431,8 @@ describe("GraphAdapter: answers that never came back", () => {
     r.fake.forced.set("GET", [{ status: 200, body: { value: [{ id: "mine", displayName: 5 }] } }]);
     const left = await r.adapter.uninstall(r.saved.at(-1) as OpaqueState);
     expect(graphStateHoldsDeletable(left)).toBe(false);
+    // A rule may be there: the person is told so, not told it is gone.
+    expect(graphStateHoldsRules(left)).toBe(true);
   });
 
   it("drops an intent nothing came of, and writes the entry again", async () => {

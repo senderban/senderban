@@ -473,7 +473,7 @@ export class ManageWindow {
     const { address, host, port } = parsed.data;
     return this.#adds(
       "manage:clean-add",
-      `Server: ${host}, port ${String(port)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your provider's own settings page, letter by letter. A provider's app password is the one to use here. Senderban will move mail out of this inbox while it runs.`,
+      `Server: ${host}, port ${String(port)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your provider's own settings page, letter by letter. A provider's app password is the one to use here. Senderban will move mail out of this inbox while it runs. At the next start that takes in the last 30 days of mail from everyone on your block list, to Junk or Trash as each entry says. The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
       (request) => this.#handlers.cleanAdd(parsed.data, request),
     );
   }

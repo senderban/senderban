@@ -56,12 +56,20 @@ describe("freemail guard", () => {
 });
 
 describe("domains that are not offered", () => {
-  it.each(["yahoo.fr", "qq.com", "gmail.com", "mail.gmail.com", "co.uk", "sch.ng", "github.io"])(
-    "%s is shared: never offered",
-    (domain) => {
-      expect(isNotOffered(domain)).toBe(true);
-    },
-  );
+  it.each([
+    "yahoo.fr",
+    "qq.com",
+    "gmail.com",
+    "mail.gmail.com",
+    "co.uk",
+    "sch.ng",
+    "github.io",
+    "mailbox.org",
+    "migadu.com",
+    "purelymail.com",
+  ])("%s is shared: never offered", (domain) => {
+    expect(isNotOffered(domain)).toBe(true);
+  });
 
   it.each(["example.com", "news.example.com", "shop.co.uk", "gmail.com.evil.test"])(
     "%s is one owner's",

@@ -79,6 +79,32 @@ IP) and window type are **unmeasured**, sliding window assumed.
 Unmeasured: MXroute round-trip time, whether a DELETE is immediately consistent with the next GET, the bucket scope, what the
 server does at the limit beyond the status code. Next measurement: 70 requests with a throwaway entry (`.task/performance-review-mxroute-lane-2026-10-25.md`, "Measure next").
 
+## All account kinds together (2026-10-31)
+
+Reference mix at 50 accounts: 15 Sieve (5 with an MXroute key), 10 Gmail, 10 Microsoft, 15 cleaning = 55 lanes. M = measured with the real engine and
+store and fake providers on a loaded laptop, `:memory:` database; D = derived. No line is a real provider's number.
+
+| Per block click, steady state              | 10 accounts | 50 accounts, this mix | 50 accounts of one kind                       |
+| ------------------------------------------ | ----------- | --------------------- | --------------------------------------------- |
+| New connections                            | 2-11        | 16 (D)                | 51 Sieve (D)                                  |
+| Commands and requests                      | 20-40       | about 200 (D)         | 306 Sieve, 150 Graph, 100+ cleaning (D and M) |
+| Main-thread CPU                            | 1.1-1.7 s   | 6-8 s (M)             | 8.4 Sieve, 6.8 cleaning, 5.7 Graph s (M)      |
+| Longest stretch without an event-loop turn | under 0.3 s | 1.0 s (M)             | 0.75 Sieve, 0.96 cleaning, 0.65 Graph s (M)   |
+| The same for an Unblock                    | about 1.7 s | 2.5 s (M)             | 1.0 Sieve, 8.3 cleaning, 0.5 Graph s (M)      |
+| State written to SQLite                    | 5-7 MB      | 33 MB (M)             | 37 Sieve or cleaning, 24 Graph MB (M)         |
+
+At start, with nothing to send, `syncAll` is one uninterrupted tick of 3.4 s (Sieve), 4.1 s (cleaning), 1.4 s (Graph), 2.8 s (mixed) at 50 lanes.
+
+Gates: main 5 (Sieve), cleaning 5, background 2 (Gmail, MXroute), own 2 (Microsoft), so 14 provider rounds at once, plus 5 logins (Sieve and cleaning
+watchers) and 5 Gmail polls. A click waits only behind the lanes on its own gate. `MAX_LANES` holds: only Sieve with an MXroute key takes two lanes.
+
+Open, bounded by `MAX_ACCOUNTS` and constants, none measured on a real disk or provider:
+
+- The whole list is checked again per lane per plan; Graph shares that work through a cache by list, Sieve and cleaning do not. That is the ticks above.
+- Lane state is rewritten whole on every round, 33 MB per click at 50 lanes, on the main thread. The on-disk cost is the next probe.
+- The Accounts page reads every Microsoft lane's state in one tick: 0.5-1.9 s at 50.
+- The `sync` log line has no duration or gate wait, so a slow click cannot be read from a person's log.
+
 ## Not done here (tracked in `.task/performance-review-baseline-2026-10-25.md`)
 
 Auth-throttle replies treated as a wrong password (W2), `list()` read per account

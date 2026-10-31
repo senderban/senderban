@@ -108,8 +108,16 @@ describe("a refusal before TLS", () => {
     const { port } = await listen(`NO "${phish}"\r\n`);
     const error: unknown = await connectManageSieve(options(port)).catch((e: unknown) => e);
     expect((error as Error).message).not.toContain("evil.example");
-    expect((error as AdapterError).code).toBe("REJECTED");
+    expect((error as AdapterError).code).toBe("TRANSIENT");
   });
+
+  it.each(['NO (QUOTA) "x"', 'NO "Your password expired"'])(
+    "does not let %s stop the lane",
+    async (reply) => {
+      const { port } = await listen(`${reply}\r\n`);
+      await expect(connectManageSieve(options(port))).rejects.toMatchObject({ code: "TRANSIENT" });
+    },
+  );
 
   it("keeps the unauthenticated STARTTLS reply's words out of the error", async () => {
     const { port } = await listen('"STARTTLS"\r\nOK\r\n', `NO "${phish}"\r\n`);

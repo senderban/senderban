@@ -107,6 +107,8 @@ describe("manage:clean-add", () => {
     expect(asked[0]?.detail).toContain("imap.example.com, port 993");
     expect(asked[0]?.detail).toContain("you@example.com");
     expect(asked[0]?.detail).not.toContain("app-password");
+    expect(asked[0]?.detail).toContain("last 30 days of mail from everyone on your block list");
+    expect(asked[0]?.detail).toContain("counts as your own");
   });
 
   it("offers a restart once saved", async () => {

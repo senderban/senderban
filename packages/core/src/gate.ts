@@ -27,6 +27,11 @@ export const MAX_CONCURRENT_BACKGROUND = 2;
  * there must not hold the Gmail and MXroute lanes behind it. 50 such lanes in an outage run their 30 s deadlines in about 12 minutes, only each other's.
  */
 export const MAX_CONCURRENT_OWN_GATE = 2;
+/**
+ * The same for cleaning lanes (`EngineAccount.cleanGate`): a round runs on the watcher's open connection and may hold its slot for a whole SEARCH, so a Sieve click
+ * must not queue behind them (3.5 s behind 17 lanes, 22.6 s at a 6 s SEARCH, measured with fakes 2026-10-31). No new socket, so 5 slots as on the main gate.
+ */
+export const MAX_CONCURRENT_CLEAN = 5;
 
 /**
  * Gmail new-mail polls in flight at once, on a gate of their own so a Google outage (every poll waiting out its 15 s request) cannot

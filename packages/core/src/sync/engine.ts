@@ -2,6 +2,7 @@ import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode, BlockAdapter, Drift, OpaqueState } from "../adapter.js";
 import {
   MAX_CONCURRENT_BACKGROUND,
+  MAX_CONCURRENT_CLEAN,
   MAX_CONCURRENT_OWN_GATE,
   MAX_CONCURRENT_SYNCS,
   createGate,
@@ -62,6 +63,8 @@ export interface EngineAccount {
   readonly background?: boolean;
   /** Runs apart from the other background lanes, so that its provider's outage does not hold them (MAX_CONCURRENT_OWN_GATE). */
   readonly ownGate?: boolean;
+  /** Runs apart from the main gate, so that a person's click on a Sieve account does not wait for its rounds (MAX_CONCURRENT_CLEAN). */
+  readonly cleanGate?: boolean;
   /** State used the first time this account is synced, before the store has any. */
   readonly initialState: OpaqueState;
 }
@@ -198,6 +201,7 @@ export class SyncEngine {
   readonly #gate: Gate;
   readonly #backgroundGate: Gate;
   readonly #ownGate = createGate(MAX_CONCURRENT_OWN_GATE);
+  readonly #cleanGate = createGate(MAX_CONCURRENT_CLEAN);
   #disposed = false;
 
   constructor(store: Store, options: EngineOptions = {}) {
@@ -409,6 +413,7 @@ export class SyncEngine {
   #gateFor(accountId: string): Gate {
     const account = this.#accounts.get(accountId);
     if (account?.ownGate === true) return this.#ownGate;
+    if (account?.cleanGate === true) return this.#cleanGate;
     return account?.background === true ? this.#backgroundGate : this.#gate;
   }
 

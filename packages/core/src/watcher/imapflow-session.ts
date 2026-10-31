@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import type { FetchMessageObject } from "imapflow";
+import { UID_MAX } from "../imap-clean/session.js";
 import type { IncomingMessage, MailboxSession } from "./watcher.js";
 import { FETCH_LIMIT, FatalWatchError, UnreadableMailError, toIncoming } from "./watcher.js";
 
@@ -221,7 +222,11 @@ export function imapflowConnector(
       const mailbox = await client.mailboxOpen("INBOX", { readOnly: config.writable !== true });
       signal?.throwIfAborted();
       // Without UIDNEXT the cursor would be NaN and every reconnect would fail the same way.
-      if (!Number.isSafeInteger(mailbox.uidNext) || mailbox.uidNext < 1) {
+      if (
+        !Number.isSafeInteger(mailbox.uidNext) ||
+        mailbox.uidNext < 1 ||
+        mailbox.uidNext > UID_MAX + 1
+      ) {
         throw new FatalWatchError("server did not report UIDNEXT");
       }
       const openUidNext = mailbox.uidNext;

@@ -62,8 +62,9 @@ list row and the result toast.
   move works. Only a new entry or a gap looks at that mail again. The library hides the server's reason for a refused MOVE, so a
   throttled move counts as refused too.
 - There is no deadline per command, only the engine's 60 s per round. A provider whose SEARCH outlasts it costs the connection, and the
-  new session starts the round again. After 3 such rounds in a row past-mail clearing rests for 30 min and waits for the next list change
-  or session after that; rules on new mail go on working. How long SEARCH takes on a real provider is not measured.
+  new session starts the round again. After 3 such rounds in a row past-mail clearing rests for 30 min, wakes by itself, and rests twice
+  as long each time up to 6 h, until a read gets somewhere; rules on new mail go on working. How long SEARCH takes on a real provider
+  is not measured.
 - Three rounds cut off in a row, by a lost connection as well, rest past-mail clearing the same way, so one mail or one bad session
   cannot turn into a login loop.
 - A mail too large to read during a past-mail pass gives up the messages of that one read, at most 200, logged as `failed`: the
@@ -72,6 +73,17 @@ list row and the result toast.
   been measured on any provider.
 - Concurrent connection limits are not documented by Apple, and no official Yahoo page was found; third-party figures disagree (5 to
   15). One connection per account stays below all of them.
+
+- Adding a mailbox clears the last 30 days for the whole list at the next start. The confirmation and the panel say so before the password
+  is sent.
+- A sweep of every rule runs at most once an hour; a request inside that hour waits for its end, and all of them are one sweep. A renumbered mailbox voids the saved pass, so it waits 30 min instead.
+
+## Budget
+
+Unit = one cleaning lane, on the watcher's open connection: no socket of its own, at most one reconnect per aborted round. Rounds run on a
+gate of their own (`MAX_CONCURRENT_CLEAN` = 5), so a click on a Sieve account does not wait behind them; before that it took 3.5 s behind 17
+lanes and 22.6 s at a 6 s SEARCH (fake provider). A block costs 2 commands per lane with no candidate, plus reads and a MOVE. 10 lanes about
+2 s of clearing, 50 lanes 9 s at loopback speed. Real provider time is not measured. Totals with the other kinds: ADR 0006.
 
 ## Measured (Dovecot 2.4.5, loopback, 2026-10-31)
 

@@ -6,6 +6,7 @@ import {
   RETRO_ABORTS_MAX,
   RETRO_DAYS,
   RETRO_ENTRIES_PER_PLAN,
+  RETRO_HOLD_MAX_MS,
   RETRO_HOLD_MS,
   RETRO_MAX_UIDS,
   RETRO_ROUND_MS,
@@ -510,6 +511,54 @@ describe("clearing past mail", () => {
     }
   });
 
+  it("rests twice as long each time, up to the ceiling, until a read gets somewhere", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = entry(1, "a@blocked.example");
+      const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+      const state = { adapterId: "imap-clean", data: { applied: [a], retro: [a.id] } };
+      const link = new CleanLink();
+      link.attach(box);
+      const onRested = vi.fn();
+      const adapter = new ImapCleanAdapter({ accountId: "x", link, initialState: state, onRested });
+      box.onSearch = () => {
+        throw new Error("socket closed");
+      };
+      const strikeOut = async (): Promise<void> => {
+        for (let i = 0; i < RETRO_ABORTS_MAX; i += 1) {
+          await expect(round(adapter, [a], state)).rejects.toThrow();
+        }
+      };
+      let expected = 0;
+      for (const rest of [
+        RETRO_HOLD_MS,
+        RETRO_HOLD_MS * 2,
+        RETRO_HOLD_MS * 4,
+        RETRO_HOLD_MS * 8,
+        RETRO_HOLD_MAX_MS,
+        RETRO_HOLD_MAX_MS,
+      ]) {
+        await strikeOut();
+        await vi.advanceTimersByTimeAsync(rest - 1);
+        expect(onRested).toHaveBeenCalledTimes(expected);
+        await vi.advanceTimersByTimeAsync(1);
+        expected += 1;
+        expect(onRested).toHaveBeenCalledTimes(expected);
+      }
+      box.onSearch = () => undefined;
+      await round(adapter, [a], state);
+      box.fill([[2, "a@blocked.example"]]);
+      box.onSearch = () => {
+        throw new Error("socket closed");
+      };
+      await strikeOut();
+      await vi.advanceTimersByTimeAsync(RETRO_HOLD_MS);
+      expect(onRested).toHaveBeenCalledTimes(expected + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("clears the wake-up when the account is removed", async () => {
     vi.useFakeTimers();
     try {
@@ -548,14 +597,70 @@ describe("clearing past mail", () => {
     expect(adapter.hasWork).toBe(false);
   });
 
-  it("lets a renumbered mailbox past the hourly limit", async () => {
+  it("lets a renumbered mailbox past the hourly limit, but not at every gap", async () => {
     const a = entry(1, "a@blocked.example");
     const state = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
-    const { adapter } = rig(new FakeBox(), state);
+    const { adapter, clock } = rig(new FakeBox(), state);
     adapter.sweepAll();
     const first = await round(adapter, [a], state);
+    expect((await adapter.plan([a], first.state)).changes).toHaveLength(0);
+    clock.now += RETRO_HOLD_MS - 1;
+    adapter.sweepAll(true);
+    expect((await adapter.plan([a], first.state)).changes).toHaveLength(0);
+    clock.now += 1;
     adapter.sweepAll(true);
     expect((await adapter.plan([a], first.state)).changes).toHaveLength(1);
+  });
+
+  it("keeps a request inside the hourly limit for the end of it, as one sweep", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = entry(1, "a@blocked.example");
+      const state = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
+      const link = new CleanLink();
+      link.attach(new FakeBox());
+      const onRested = vi.fn();
+      const adapter = new ImapCleanAdapter({ accountId: "x", link, initialState: state, onRested });
+      adapter.sweepAll();
+      const first = await round(adapter, [a], state);
+      adapter.sweepAll();
+      adapter.sweepAll();
+      expect(adapter.hasWork).toBe(false);
+      await vi.advanceTimersByTimeAsync(SWEEP_ALL_GAP_MS - 1);
+      expect(onRested).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onRested).toHaveBeenCalledTimes(1);
+      expect((await adapter.plan([a], first.state)).changes).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("brings a waiting sweep forward for a renumbered mailbox, and clears it on removal", async () => {
+    vi.useFakeTimers();
+    try {
+      const link = new CleanLink();
+      link.attach(new FakeBox());
+      const onRested = vi.fn();
+      const adapter = new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: initialCleanState(),
+        onRested,
+      });
+      adapter.sweepAll();
+      adapter.sweepAll();
+      adapter.sweepAll(true);
+      await vi.advanceTimersByTimeAsync(RETRO_HOLD_MS);
+      expect(onRested).toHaveBeenCalledTimes(1);
+      adapter.sweepAll();
+      adapter.retire();
+      adapter.sweepAll();
+      await vi.advanceTimersByTimeAsync(SWEEP_ALL_GAP_MS);
+      expect(onRested).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps a pass when a new entry joins behind it", async () => {
