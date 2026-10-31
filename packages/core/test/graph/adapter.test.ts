@@ -401,8 +401,36 @@ describe("GraphAdapter: answers that never came back", () => {
     ]);
     const result = await r.adapter.apply(await r.adapter.plan(list, saved));
     expect(intentOf(result.state)).toHaveLength(1);
+    expect(result.deferred).toBeGreaterThan(0);
     const { state } = await settle(r, list, result.state);
     expect(stateRules(state).map((x) => x.id)).toEqual([rule?.id]);
+  });
+
+  it("gives up on an intent after one round, however long the list stays unreadable", async () => {
+    const r = rig();
+    r.fake.forced.set("POST", [500]);
+    const list = listOf(["a@spam.example"]);
+    const plan = await r.adapter.plan(list, initialGraphState());
+    await expect(r.adapter.apply(plan)).rejects.toBeDefined();
+    const unreadable = { status: 200, body: { value: [{ id: "mine", displayName: 5 }] } };
+    r.fake.forced.set("GET", [unreadable, unreadable, unreadable]);
+    const first = await r.adapter.apply(await r.adapter.plan(list, r.saved.at(-1) as OpaqueState));
+    expect(intentOf(first.state)).toHaveLength(1);
+    const second = await r.adapter.apply(await r.adapter.plan(list, first.state));
+    expect(intentOf(second.state)).toEqual([]);
+    expect(second.deferred).toBeGreaterThan(0);
+    const { state } = await settle(r, list, second.state);
+    expect(stateRules(state)).toHaveLength(1);
+  });
+
+  it("does not hold an account's removal for an intent it cannot settle", async () => {
+    const r = rig();
+    r.fake.forced.set("POST", [500]);
+    const plan = await r.adapter.plan(listOf(["a@spam.example"]), initialGraphState());
+    await expect(r.adapter.apply(plan)).rejects.toBeDefined();
+    r.fake.forced.set("GET", [{ status: 200, body: { value: [{ id: "mine", displayName: 5 }] } }]);
+    const left = await r.adapter.uninstall(r.saved.at(-1) as OpaqueState);
+    expect(graphStateHoldsDeletable(left)).toBe(false);
   });
 
   it("drops an intent nothing came of, and writes the entry again", async () => {
@@ -675,6 +703,55 @@ describe("GraphAdapter: rules that are not ours any more", () => {
     const result = await r.adapter.apply(plan);
     expect(result.failed).toHaveLength(1);
     expect(stateRules(result.state).map((x) => x.id)).toEqual([rule.id]);
+  });
+
+  it("leaves a live rule alone when a stale edited rule still names its value", async () => {
+    const { r, list, state, rule } = await setUp();
+    rule.exceptions = { subjectContains: ["invoice"] };
+    const moved = [entry((list[0] as BlockEntry).value, "trash")];
+    const plan = await r.adapter.plan(moved, state);
+    const result = await r.adapter.apply(plan);
+    const saved = r.saved.at(-1) as OpaqueState;
+    expect(result.state).toBeDefined();
+    r.fake.calls.length = 0;
+    await r.adapter.apply(await r.adapter.plan(moved, saved));
+    expect(r.fake.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("keeps what a rule stored otherwise holds, while an older edited rule is reported", async () => {
+    const { r, list, state, rule } = await setUp();
+    rule.exceptions = { subjectContains: ["invoice"] };
+    const value = (list[0] as BlockEntry).value;
+    const moved = [entry(value, "trash")];
+    r.fake.storeExtraAction = true;
+    await expect(r.adapter.apply(await r.adapter.plan(moved, state))).rejects.toThrow(
+      "differently than written",
+    );
+    r.fake.calls.length = 0;
+    const next = await r.adapter.apply(await r.adapter.plan(moved, r.saved.at(-1) as OpaqueState));
+    expect(next.failed.map((f) => f.error.code)).toEqual(["REMOTE_CHANGED"]);
+    const added = editedOf(next.state).find((x) => x.id !== rule.id);
+    expect(added?.entries.map((e) => e.value)).toEqual([value]);
+    const { state: end } = await settle(r, moved, next.state);
+    expect(stateRules(end)).toEqual([]);
+    expect(r.fake.calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("takes a value a live rule holds as wanted for settled, whatever a stale edited rule says", async () => {
+    const r = rig();
+    const wanted = entry("a@spam.example", "trash");
+    const held = { id: wanted.id, value: wanted.value, match: "exactAddress" as const };
+    const stale = { ...held, id: crypto.randomUUID() };
+    const record = { nonce: "0123456789abcdef", kind: "address" as const };
+    const state = {
+      ...initialGraphState(),
+      data: {
+        ...(initialGraphState().data as object),
+        rules: [{ ...record, id: "live", action: "trash", entries: [held] }],
+        edited: [{ ...record, id: "old", action: "junk", entries: [stale] }],
+      },
+    };
+    expect((await r.adapter.plan([wanted], state)).changes).toEqual([]);
   });
 
   it("keeps the report of an edited rule for a later round when this one throws", async () => {

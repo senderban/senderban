@@ -66,7 +66,7 @@ switched off from October 2026 and fully by April 2027
 - **A rule only acts on mail arriving in the Inbox.** Mail already there stays, and retroactive cleaning is not offered.
 - **A work or school account may need approval.** Microsoft's default consent policy excludes `MailboxSettings.ReadWrite` for all but listed mail clients.
   Sign-in then reports that the organization must approve Senderban.
-- **A create that lands after the round gave up on it** leaves a rule nothing knows, named `Senderban …`. The person can delete it in Outlook. Deleting by
+- **A create that lands after the round gave up on it**, or that the list cannot show for two rounds, leaves a rule nothing knows, named `Senderban …`. The person can delete it in Outlook. Deleting by
   name alone was refused: a second device's lane holds rules of the same form.
 
 ## Budget lines

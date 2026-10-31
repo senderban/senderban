@@ -125,6 +125,8 @@ const Intent = z.strictObject({
   kind: RuleKind,
   action: RuleAction,
   entries: z.array(Held).min(1).max(GRAPH_STRINGS_PER_RULE),
+  /** Already kept once because the list held a rule the client could not read: the next round decides. */
+  waited: z.literal(true).optional(),
 });
 type Intent = z.infer<typeof Intent>;
 
@@ -454,10 +456,10 @@ function maybeListed(listing: GraphRuleList, id: string): boolean {
 /** The removals of entries an edited rule holds: no write takes them, and the round reports them. */
 function leavingEdited(edited: readonly EditedRule[], removes: readonly Held[]): PlannedChange[] {
   const out: PlannedChange[] = [];
-  const leaving = new Set(removes.map((e) => e.value));
+  const leaving = new Set(removes.map((e) => e.id));
   for (const rule of edited) {
     for (const entry of rule.entries) {
-      if (leaving.has(entry.value)) out.push(change("remove", toEntry(entry, rule.action)));
+      if (leaving.has(entry.id)) out.push(change("remove", toEntry(entry, rule.action)));
     }
   }
   return out;
@@ -713,6 +715,8 @@ export class GraphAdapter implements BlockAdapter {
     const removes: Held[] = [];
     for (const rule of rules) {
       for (const entry of rule.entries) {
+        // Rules come before edited ones: a value a live rule holds as wanted is settled, whatever a stale edited rule says about it.
+        if (have.has(entry.value)) continue;
         const want = wanted.get(entry.value);
         if (want?.action === rule.action && want.held.match === entry.match) have.add(entry.value);
         else removes.push(entry);
@@ -863,7 +867,7 @@ export class GraphAdapter implements BlockAdapter {
     );
     // A person's edit stands between an Unblock and its rule: said once, never shown as done. What the person does with the rule next is theirs.
     const heldByEdit = removes.filter((e) =>
-      work.edited.some((r) => r.entries.some((held) => held.value === e.value)),
+      work.edited.some((r) => r.entries.some((held) => held.id === e.id)),
     );
     const edited = heldByEdit.map((e) => ({
       entryId: e.id,
@@ -885,9 +889,11 @@ export class GraphAdapter implements BlockAdapter {
       entryId: e.id,
       error: new AdapterError("TRANSIENT", "Outlook's rule list could not be read in full"),
     }));
+    const liveIds = new Set(work.rules.flatMap((r) => r.entries.map((e) => e.id)));
     const { writes, left } = schedule(
       work.rules.filter((r) => !unseen.has(r.id)),
-      removes.filter((e) => !held.has(e.value)),
+      // By id: a removal of what an edited rule holds says nothing about a live rule that took the same value in since.
+      removes.filter((e) => !held.has(e.value) && liveIds.has(e.id)),
       adds.filter(
         (w) => !held.has(w.held.value) && (leaving.has(w.held.value) || !inRules.has(w.held.value)),
       ),
@@ -952,10 +958,11 @@ export class GraphAdapter implements BlockAdapter {
     const stopError = stopped;
     // Only here, with the report on its way: a round that throws has said nothing yet.
     if (heldByEdit.length > 0) {
-      const said = new Set(heldByEdit.map((e) => e.value));
+      // By id: a rule a later write left here holds the same value under the entry that is still wanted.
+      const said = new Set(heldByEdit.map((e) => e.id));
       work.edited = work.edited.map((r) => ({
         ...r,
-        entries: r.entries.filter((e) => !said.has(e.value)),
+        entries: r.entries.filter((e) => !said.has(e.id)),
       }));
     }
     return {
@@ -982,6 +989,7 @@ export class GraphAdapter implements BlockAdapter {
   ): { changed: boolean; dropped: number; adopted: number } {
     if (work.intent.length === 0) return { changed: false, dropped: 0, adopted: 0 };
     const remote = listing.rules;
+    const waiting = listing.unreadable > 0;
     let dropped = 0;
     let adopted = 0;
     const undecided: Intent[] = [];
@@ -993,9 +1001,10 @@ export class GraphAdapter implements BlockAdapter {
           (r) => !known.has(r.id) && r.displayName === ruleName(item.nonce),
         );
         if (found === undefined) {
-          // It may be the entry the client could not read.
-          if (listing.unreadable > 0) undecided.push(item);
-          else dropped += item.entries.length;
+          // It may be the entry the client could not read, which can stay so for good: one round of patience, or an intent would never end. A later
+          // round writes the entries again, and that follow-up is `deferred`.
+          if (waiting && item.waited !== true) undecided.push({ ...item, waited: true });
+          dropped += item.entries.length;
           continue;
         }
         known.add(found.id);
@@ -1249,7 +1258,7 @@ export class GraphAdapter implements BlockAdapter {
     const data: GraphState = {
       rules: left,
       edited,
-      intent: work.intent,
+      intent: [],
       junkFolderId: current.junkFolderId,
       capacity: current.capacity,
     };
