@@ -8,6 +8,8 @@ export const ACCOUNT_ID_MAX = 128;
 export const UID_MAX = 4_294_967_295;
 /** A Gmail `historyId` is a decimal uint64: 20 digits at most (same bound as `HISTORY_ID` in gmail/mail-client.ts). Unit: digits. */
 export const HISTORY_ID_DIGITS_MAX = 20;
+/** A Graph delta link (same bound as `GRAPH_DELTA_LINK_MAX_CHARS` in graph/client.ts). Unit: characters. */
+export const DELTA_LINK_MAX = 8_192;
 
 const list = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(",");
 
@@ -76,6 +78,17 @@ const MIGRATIONS: readonly string[] = [
   create table gmail_cursor (
     account_id text primary key check (length(account_id) between 1 and ${String(ACCOUNT_ID_MAX)}),
     history_id text not null check (length(history_id) between 1 and ${String(HISTORY_ID_DIGITS_MAX)} and history_id not glob '*[^0-9]*'),
+    updated_at text not null
+  ) strict;
+  `,
+  // One row per Outlook account being watched (<= MAX_ACCOUNTS). The link is Graph's own place in the Inbox, the times are epoch milliseconds: the newest mail
+  // seen and when the link's round began. Written only when it changes.
+  `
+  create table if not exists outlook_cursor (
+    account_id text primary key check (length(account_id) between 1 and ${String(ACCOUNT_ID_MAX)}),
+    delta_link text not null check (length(delta_link) between 1 and ${String(DELTA_LINK_MAX)}),
+    newest_ms integer not null check (newest_ms >= 0),
+    round_ms integer not null check (round_ms >= 0),
     updated_at text not null
   ) strict;
   `,

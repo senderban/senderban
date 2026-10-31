@@ -40,6 +40,9 @@ export const MAX_CONCURRENT_CLEAN = 5;
  */
 export const MAX_CONCURRENT_GMAIL_POLLS = 5;
 
+/** Outlook new-mail polls in flight at once, on a gate of their own for the same reason. A poll is usually one request, so 5 slots carry 50 accounts a minute. PROVISIONAL. */
+export const MAX_CONCURRENT_OUTLOOK_POLLS = 5;
+
 /** Upper bound for a gate: one slot per account at most (kept equal to MAX_ACCOUNTS in sync/engine.ts, a test checks it). */
 export const MAX_GATE_SIZE = 50;
 

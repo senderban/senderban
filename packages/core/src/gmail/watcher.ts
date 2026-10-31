@@ -1,7 +1,8 @@
 import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode } from "../adapter.js";
-import { unlimited } from "../gate.js";
 import type { Gate } from "../gate.js";
+import { PollLoop, classifyPollError } from "../watcher/poll-loop.js";
+import type { PollBackoffDetail, PollContext, PollState } from "../watcher/poll-loop.js";
 import { DEFAULT_MAX_PER_DRAIN, sanitizeSubject } from "../watcher/watcher.js";
 import {
   HISTORY_ID,
@@ -65,15 +66,8 @@ export interface GmailCursorStore {
   set(accountId: string, historyId: string): void;
 }
 
-/**
- * `starting`: started, no poll has worked yet. `watching`: the last poll worked (`lastOkAt` says when). `backoff`: it failed and the next try is later (`detail` says why).
- * `halted-auth`: Google refused the sign-in. `halted-rejected`: Google refused GMAIL_REJECTED_HALT polls in a row. Nothing is polled in
- * either until `start()` again. Silence is never read as "all quiet":
- * a watcher that is not `watching` is not looking.
- */
-export type GmailWatcherState =
-  "stopped" | "starting" | "watching" | "backoff" | "halted-auth" | "halted-rejected";
-export type GmailBackoffDetail = "quota" | "transient" | "rejected";
+export type GmailWatcherState = PollState;
+export type GmailBackoffDetail = PollBackoffDetail;
 
 /** Mail the person was not told about (the same notice as an IMAP overflow). */
 export type GmailGap =
@@ -132,29 +126,9 @@ interface PollSummary {
   readonly consumerErrors: number;
 }
 
-/** A poll in the air: its epoch, and the abort that `stop()` and the deadline use. */
-interface Flight {
-  readonly epoch: number;
-  readonly controller: AbortController;
-}
-
 /** The larger of two history ids, compared as BigInt (they outgrow a double). */
 function furthest(a: string, b: string): string {
   return BigInt(b) > BigInt(a) ? b : a;
-}
-
-function classify(error: unknown): {
-  halt: boolean;
-  detail: GmailBackoffDetail;
-  code: AdapterErrorCode;
-} {
-  if (error instanceof AdapterError) {
-    if (error.code === "AUTH_REQUIRED") return { halt: true, detail: "rejected", code: error.code };
-    if (error.code === "QUOTA_EXCEEDED") return { halt: false, detail: "quota", code: error.code };
-    if (error.code === "REJECTED") return { halt: false, detail: "rejected", code: error.code };
-    return { halt: false, detail: "transient", code: error.code };
-  }
-  return { halt: false, detail: "transient", code: "TRANSIENT" };
 }
 
 /**
@@ -165,245 +139,89 @@ function classify(error: unknown): {
  */
 export class GmailWatcher {
   readonly #options: GmailWatcherOptions;
-  readonly #gate: Gate;
   readonly #maxPerDrain: number;
-  readonly #random: () => number;
   readonly #now: () => number;
-  #state: GmailWatcherState = "stopped";
-  #detail: GmailBackoffDetail | undefined;
-  /** Bumped on every start and stop; the result of an older epoch belongs to nobody. */
-  #epoch = 0;
-  #timer: ReturnType<typeof setTimeout> | null = null;
-  /** The poll in the air, if any. A stale one (older epoch) may still be winding down while a newer epoch polls. */
-  #flight: Flight | null = null;
-  /** A resume came while a poll ran: the next poll comes soon, not after a full interval. */
-  #soon = false;
-  #failures = 0;
-  #rejected = 0;
-  #lastOkAt: number | null = null;
+  readonly #loop: PollLoop<PollSummary>;
   #consumerErrors = 0;
   readonly #announced = new Set<string>();
   readonly #attempts = new Map<string, { tries: number; since: number }>();
 
   constructor(options: GmailWatcherOptions) {
     this.#options = options;
-    this.#gate = options.gate ?? unlimited;
     this.#maxPerDrain = Math.min(
       GMAIL_MAX_PER_DRAIN_LIMIT,
       Math.max(1, Math.floor(options.maxPerDrain ?? DEFAULT_MAX_PER_DRAIN)),
     );
-    this.#random = options.random ?? Math.random;
     this.#now = options.now ?? Date.now;
+    this.#loop = new PollLoop<PollSummary>({
+      timing: {
+        poll: GMAIL_POLL,
+        startSpreadMs: GMAIL_START_SPREAD_MS,
+        backoff: GMAIL_BACKOFF,
+        deadlineMs: GMAIL_POLL_DEADLINE_MS,
+        rejectedHalt: GMAIL_REJECTED_HALT,
+      },
+      poll: (context) => this.#pollOnce(context),
+      onState: (state, detail) => {
+        options.onState?.(options.accountId, state, detail);
+      },
+      onDone: (summary, ms) => {
+        options.onPoll?.(options.accountId, { ...summary, ms });
+      },
+      onFailed: (code, ms) => {
+        options.onPoll?.(options.accountId, {
+          outcome: "error",
+          code,
+          pages: 0,
+          found: 0,
+          announced: 0,
+          consumerErrors: 0,
+          ms,
+        });
+      },
+      onStop: () => {
+        this.#attempts.clear();
+      },
+      ...(options.gate === undefined ? {} : { gate: options.gate }),
+      ...(options.random === undefined ? {} : { random: options.random }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+    });
   }
 
   get current(): GmailWatcherState {
-    return this.#state;
+    return this.#loop.current;
   }
 
-  /**
-   * When the last poll worked (epoch milliseconds), or null before the first one: what tells "no new mail" from "not looking". It is
-   * kept across `stop()` and `start()`, so read it together with `current`: only a `watching` watcher has polled lately.
-   */
+  /** See `PollLoop.lastOkAt`. */
   get lastOkAt(): number | null {
-    return this.#lastOkAt;
+    return this.#loop.lastOkAt;
   }
 
   start(): void {
-    if (this.#isRunning()) return;
-    this.#epoch += 1;
-    this.#failures = 0;
-    this.#rejected = 0;
-    this.#setState("starting");
-    this.#schedule(Math.round(this.#random() * GMAIL_START_SPREAD_MS));
+    this.#loop.start();
   }
 
   stop(): void {
-    this.#epoch += 1;
-    this.#clearTimer();
-    // A poll in the air is called off, not waited for: its request is aborted and its gate slot comes back.
-    this.#flight?.controller.abort();
-    this.#soon = false;
-    this.#attempts.clear();
-    // A halt outlives a stop: only `start()`, after a new sign-in or a restart, may ask Google again.
-    if (this.#state !== "halted-auth" && this.#state !== "halted-rejected") {
-      this.#setState("stopped");
-    }
+    this.#loop.stop();
   }
 
-  /** The end of a pause: picks up what the pause stopped, and leaves a halted account alone. */
   resume(): void {
-    if (this.#state === "stopped") this.start();
+    this.#loop.resume();
   }
 
-  /** After system resume (a sleeping poll may have died unreported): look soon, spread like a start so 50 accounts do not tick together. */
   resumeNow(): void {
-    if (!this.#isRunning()) return;
-    if (this.#flight?.epoch === this.#epoch) {
-      this.#soon = true;
-      return;
-    }
-    this.#schedule(Math.round(this.#random() * GMAIL_START_SPREAD_MS));
-  }
-
-  /** Started and not stopped or halted: a timer or a poll is, or is about to be, in the air. */
-  #isRunning(): boolean {
-    return this.#state === "starting" || this.#state === "watching" || this.#state === "backoff";
-  }
-
-  #setState(state: GmailWatcherState, detail?: GmailBackoffDetail): void {
-    if (this.#state === state && this.#detail === detail) return;
-    this.#state = state;
-    this.#detail = detail;
-    try {
-      this.#options.onState?.(this.#options.accountId, state, detail);
-    } catch {
-      // a listener must not break the watcher
-    }
-  }
-
-  #clearTimer(): void {
-    if (this.#timer !== null) clearTimeout(this.#timer);
-    this.#timer = null;
-  }
-
-  #schedule(delayMs: number): void {
-    this.#clearTimer();
-    const epoch = this.#epoch;
-    this.#timer = setTimeout(() => {
-      this.#timer = null;
-      void this.#poll(epoch);
-    }, delayMs);
-  }
-
-  /** 60 s +- 10 s, uniform: the mean stays 60 s, so the daily call count is the one the budget was derived from. */
-  #interval(): number {
-    const { baseMs, jitterMs } = GMAIL_POLL;
-    return Math.round(baseMs - jitterMs + 2 * jitterMs * this.#random());
-  }
-
-  /** Equal jitter: half fixed, half random, so 50 accounts do not retry in lockstep after a network blip. */
-  #backoffDelay(): number {
-    const ceiling = Math.min(GMAIL_BACKOFF.maxMs, GMAIL_BACKOFF.baseMs * 2 ** (this.#failures - 1));
-    return Math.round(ceiling / 2 + (ceiling / 2) * this.#random());
-  }
-
-  #emitPoll(event: GmailPollEvent): void {
-    try {
-      this.#options.onPoll?.(this.#options.accountId, event);
-    } catch {
-      // a log must not break the watcher
-    }
-  }
-
-  /** Still the current epoch, and not called off or past its deadline: nothing may be written or announced otherwise. */
-  #alive(epoch: number, signal: AbortSignal): boolean {
-    return epoch === this.#epoch && !signal.aborted;
-  }
-
-  async #poll(epoch: number): Promise<void> {
-    if (epoch !== this.#epoch) return;
-    // One poll per epoch. An older epoch's poll may still be winding down (it was aborted by `stop()`); it is not waited for.
-    // A poll that was called off while it WAITED for a gate slot is not settled by `stop()`: it ends only when its turn comes, so it can
-    // outlive its epoch. This check and the `finally` below keep it from blocking, or clearing the bookkeeping of, a newer epoch's poll.
-    if (this.#flight?.epoch === epoch) return;
-    const controller = new AbortController();
-    const flight: Flight = { epoch, controller };
-    this.#flight = flight;
-    const signal = controller.signal;
-    const started = this.#now();
-    let next: number | null;
-    try {
-      const summary = await this.#gate(() => this.#gated(epoch, signal, controller));
-      if (!this.#alive(epoch, signal)) return;
-      this.#failures = 0;
-      this.#rejected = 0;
-      this.#lastOkAt = this.#now();
-      this.#setState("watching");
-      this.#emitPoll({ ...summary, ms: Math.max(0, this.#now() - started) });
-      next = this.#soon ? Math.round(this.#random() * GMAIL_START_SPREAD_MS) : this.#interval();
-    } catch (error) {
-      // A poll of an older epoch, or one that was called off, ends here without a word: `stop()` already said "stopped".
-      if (epoch !== this.#epoch) return;
-      const { halt, detail, code } = classify(error);
-      this.#emitPoll({
-        outcome: "error",
-        code,
-        pages: 0,
-        found: 0,
-        announced: 0,
-        consumerErrors: 0,
-        ms: Math.max(0, this.#now() - started),
-      });
-      if (halt) {
-        this.#setState("halted-auth");
-        next = null;
-      } else {
-        this.#failures += 1;
-        this.#rejected = detail === "rejected" ? this.#rejected + 1 : 0;
-        if (this.#rejected >= GMAIL_REJECTED_HALT) {
-          // Asking again is not going to change what Google answers: stop, and say so (state), until a start begins again.
-          this.#setState("halted-rejected");
-          next = null;
-        } else {
-          this.#setState("backoff", detail);
-          next = this.#backoffDelay();
-        }
-      }
-    } finally {
-      // Only this poll's own bookkeeping: a newer epoch's flight and its `#soon` are not this one's to clear.
-      if (this.#flight === flight) {
-        this.#flight = null;
-        this.#soon = false;
-      }
-    }
-    if (next !== null && epoch === this.#epoch) this.#schedule(next);
-  }
-
-  /**
-   * What runs once the gate has given this poll its slot. A poll that was called off while it queued sends nothing and ends at once.
-   * The deadline starts here (the queue is not the poll's time), with our own timer rather than `AbortSignal.timeout`, so `stop()` and
-   * the deadline end a poll the same way. The race against `dead` covers what the signal cannot reach (a token refresh that never ends)
-   * and frees the slot; `dead` is made here, after the check, so an abort can never reach a promise nobody is listening to.
-   */
-  async #gated(
-    epoch: number,
-    signal: AbortSignal,
-    controller: AbortController,
-  ): Promise<PollSummary> {
-    if (!this.#alive(epoch, signal)) throw new AdapterError("TRANSIENT", "the poll was called off");
-    const deadline = setTimeout(() => {
-      controller.abort(new AdapterError("TRANSIENT", "the poll did not finish in time"));
-    }, GMAIL_POLL_DEADLINE_MS);
-    try {
-      const dead = new Promise<never>((_, reject) => {
-        signal.addEventListener(
-          "abort",
-          () => {
-            reject(
-              signal.reason instanceof Error
-                ? signal.reason
-                : new AdapterError("TRANSIENT", "the poll was called off"),
-            );
-          },
-          { once: true },
-        );
-      });
-      return await Promise.race([this.#pollOnce(epoch, signal), dead]);
-    } finally {
-      clearTimeout(deadline);
-    }
+    this.#loop.resumeNow();
   }
 
   /** A first run, or a cursor that Google no longer holds: mail already there is not "new"; start from now. */
   async #startFromNow(
-    epoch: number,
-    signal: AbortSignal,
+    context: PollContext,
     outcome: "first" | "gap",
     why: GmailGap = "expired",
   ): Promise<PollSummary> {
     const empty: PollSummary = { outcome, pages: 0, found: 0, announced: 0, consumerErrors: 0 };
-    const { historyId } = await this.#options.client.profile(signal);
-    if (!this.#alive(epoch, signal)) return empty;
+    const { historyId } = await this.#options.client.profile(context.signal);
+    if (!context.alive()) return empty;
     this.#options.cursors.set(this.#options.accountId, historyId);
     this.#attempts.clear();
     if (outcome === "gap") this.#gap(why);
@@ -426,11 +244,12 @@ export class GmailWatcher {
     }
   }
 
-  async #pollOnce(epoch: number, signal: AbortSignal): Promise<PollSummary> {
+  async #pollOnce(context: PollContext): Promise<PollSummary> {
+    const { signal } = context;
     const { accountId, client, cursors } = this.#options;
     const stored = cursors.get(accountId);
     const cursor = stored !== undefined && HISTORY_ID.test(stored) ? stored : undefined;
-    if (cursor === undefined) return this.#startFromNow(epoch, signal, "first");
+    if (cursor === undefined) return this.#startFromNow(context, "first");
     this.#consumerErrors = 0;
 
     // Pages depend on each other (each token comes from the one before), so they are read in turn; at most GMAIL_MAX_PAGES.
@@ -445,7 +264,7 @@ export class GmailWatcher {
         const page = await client.history(cursor, pageToken, signal);
         pages += 1;
         // Called off between two pages: no further page is asked for.
-        if (!this.#alive(epoch, signal)) {
+        if (!context.alive()) {
           return { outcome: "ok", pages, found: 0, announced: 0, consumerErrors: 0 };
         }
         newCursor = furthest(newCursor, page.historyId);
@@ -458,10 +277,10 @@ export class GmailWatcher {
         pageToken = page.nextPageToken;
       } while (pageToken !== undefined && pages < GMAIL_MAX_PAGES);
     } catch (error) {
-      if (error instanceof HistoryExpiredError) return this.#startFromNow(epoch, signal, "gap");
+      if (error instanceof HistoryExpiredError) return this.#startFromNow(context, "gap");
       // A page too big to read never gets smaller: start from now and say that mail was not announced (not "retry for a week").
       if (error instanceof HistoryTooLargeError) {
-        return this.#startFromNow(epoch, signal, "gap", "too-large");
+        return this.#startFromNow(context, "gap", "too-large");
       }
       throw error;
     }
@@ -476,7 +295,7 @@ export class GmailWatcher {
     for (const id of this.#attempts.keys()) if (!inBatch.has(id)) this.#attempts.delete(id);
     // At most `maxPerDrain` reads at once, which is the cost bound of a poll; one that fails does not hide the others.
     const results = await Promise.allSettled(batch.map((id) => client.message(id, signal)));
-    if (!this.#alive(epoch, signal)) {
+    if (!context.alive()) {
       return { outcome: "ok", pages, found: fresh.length, announced: 0, consumerErrors: 0 };
     }
 
@@ -497,7 +316,7 @@ export class GmailWatcher {
         reason instanceof Error
           ? reason
           : new AdapterError("TRANSIENT", "a message could not be read");
-      const kind = classify(error);
+      const kind = classifyPollError(error);
       // A refusal of the sign-in or of our quota stops the whole poll; the cursor stays, nothing is lost.
       if (kind.halt || kind.detail === "quota") {
         if (blocking === null || kind.halt) blocking = error;

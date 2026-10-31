@@ -144,6 +144,13 @@ describe("startLoopback", () => {
     loopback.close();
   });
 
+  it("reads Microsoft's approval codes under access_denied as someone else having to approve", async () => {
+    const state = "s".repeat(43);
+    const loopback = await startLoopback({ state });
+    await hit(loopback, `/?error=access_denied&error_description=AADSTS90094%3A+x&state=${state}`);
+    await expect(loopback.result).resolves.toEqual({ kind: "needs-approval" });
+  });
+
   it("reads error=access_denied as the person saying no, and shows nothing of the error text", async () => {
     const { state, loopback } = await setup();
     const answer = await hit(

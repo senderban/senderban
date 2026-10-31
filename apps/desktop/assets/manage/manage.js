@@ -299,29 +299,24 @@ function setHealth(tone, text) {
 
 function drawWatch() {
   const accounts = watch.accounts;
-  // An account with rules and no watcher is neither watched nor missed.
-  const watched = accounts.filter((a) => a.rulesOnly !== true);
-  const running = watched.filter((a) => a.state === "watching").length;
+  const running = accounts.filter((a) => a.state === "watching").length;
   els.navAccountsCount.textContent = String(accounts.length);
   els.version.textContent = `v${watch.version}`;
   els.accountsEmpty.hidden = accounts.length > 0;
   let tone = "ok";
-  let text = `Watching ${String(watched.length)} ${watched.length === 1 ? "mailbox" : "mailboxes"}`;
+  let text = `Watching ${String(accounts.length)} ${accounts.length === 1 ? "mailbox" : "mailboxes"}`;
   if (accounts.length === 0) {
     tone = "working";
     text = "No mailbox yet";
-  } else if (watched.length === 0) {
-    tone = watch.behind.length > 0 ? "warn" : "ok";
-    text = `Blocking on ${String(accounts.length)} ${accounts.length === 1 ? "mailbox" : "mailboxes"}`;
   } else if (watch.paused) {
     tone = "warn";
     text = "Paused";
-  } else if (running < watched.length) {
+  } else if (running < accounts.length) {
     tone = "warn";
-    text = `Watching ${String(running)} of ${String(watched.length)}`;
+    text = `Watching ${String(running)} of ${String(accounts.length)}`;
   }
   setHealth(tone, text);
-  els.pause.hidden = watched.length === 0;
+  els.pause.hidden = accounts.length === 0;
   els.pause.textContent = watch.paused ? "Resume" : "Pause";
   els.restartBar.hidden = watch.restartPending !== true;
   els.restartText.textContent = "Restart Senderban to apply your changes.";

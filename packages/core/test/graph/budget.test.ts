@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  GRAPH_POLL_REQUESTS_PER_ACCOUNT_DAY,
+  GRAPH_POLL_REQUESTS_PER_DAY_ALL,
   GRAPH_REQUESTS_PER_ACCOUNT_DAY,
   GRAPH_REQUESTS_PER_MINUTE,
   GraphBudgetError,
@@ -45,6 +47,82 @@ describe("GraphBudgets", () => {
       t = 124_000;
       budgets.charge("c");
     }).toThrow(/all-accounts-day/u);
+  });
+
+  it("has room for a poll a minute on every account, at the fastest gap", () => {
+    const fastest = (24 * 60 * 60) / 50;
+    expect(fastest).toBeLessThan(GRAPH_POLL_REQUESTS_PER_ACCOUNT_DAY);
+    expect(GRAPH_POLL_REQUESTS_PER_ACCOUNT_DAY * MAX_ACCOUNTS).toBeLessThanOrEqual(
+      GRAPH_POLL_REQUESTS_PER_DAY_ALL,
+    );
+  });
+
+  it("keeps polls off the rule lines, and rules off the poll lines", () => {
+    const budgets = new GraphBudgets({
+      limits: { perMinute: 100, perAccountDay: 2, allAccountsDay: 100 },
+      pollLimits: { perAccountDay: 2, allAccountsDay: 100 },
+      now: () => 0,
+    });
+    budgets.chargePoll("a");
+    budgets.chargePoll("a");
+    expect(() => {
+      budgets.chargePoll("a");
+    }).toThrow(/poll-account-day/u);
+    budgets.charge("a");
+    budgets.charge("a");
+    expect(() => {
+      budgets.charge("a");
+    }).toThrow(/\(account-day\)/u);
+  });
+
+  it("shares the minute line between polls and rules", () => {
+    const budgets = new GraphBudgets({
+      limits: { perMinute: 1, perAccountDay: 100, allAccountsDay: 100 },
+      now: () => 0,
+    });
+    budgets.chargePoll("a");
+    expect(() => {
+      budgets.charge("a");
+    }).toThrow(/minute/u);
+  });
+
+  it("holds all accounts' polls under one ceiling", () => {
+    const budgets = new GraphBudgets({
+      pollLimits: { perAccountDay: 100, allAccountsDay: 1 },
+      now: () => 0,
+    });
+    budgets.chargePoll("a");
+    expect(() => {
+      budgets.chargePoll("b");
+    }).toThrow(/poll-all-accounts-day/u);
+  });
+
+  it("pays a poll before it leaves, and logs a refusal in fixed words", async () => {
+    const events: unknown[] = [];
+    const delta = vi.fn(() =>
+      Promise.resolve({ mail: [], unreadable: 0, link: "https://x.example/", more: false }),
+    );
+    const budgets = new GraphBudgets({
+      pollLimits: { perAccountDay: 1, allAccountsDay: 100 },
+      now: () => 0,
+    });
+    const client = budgets.wrapMail(
+      { delta },
+      { key: "a", account: "tag", log: (e) => void events.push(e) },
+    );
+    await client.delta({ sinceMs: 0 });
+    await expect(client.delta({ sinceMs: 0 })).rejects.toBeInstanceOf(GraphBudgetError);
+    expect(delta).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([
+      {
+        event: "graph-budget",
+        account: "tag",
+        op: "delta",
+        limit: "poll-account-day",
+        used: 1,
+        cap: 1,
+      },
+    ]);
   });
 
   it("takes all windows or none", () => {

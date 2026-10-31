@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   MAX_ACCOUNTS,
   accountLogins,
+  buildMicrosoftAdminConsentUrl,
   isMicrosoftAccount,
   isMicrosoftClientId,
   mailboxKey,
@@ -12,7 +13,7 @@ import { encryptPassword, loadAccounts, saveAccounts, serialized } from "./accou
 import type { MicrosoftRuleLifecycle } from "./microsoft-lanes.js";
 
 /**
- * Senderban's app registration (public client: "Personal Microsoft accounts and any organization", redirect `http://localhost`, 008 §Microsoft).
+ * Senderban's app registration (public client: "Personal Microsoft accounts and any organization", redirects `http://localhost` and Microsoft's native client page, 008 §Microsoft).
  * An Application (client) ID is not a secret. Empty until the registration exists: the button then stays off and says why.
  */
 export const MICROSOFT_CLIENT_ID = "";
@@ -41,6 +42,8 @@ export interface MicrosoftDeps {
 /** What the manage page may know: never a token. `available`: Senderban has an app registration to sign in with. */
 export interface MicrosoftPageState {
   readonly available: boolean;
+  /** What a person sends to the administrator of an organization that must approve Senderban first. Null without an app registration. */
+  readonly adminConsentUrl: string | null;
   readonly accounts: readonly {
     readonly accountId: string;
     readonly email: string;
@@ -116,6 +119,7 @@ export async function microsoftState(deps: MicrosoftDeps): Promise<MicrosoftPage
   const accounts = microsoftAccounts(await loadAccounts(deps.accountsPath));
   return {
     available: deps.clientId !== null,
+    adminConsentUrl: deps.clientId === null ? null : buildMicrosoftAdminConsentUrl(deps.clientId),
     accounts: accounts.map((a) => ({
       accountId: a.id,
       email: a.microsoft.email,
@@ -215,7 +219,7 @@ async function storeSignIn(
 
 /**
  * A refresh token replaced itself: the new one is stored, so the access keeps living. The account may be gone by now, and then nothing is
- * written. Runs at most once per renewal (hourly at most, and only while rounds run).
+ * written. Runs at most once per renewal: about hourly per account while its watcher runs.
  */
 export async function storeRefreshToken(
   path: string,

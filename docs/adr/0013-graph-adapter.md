@@ -1,7 +1,7 @@
 # 0013 — Outlook and Microsoft 365 through Graph message rules
 
-Status: **accepted for code, not measured** (2026-10-31). Nothing here has run against a real Microsoft mailbox: every shape comes from the
-v1.0 reference, read on 2026-10-31. M1 to M3 below decide the provisional numbers. Builds on ADR 0009 (the Gmail lane), which this one follows
+Status: **accepted for code, not measured** (2026-10-31, new mail 2026-11-01). Nothing here has run against a real Microsoft mailbox: every shape comes from the
+v1.0 reference, read on those days. M1 to M3 below decide the provisional numbers. Builds on ADR 0009 (the Gmail lane), which this one follows
 where the two providers agree.
 
 ## Context
@@ -62,18 +62,44 @@ switched off from October 2026 and fully by April 2027
 - **A domain is a text match.** `senderContains: "@bank.co"` also catches `@bank.com`: Graph has no exact-domain condition. The adapter declares
   `exactDomain: false`, the list and the result toast say so, and the mail stays reversible in Junk or Deleted Items. Point 10 guards the person's own mail, listed providers, the
   account-alert providers and whole countries, not every other domain that starts the same way, and not a local part: the text of a domain also matches a dotted local part at any domain. Whether it also reads the display name is not documented.
-- **No watcher.** A Microsoft account follows the block list; new mail there is not announced. `Mail.ReadBasic` will carry that without a new consent.
 - **A rule only acts on mail arriving in the Inbox.** Mail already there stays, and retroactive cleaning is not offered.
-- **A work or school account may need approval.** Microsoft's default consent policy excludes `MailboxSettings.ReadWrite` for all but listed mail clients.
-  Sign-in then reports that the organization must approve Senderban.
+- **A work or school account may need approval.** Microsoft's default consent policy excludes `MailboxSettings.ReadWrite` and `Mail.ReadBasic` for all but listed mail clients.
+  Sign-in then reports that the organization must approve Senderban, and the Accounts page gives a link for the administrator
+  ([admin consent](https://learn.microsoft.com/en-us/entra/identity-platform/v2-admin-consent), on `organizations`, because `common` is not allowed there). Microsoft's
+  "needs approval" page may lead back as a plain cancel or not at all, so a cancel and a timeout show the same link. Its redirect is Microsoft's native client page, not the
+  loopback: the administrator is usually on another computer. The approval's answer is not read; a new sign-in proves it.
 - **A create that lands after the round gave up on it**, or that the list cannot show for two rounds, leaves a rule nothing knows, named `Senderban …`. The person can delete it in Outlook. Deleting by
   name alone was refused: a second device's lane holds rules of the same form.
+
+## New mail
+
+11. **A delta query on the Inbox, polled.** A desktop app has no address for a webhook, and Microsoft describes
+    [delta](https://learn.microsoft.com/en-us/graph/delta-query-overview) as the pull model that avoids re-reading.
+    [`message: delta`](https://learn.microsoft.com/en-us/graph/api/message-delta) takes `Mail.ReadBasic`, on work and personal accounts alike, so no new consent. One
+    request a minute, ±10 s, and it carries `from`, `subject` and `receivedDateTime`: unlike Gmail, a new mail costs no second request. Nothing else is selected.
+12. **Starting from now.** `$deltatoken=latest` is for Entra and OneDrive, and a first round without a filter reads the whole folder. The first request carries
+    `changeType=created` and `$filter=receivedDateTime ge <now>`; the token keeps them. The link is opaque and stored whole, and it is held to Graph's host and version when
+    read from disk as well, because the token follows it.
+13. **What the documents warn about, and the answer to each.** A filtered delta returns at most 5,000 messages, not said whether per read or per link, and a token's life on
+    Outlook is not fixed, so a round lasts seven days and the next starts from the newest mail seen. Read-state changes and `@removed` entries come through even when asked
+    for new mail only, and the same change can come twice, so an entry without `receivedDateTime` or with `@removed` is skipped, mail more than an hour older than the newest
+    seen is not new, and ids are remembered (500). A `410`, a `404` on a stored link or an error code naming the sync state starts a new round from the newest mail seen, so a
+    lost token loses no mail. A page over the read cap starts from now and says so.
+14. **The sender is `from`**, through the same `parseAddress` as every other sender. The display name is not read. An address that does not parse (an internal
+    `/O=...` name) is announced with no Block button. A domain the rule could not take (point 10) is not offered on the toast.
+15. **The same lifecycle and the same rules as Gmail.** The timers live in `PollLoop` and what an announcement means in `createMailWatchers`, both now used by the two
+    providers, so own-address, "Don't ask again", backoff and halts cannot drift apart.
 
 ## Budget lines
 
 One lane holds one request open, against Outlook's four per app and mailbox and 10,000 in ten minutes
 ([limits](https://learn.microsoft.com/en-us/graph/throttling-limits)). A block costs one list and one write. Client-side: 300 requests a minute and 5,000 a day
 per account, 100,000 a day for all accounts. After a 429 or a 503 the lane sends nothing until `Retry-After` has passed, capped at an hour.
+
+New mail: one request a poll, 1,440 a day per account, 72,000 at 50 accounts, which is 10 in ten minutes against Outlook's 10,000 per mailbox. Its own lines: 3,000 a day per
+account and 200,000 for all, so a poll cannot eat a block's budget; the minute line and the wait after a `Retry-After` are shared, because Outlook's limit is per app and mailbox.
+Five polls at once on a gate of their own. A running watcher renews the access token about hourly, so each account writes accounts.json about once an hour, and a mailbox no
+longer loses its sign-in after 90 days without a block. One log line a poll (`graph-http`), one heartbeat an hour.
 
 A block costs one list and one write, an Unblock two lists and one write (the read-back). Graph lanes have a gate of their own: their outage must not hold Gmail and
 MXroute lanes. A list is worked out once for all lanes (keyed by the list object and the own-mail test), and a state write that changes nothing writes nothing.
@@ -92,3 +118,5 @@ A round that writes saves one state per write, plus one at its end. A rule refus
 - **M1:** how many `fromAddresses` one rule takes, and the rule quota on Outlook.com.
 - **M2:** the consent page and the token on a personal account, with this app registration; whether `localhost` reaches the listener from the common browsers.
 - **M3:** that the rule acts on mail read by phone and webmail, and the real answers (`scope`, `mail` on a personal account, the error code of a full mailbox, the folder id on the way back, the shape of a `PATCH` answer and of a next link).
+- **M4:** the delta round on a real mailbox: that the filtered first request answers with an empty page and a delta link, the link's length and form, whether `changeType=created` still sends read-state changes, how long a new mail takes to show, and that mail moved to Junk by a rule never reaches the watcher.
+- **M5:** a work account: what the "needs approval" page does, and that the administrator's link works.

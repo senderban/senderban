@@ -18,7 +18,7 @@ export const GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=id,mail
 const GRAPH_RESOURCE = "https://graph.microsoft.com/";
 /** Reads and writes Inbox rules, and nothing else of the mailbox settings Senderban uses. */
 export const GRAPH_RULES_SCOPE = "MailboxSettings.ReadWrite";
-/** The least that reads the Junk folder's id; it reads no message body (mailfolder-get, permissions table). */
+/** The least that reads the Junk folder's id and the From and Subject of new mail; it reads no message body (mailfolder-get and message-delta, permissions tables). */
 export const GRAPH_FOLDER_SCOPE = "Mail.ReadBasic";
 /** The least that says who signed in (user-get, permissions table). */
 export const GRAPH_PROFILE_SCOPE = "User.Read";
@@ -71,6 +71,26 @@ export function buildMicrosoftAuthUrl(input: MicrosoftAuthUrlInput): string {
   params.set("code_challenge_method", "S256");
   params.set("prompt", "select_account");
   if (input.loginHint !== undefined) params.set("login_hint", input.loginHint);
+  return url.toString();
+}
+
+const ADMIN_CONSENT_URL = "https://login.microsoftonline.com/organizations/v2.0/adminconsent";
+/**
+ * Where the administrator's browser lands after approving. Not the app's loopback: the administrator is usually on another computer, where nothing listens. It is
+ * Microsoft's own page for native clients, carries no code to anyone, and must be on the app registration.
+ */
+export const MICROSOFT_ADMIN_REDIRECT =
+  "https://login.microsoftonline.com/common/oauth2/nativeclient";
+
+/**
+ * The link a person sends to the administrator of their organization, who approves Senderban for it there. `organizations`: `common` is not allowed here
+ * (https://learn.microsoft.com/en-us/entra/identity-platform/v2-admin-consent, read 2026-11-01). The answer is not read: the person signs in again afterwards, which proves it.
+ */
+export function buildMicrosoftAdminConsentUrl(clientId: string): string {
+  const url = new URL(ADMIN_CONSENT_URL);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("scope", GRAPH_SCOPES.join(" "));
+  url.searchParams.set("redirect_uri", MICROSOFT_ADMIN_REDIRECT);
   return url.toString();
 }
 

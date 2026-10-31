@@ -1,50 +1,19 @@
 import { GmailWatcher } from "@senderban/core";
-import type {
-  Gate,
-  GmailBackoffDetail,
-  GmailCursorStore,
-  GmailGap,
-  GmailIncoming,
-  GmailPollEvent,
-  GmailWatcherState,
-  MailToast,
-  PendingBlock,
-} from "@senderban/core";
+import type { Gate, GmailCursorStore, GmailGap } from "@senderban/core";
 import { gmailLogTag } from "./gmail-lanes.js";
 import type { GmailLane } from "./gmail-lanes.js";
-import type { Log } from "./log.js";
+import {
+  MAIL_HEARTBEAT_MS,
+  MAIL_NOTICE_EVERY_MS,
+  NOTICE_SUBJECT_MAX,
+  createMailWatchers,
+  subjectLine,
+} from "./mail-watchers.js";
+import type { MailWatchers, MailWatchersDeps } from "./mail-watchers.js";
 
-// Scale budget (ADR 0009 point 5, .task/gmail-watcher.md A0): one watcher per Gmail account with a lane, each with its own timer
-// and one poll in the air; the polls of all accounts go through the one shared gate. This module keeps one throttle entry per
-// (account, notice kind): at most MAX_ACCOUNTS x 4 small entries, replaced in place. No timer of its own.
-
-/**
- * A notice of the same kind about the same account is shown at most this often; the log line is written every time. Unit:
- * milliseconds. One hour: a backoff that keeps failing or a gap that repeats must not become a stream of toasts, and a problem that
- * lasts longer than an hour is worth saying again.
- */
-export const GMAIL_NOTICE_EVERY_MS = 3_600_000;
-
-/**
- * The subject shown inside one of Senderban's own notices: on a line of its own, labelled as the mail's, quoted and cut, so a sender
- * cannot make it read as a sentence of Senderban's ("Senderban: sign in to Google again"). Unit: UTF-16 units, 80 at most.
- */
-export const NOTICE_SUBJECT_MAX = 80;
-export function subjectLine(subject: string): string {
-  if (subject === "") return "";
-  const cut =
-    subject.length > NOTICE_SUBJECT_MAX ? `${subject.slice(0, NOTICE_SUBJECT_MAX)}…` : subject;
-  return `\nSubject of the mail: “${cut}”`;
-}
-
-/**
- * How often an account's `gmail-heartbeat` line is written. Unit: milliseconds. One line an hour for each account is 50 lines an hour
- * at 50 accounts (about 8 KB) against 3,000 lines of per-poll lines; it is what tells "no new mail" from "not looking": a watcher whose
- * timer died writes no heartbeat. It rides on the polls (no timer of its own), so a missing heartbeat is itself the signal.
- */
-export const GMAIL_HEARTBEAT_MS = 3_600_000;
-
-type NoticeKind = GmailGap | "quota" | "halted-auth" | "halted-rejected";
+export { NOTICE_SUBJECT_MAX, subjectLine };
+export const GMAIL_NOTICE_EVERY_MS = MAIL_NOTICE_EVERY_MS;
+export const GMAIL_HEARTBEAT_MS = MAIL_HEARTBEAT_MS;
 
 const GAP_TEXT: Record<GmailGap, string> = {
   expired:
@@ -56,240 +25,44 @@ const GAP_TEXT: Record<GmailGap, string> = {
     "A burst of new mail was too large to read at once, so the mail that arrived since the last check was not announced.",
 };
 
-export interface GmailWatchersDeps {
+export interface GmailWatchersDeps extends MailWatchersDeps {
   readonly lanes: readonly GmailLane[];
   /** The store's Gmail cursors; `delete` is for an account that is gone. */
   readonly cursors: GmailCursorStore & { delete(accountId: string): void };
   /** The Gmail polls' own gate (not the IMAP logins'): it bounds how many polls run at once. */
   readonly gate: Gate;
-  readonly pending: { add(block: PendingBlock): string };
-  readonly showMail: (toast: MailToast) => void;
-  /** A toast without buttons. */
-  readonly notice: (title: string, body: string) => void;
-  /** Lane id -> the name the person knows the account by (`me@gmail.com (Gmail)`). */
-  readonly labelOf: (laneId: string) => string;
-  /**
-   * True for one of the person's own mailboxes. A mail that claims to come from it is announced without a Block button: a forged
-   * `From` of your own address would otherwise offer to send your own mail to Trash (the Gmail filter lane refuses it too).
-   */
-  readonly isOwn?: (address: string) => boolean;
-  /** True for a sender on the "Don't ask again" list: no toast. */
-  readonly isQuiet?: (address: string) => boolean;
-  /** True for a lane held still for a removal: `start()` leaves it alone (an un-pause must not wake it). */
-  readonly isHeld?: (laneId: string) => boolean;
-  /** Every state change, for the tray. */
-  readonly onState: (laneId: string, state: GmailWatcherState) => void;
-  readonly log: Log;
-  readonly now?: () => number;
   readonly random?: () => number;
 }
 
-export interface GmailWatchers {
-  start(): void;
-  /** Stops every watcher (pause, quit). */
-  stop(): void;
-  /** The end of a pause: a halted watcher stays halted. */
-  resume(): void;
-  /** After system resume. */
-  resumeNow(): void;
-  /** One lane, held still for a removal or sign-out (`stop`), or free again (`start`). Unknown lane: nothing. */
-  stopOne(laneId: string): void;
-  startOne(laneId: string): void;
-  /** The account is gone or signed out: its watcher is stopped and dropped, its cursor deleted. */
-  forget(laneId: string): void;
-  /** Watchers alive (for tests and the tray). */
-  readonly size: number;
-}
+export type GmailWatchers = MailWatchers;
 
 export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
-  const now = deps.now ?? Date.now;
-  const watchers = new Map<string, GmailWatcher>();
-  const noticed = new Map<string, Map<NoticeKind, number>>();
-
-  /** Tells the person at most once an hour per (account, kind). */
-  const tell = (laneId: string, kind: NoticeKind, title: string, body: string): void => {
-    const kinds = noticed.get(laneId) ?? new Map<NoticeKind, number>();
-    noticed.set(laneId, kinds);
-    const last = kinds.get(kind);
-    if (last !== undefined && now() - last < GMAIL_NOTICE_EVERY_MS) return;
-    kinds.set(kind, now());
-    deps.notice(title, body);
-  };
-
-  const states = new Map<string, GmailWatcherState>();
-
-  for (const lane of deps.lanes) {
-    const laneId = lane.laneId;
-    const tag = gmailLogTag(lane.accountId);
-    const label = (): string => deps.labelOf(laneId);
-    // Counts since the last heartbeat line (polls, failed polls, mails found): three numbers, replaced in place.
-    const beat = { since: now(), polls: 0, failed: 0, found: 0, maxMs: 0 };
-    watchers.set(
-      laneId,
-      new GmailWatcher({
-        // The lane id is the account id of everything that follows: the pending block, the toast click, the engine lane, the cursor.
-        accountId: laneId,
-        client: lane.mail,
-        cursors: deps.cursors,
-        gate: deps.gate,
-        ...(deps.now === undefined ? {} : { now: deps.now }),
-        ...(deps.random === undefined ? {} : { random: deps.random }),
-        onMessage: (_id: string, message: GmailIncoming) => {
-          if (message.from === null) {
-            // The sender could not be read safely (a second From, an odd header): announced, with nothing to click.
-            deps.log("gmail-announce", { account: tag, sender: "unreadable" });
-            deps.notice(
-              "Senderban",
-              `New mail in ${label()}: the sender could not be read safely, so there is no Block button.${subjectLine(message.subject)}`,
-            );
-            return;
-          }
-          if (deps.isOwn?.(message.from) === true) {
-            deps.log("gmail-announce", { account: tag, sender: "own-address" });
-            deps.notice(
-              "Senderban",
-              `New mail in ${label()} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
-            );
-            return;
-          }
-          if (deps.isQuiet?.(message.from) === true) {
-            deps.log("gmail-announce", { account: tag, sender: "quiet" });
-            return;
-          }
-          const id = deps.pending.add({ accountId: laneId, sender: message.from });
-          deps.log("gmail-announce", {
-            account: tag,
-            domain: message.from.slice(message.from.lastIndexOf("@") + 1),
-          });
-          deps.showMail({
-            id,
-            sender: message.from,
-            subject: message.subject,
-            account: label(),
-            spamScore: null,
-            // A Gmail filter takes a single address and Trash only (ADR 0009 point 6): no domain button, no Junk, no server refusal.
-            domain: null,
-            rejectsAtServer: false,
-            trashOnly: true,
-          });
-        },
-        onOverflow: (_id: string, skipped: number) => {
-          deps.log("gmail-overflow", { account: tag, skipped });
-          tell(
-            laneId,
-            "overflow",
-            "Senderban",
-            `${String(skipped)} more new messages in ${label()} were not announced.`,
-          );
-        },
-        onGap: (_id: string, gap: GmailGap) => {
-          deps.log("gmail-gap", { account: tag, gap });
-          tell(laneId, gap, "Senderban", `${label()}: ${GAP_TEXT[gap]}`);
-        },
-        onState: (_id: string, state: GmailWatcherState, detail?: GmailBackoffDetail) => {
-          const previous = states.get(laneId);
-          states.set(laneId, state);
-          deps.log("gmail-watcher", { account: tag, state, detail });
-          deps.onState(laneId, state);
-          if (previous === state) return;
-          if (state === "halted-auth") {
-            tell(
-              laneId,
-              "halted-auth",
-              "Senderban stopped watching",
-              `${label()}: Google refused the sign-in. Sign in again under Accounts in Senderban, then restart it.`,
-            );
-          } else if (state === "halted-rejected") {
-            tell(
-              laneId,
-              "halted-rejected",
-              "Senderban stopped watching",
-              `${label()}: Google kept refusing the checks for new mail. Restart Senderban to try again.`,
-            );
-          } else if (state === "backoff" && detail === "quota") {
-            tell(
-              laneId,
-              "quota",
-              "Senderban",
-              `Checking ${label()} for new mail is paused for a while: Gmail's limit (or Senderban's own daily limit) was reached.`,
-            );
-          }
-        },
-        onPoll: (_id: string, event: GmailPollEvent) => {
-          beat.polls += 1;
-          if (event.outcome === "error") beat.failed += 1;
-          beat.found += event.found;
-          beat.maxMs = Math.max(beat.maxMs, event.ms);
-          if (now() - beat.since >= GMAIL_HEARTBEAT_MS) {
-            const lastOk = watchers.get(laneId)?.lastOkAt ?? null;
-            deps.log("gmail-heartbeat", {
-              account: tag,
-              state: states.get(laneId),
-              polls: beat.polls,
-              failed: beat.failed,
-              found: beat.found,
-              // The slowest poll of the hour: the latency the per-poll lines used to show.
-              maxMs: beat.maxMs,
-              lastOkAgoS: lastOk === null ? null : Math.round((now() - lastOk) / 1000),
-            });
-            beat.since = now();
-            beat.polls = 0;
-            beat.failed = 0;
-            beat.found = 0;
-            beat.maxMs = 0;
-          }
-          // A quiet poll is one `gmail-http` line already (its status and time); a second line a minute per account would roll
-          // the 1 MiB log in under an hour at 50 accounts. Everything that is not "worked and found nothing" is written.
-          if (event.outcome === "ok" && event.found === 0) return;
-          deps.log("gmail-poll", {
-            account: tag,
-            outcome: event.outcome,
-            code: event.code,
-            pages: event.pages,
-            found: event.found,
-            announced: event.announced,
-            consumerErrors: event.consumerErrors,
-            ms: event.ms,
-          });
-        },
-      }),
-    );
-    states.set(laneId, "stopped");
-    deps.onState(laneId, "stopped");
-  }
-
-  return {
-    start() {
-      for (const [laneId, watcher] of watchers) {
-        if (deps.isHeld?.(laneId) !== true) watcher.start();
-      }
+  return createMailWatchers(
+    deps.lanes,
+    {
+      prefix: "gmail",
+      who: "Google",
+      service: "Gmail",
+      gapText: GAP_TEXT,
+      laneId: (lane) => lane.laneId,
+      tag: (lane) => gmailLogTag(lane.accountId),
+      create: (lane, hooks) =>
+        new GmailWatcher({
+          // The lane id is the account id of everything that follows: the pending block, the toast click, the engine lane, the cursor.
+          accountId: lane.laneId,
+          client: lane.mail,
+          cursors: deps.cursors,
+          gate: deps.gate,
+          ...(deps.now === undefined ? {} : { now: deps.now }),
+          ...(deps.random === undefined ? {} : { random: deps.random }),
+          ...hooks,
+        }),
+      // A Gmail filter takes a single address and Trash only (ADR 0009 point 6): no domain button, no Junk, no server refusal.
+      toast: () => ({ spamScore: null, domain: null, rejectsAtServer: false, trashOnly: true }),
+      forgetCursor: (laneId) => {
+        deps.cursors.delete(laneId);
+      },
     },
-    stop() {
-      for (const watcher of watchers.values()) watcher.stop();
-    },
-    resume() {
-      for (const [laneId, watcher] of watchers) {
-        if (deps.isHeld?.(laneId) !== true) watcher.resume();
-      }
-    },
-    resumeNow() {
-      for (const watcher of watchers.values()) watcher.resumeNow();
-    },
-    stopOne(laneId) {
-      watchers.get(laneId)?.stop();
-    },
-    startOne(laneId) {
-      watchers.get(laneId)?.start();
-    },
-    forget(laneId) {
-      watchers.get(laneId)?.stop();
-      watchers.delete(laneId);
-      states.delete(laneId);
-      noticed.delete(laneId);
-      deps.cursors.delete(laneId);
-    },
-    get size() {
-      return watchers.size;
-    },
-  };
+    deps,
+  );
 }

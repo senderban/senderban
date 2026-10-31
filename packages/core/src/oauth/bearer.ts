@@ -6,6 +6,8 @@ export interface BearerRequest {
   readonly method: "GET" | "POST" | "PATCH" | "DELETE";
   readonly url: string;
   readonly body?: string;
+  /** More headers; the ones this caller sets win. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export interface BearerCall<Op extends string> {
@@ -89,6 +91,7 @@ export function createBearerCaller<Op extends string>(
       const response = await doFetch(request.url, {
         method: request.method,
         headers: {
+          ...request.headers,
           Authorization: `Bearer ${accessToken}`,
           Accept: "application/json",
           ...(request.body === undefined ? {} : { "Content-Type": "application/json" }),

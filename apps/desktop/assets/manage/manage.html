@@ -60,6 +60,10 @@
           <p id="notice" class="status" role="status" hidden></p>
           <button type="button" id="google-cancel" class="small" hidden>Cancel</button>
         </div>
+        <div id="microsoft-approval" class="field" hidden>
+          <label for="microsoft-approval-link">Link for your administrator</label>
+          <input id="microsoft-approval-link" type="text" readonly spellcheck="false" />
+        </div>
 
         <section id="view-blocked" class="view">
           <div id="first-run" class="first-run" hidden>
@@ -441,8 +445,9 @@
             <p class="muted">
               For Outlook.com, Hotmail, Live, MSN and Microsoft 365. Senderban opens Microsoft's
               sign-in page in your browser and never sees your password. It asks to change mailbox
-              rules, to find your Junk folder and to read your address, and it reads no mail. A work
-              or school account may need your organization's approval first.
+              rules, to find your Junk folder, to read the sender and subject of new mail for the
+              notification, and to read your address. It never reads the body of a mail. A work or
+              school account may need your organization's approval first.
             </p>
             <p id="microsoft-unavailable" class="status" data-tone="warn" hidden>
               Microsoft sign-in is not set up in this version of Senderban yet, so this button is

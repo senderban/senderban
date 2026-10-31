@@ -4,6 +4,7 @@ import {
   CleanLink,
   ImapCleanAdapter,
   MAX_CONCURRENT_GMAIL_POLLS,
+  MAX_CONCURRENT_OUTLOOK_POLLS,
   MAX_CONCURRENT_LOGINS,
   PendingBlocks,
   SieveAdapter,
@@ -115,6 +116,8 @@ import {
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
 import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
+import type { MailWatchers } from "./mail-watchers.js";
+import { createOutlookWatchers } from "./outlook-watchers.js";
 import { openGoogleAuthUrl, openMicrosoftAuthUrl } from "./google-url.js";
 import {
   cancelMicrosoftSignIn,
@@ -187,6 +190,8 @@ interface Runtime {
   readonly watchers: ReadonlyMap<string, AccountWatcher>;
   /** The new-mail watchers of the Gmail accounts that have a lane (ADR 0009 point 5). */
   readonly gmailWatchers: GmailWatchers;
+  /** The same for Outlook and Microsoft 365 (ADR 0013). */
+  readonly outlookWatchers: MailWatchers;
   readonly pending: PendingBlocks;
   /** Account id -> the address the person knows it by. */
   readonly labels: ReadonlyMap<string, string>;
@@ -482,17 +487,14 @@ function describeUnblock(
 function updateTray(): void {
   manage?.notifyStatus();
   if (tray === null) return;
-  const lines = [...states].map(([id, state]) => ({ label: `${id}: ${state}`, enabled: false }));
-  // A Microsoft account has rules and no watcher: named, but not something Pause reaches.
-  const ruleLines = [...microsoftLanes].map((id) => ({
-    label: `${runtime?.labels.get(id) ?? id}: rules`,
+  const lines = [...states].map(([id, state]) => ({
+    // A Microsoft lane's id means nothing to the person.
+    label: `${microsoftLanes.has(id) ? (runtime?.labels.get(id) ?? id) : id}: ${state}`,
     enabled: false,
   }));
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      ...(lines.length + ruleLines.length === 0
-        ? [{ label: "No accounts configured", enabled: false }]
-        : [...lines, ...ruleLines]),
+      ...(lines.length === 0 ? [{ label: "No accounts configured", enabled: false }] : lines),
       { type: "separator" },
       {
         label: "Blocked senders…",
@@ -521,8 +523,17 @@ function updateTray(): void {
 async function setPaused(value: boolean, by: "tray" | "window"): Promise<void> {
   paused = value;
   const started = Date.now();
-  const { watchers, gmailWatchers } = await ready.promise;
-  const result = await applyPause(value, [...watchers.values()], gmailWatchers);
+  const { watchers, gmailWatchers, outlookWatchers } = await ready.promise;
+  const result = await applyPause(value, [...watchers.values()], {
+    stop: () => {
+      gmailWatchers.stop();
+      outlookWatchers.stop();
+    },
+    resume: () => {
+      gmailWatchers.resume();
+      outlookWatchers.resume();
+    },
+  });
   log("pause", { paused: value, by, ...result, ms: Date.now() - started });
   updateTray();
 }
@@ -982,7 +993,7 @@ async function start(): Promise<Runtime> {
     },
   });
 
-  // Microsoft: one background lane per signed-in account. No watcher: new mail there is not announced yet (ADR 0013), and the lane follows the list.
+  // Microsoft: one background lane per signed-in account, and a new-mail watcher on it (ADR 0013).
   const microsoftId = microsoftClientId();
   const graphBudgets = new GraphBudgets();
   const microsoftBuilt = buildMicrosoftLanes({
@@ -1028,16 +1039,38 @@ async function start(): Promise<Runtime> {
     microsoftLaneByAccount.set(lane.accountId, lane);
     labels.set(lane.laneId, `${lane.email} (Outlook)`);
   }
+  const outlookWatchers = createOutlookWatchers({
+    lanes: [...microsoftLaneByAccount.values()],
+    cursors: store.outlookCursors,
+    gate: createGate(MAX_CONCURRENT_OUTLOOK_POLLS),
+    own: () => own.get(),
+    isHeld: (laneId) => heldGmailLanes.has(laneId),
+    isOwn: (address) => isOwnMailbox(address, own.get()),
+    isQuiet: (address) => isQuiet(address, quiet.entries),
+    pending,
+    showMail: (toast) => {
+      toasts?.show(toast);
+    },
+    notice,
+    labelOf: (laneId) => labels.get(laneId) ?? laneId,
+    onState: (laneId, state) => {
+      states.set(laneId, state);
+      updateTray();
+    },
+    log,
+  });
   const microsoft = createMicrosoftLifecycle({
     lanes: microsoftLaneByAccount,
     store,
     log,
-    // The same set as Gmail's: while a lane is held for a removal, a failed fan-out round is not news.
+    // The same set as Gmail's: while a lane is held for a removal, a failed fan-out round is not news, and a poll must not offer a Block button for a lane that is going away.
     onHold: (laneId, held) => {
       heldGmailLanes.hold(laneId, held);
+      if (held) outlookWatchers.stopOne(laneId);
     },
     onResumed: (laneId) => {
       engine.requestSync(laneId);
+      if (!paused) outlookWatchers.startOne(laneId);
     },
     skipReasonOf: (accountId) => microsoftSkipped.find((s) => s.accountId === accountId)?.reason,
     onDone: (accountId, lane) => {
@@ -1048,7 +1081,10 @@ async function start(): Promise<Runtime> {
         labels.delete(lane.laneId);
         microsoftLaneByAccount.delete(accountId);
         graphBudgets.forget(lane.laneId);
+        outlookWatchers.forget(lane.laneId);
         pending.dropAccount(lane.laneId);
+        states.delete(lane.laneId);
+        updateTray();
         manage?.notifyChanged();
       }
       store.forgetAccount(graphLaneId(accountId));
@@ -1097,6 +1133,7 @@ async function start(): Promise<Runtime> {
   const recovery = engine.recover();
   for (const watcher of watchers.values()) watcher.start();
   gmailWatchers.start();
+  outlookWatchers.start();
   void recovery
     .then((reports) => {
       for (const report of reports) {
@@ -1121,6 +1158,7 @@ async function start(): Promise<Runtime> {
     if (!paused) for (const watcher of watchers.values()) watcher.reconnectNow();
     // A poll that slept may have died unreported: look soon, spread over 30 s like a start (50 accounts do not tick together).
     if (!paused) gmailWatchers.resumeNow();
+    if (!paused) outlookWatchers.resumeNow();
   });
   return {
     store,
@@ -1129,6 +1167,7 @@ async function start(): Promise<Runtime> {
     lanes,
     watchers,
     gmailWatchers,
+    outlookWatchers,
     pending,
     labels,
     own,
@@ -1174,6 +1213,7 @@ async function shutdown(): Promise<void> {
   manage?.closeAll();
   current.engine.dispose();
   current.gmailWatchers.stop();
+  current.outlookWatchers.stop();
   // A session still logging out is cut by the process exit that follows; the store closes either way.
   await stopThenClose({
     stop: () => Promise.allSettled([...current.watchers.values()].map((w) => w.stop())),
@@ -1649,8 +1689,14 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         ],
         accounts: (await loadAccounts(accountsPath)).map((a) => ({
           accountId: a.id,
-          state: states.get(isGmailAccount(a) ? gmailLaneId(a.id) : a.id) ?? null,
-          ...(isMicrosoftAccount(a) ? { rulesOnly: true } : {}),
+          state:
+            states.get(
+              isGmailAccount(a)
+                ? gmailLaneId(a.id)
+                : isMicrosoftAccount(a)
+                  ? graphLaneId(a.id)
+                  : a.id,
+            ) ?? null,
         })),
       }),
       pause: (value) => setPaused(value, "window"),

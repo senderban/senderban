@@ -18,6 +18,7 @@ import type {
   GraphBudgetEvent,
   GraphBudgets,
   GraphCall,
+  GraphMailClient,
   MicrosoftOAuthClient,
   OpaqueState,
   OwnMail,
@@ -32,6 +33,8 @@ export interface MicrosoftLane {
   /** The address the person knows the account by. */
   readonly email: string;
   readonly adapter: GraphAdapter;
+  /** The budgeted client the new-mail watcher reads with. */
+  readonly mail: GraphMailClient;
 }
 
 export interface MicrosoftLaneDeps {
@@ -62,7 +65,7 @@ export interface MicrosoftSkipped {
 }
 
 /** An account id without `@` and a hash of one with it: the log's tag is never an address. */
-function logTag(accountId: string): string {
+export function microsoftLogTag(accountId: string): string {
   const tag = accountTag(accountId);
   return /^[a-z0-9-]{1,64}$/u.test(tag)
     ? tag
@@ -71,7 +74,7 @@ function logTag(accountId: string): string {
 
 /**
  * One background lane per Microsoft account that can act now. Nothing here touches the network: a lane connects when a round has something to
- * write. A refresh token replaces itself on use, so the source keeps the newest ciphertext, and a save that fails leaves the old token, which
+ * write, and its watcher when it is started. A refresh token replaces itself on use, so the source keeps the newest ciphertext, and a save that fails leaves the old token, which
  * Microsoft does not revoke, in use.
  */
 export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
@@ -83,7 +86,7 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
   const taken = new Set(deps.reservedLaneIds);
   for (const account of deps.accounts) {
     if (!isMicrosoftAccount(account)) continue;
-    const tag = logTag(account.id);
+    const tag = microsoftLogTag(account.id);
     const { email, refreshCipher } = account.microsoft;
     const skip = (reason: MicrosoftSkipReason): void => {
       skipped.push({ accountId: account.id, email, reason });
@@ -132,18 +135,20 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
         deps.log("graph-http", { account: tag, ...call });
       },
     });
-    const budgeted = deps.budgets.wrap(client, {
+    const budget = {
       key: laneId,
       account: tag,
       log: (event: GraphBudgetEvent) => {
         const { event: name, ...fields } = event;
         deps.log(name, fields);
       },
-    });
+    };
+    const budgeted = deps.budgets.wrap(client, budget);
     lanes.push({
       laneId,
       accountId: account.id,
       email,
+      mail: deps.budgets.wrapMail(client, budget),
       adapter: new GraphAdapter({
         accountId: laneId,
         client: budgeted,
@@ -262,7 +267,7 @@ export function createMicrosoftLifecycle(deps: MicrosoftLifecycleDeps): Microsof
       } catch (error) {
         const code = error instanceof AdapterError ? error.code : "UNKNOWN";
         // Fixed words only.
-        deps.log("graph-uninstall-failed", { account: logTag(accountId), code });
+        deps.log("graph-uninstall-failed", { account: microsoftLogTag(accountId), code });
         // Refused for good (a sign-in that ended, a state that no longer reads): waiting changes nothing, and the account must not be held hostage.
         return code === "AUTH_REQUIRED" || code === "REJECTED" ? "unreachable" : "rules-left";
       }

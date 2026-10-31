@@ -198,20 +198,21 @@
           named Senderban. It does not change any other rule.
         </li>
         <li>
-          <strong>Mail.ReadBasic.</strong> To find your Junk folder. Microsoft's consent page words
-          this permission more widely (it also covers the sender and subject of your mail, never the
-          body); this version of Senderban reads no message.
+          <strong>Mail.ReadBasic.</strong> To find your Junk folder, and to read the sender, subject
+          and time of new mail in your Inbox so the notification can offer to block the sender. They
+          are read on your device and shown there; they are not stored and go nowhere else. This
+          permission does not reach the body of a mail or its attachments.
         </li>
         <li><strong>User.Read.</strong> To learn your mail address.</li>
       </ul>
       <p>
-        What is stored on your device: your address, and the refresh token, encrypted by Windows for
-        your user. Access tokens are kept in memory only. The addresses and domains you block are
-        written to Microsoft as rules, on your mailbox. Removing the account deletes the rules it
-        can reach and the token, and tells you about any rule it could not delete or that you
-        changed in Outlook; Microsoft keeps listing the access until you remove it at
-        account.live.com/consent/Manage (personal account) or myapps.microsoft.com (work or school
-        account).
+        What is stored on your device: your address, the refresh token, encrypted by Windows for
+        your user, and Microsoft's marker for how far your Inbox was read. Access tokens are kept in
+        memory only. The addresses and domains you block are written to Microsoft as rules, on your
+        mailbox. Removing the account deletes the rules it can reach and the token, and tells you
+        about any rule it could not delete or that you changed in Outlook; Microsoft keeps listing
+        the access until you remove it at account.live.com/consent/Manage (personal account) or
+        myapps.microsoft.com (work or school account).
       </p>
 
       <h2>Keeping and deleting your data</h2>

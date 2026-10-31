@@ -8,26 +8,33 @@ const msEls = {
   add: document.getElementById("microsoft-add"),
   unavailable: document.getElementById("microsoft-unavailable"),
   cancel: document.getElementById("google-cancel"),
+  approval: document.getElementById("microsoft-approval"),
+  approvalLink: document.getElementById("microsoft-approval-link"),
 };
 
 const MS_ACCESS =
   "Access Microsoft already gave can be removed at account.live.com/consent/Manage, or at myapps.microsoft.com for a work account.";
 // Replies of the main process, as sentences. Nothing from a person or a provider is echoed.
+// Microsoft's "needs approval" page often leads back as a cancel, or nowhere at all: these are the replies a person in that spot sees.
+const MS_MAY_NEED_APPROVAL = new Set(["needs-approval", "cancelled", "timeout"]);
 const MS_SIGN_IN_REPLY = {
   "signed-in": ["ok", "Signed in. Restart Senderban to start blocking on this account."],
   "no-client": ["error", "Microsoft sign-in is not set up in this version of Senderban."],
   "unknown-account": ["error", "That account is no longer set up."],
-  cancelled: ["warn", "Cancelled on Microsoft's page. Nothing was saved."],
+  cancelled: [
+    "warn",
+    "Cancelled on Microsoft's page. Nothing was saved. If it said your organization must approve Senderban, send your administrator the link below.",
+  ],
   aborted: ["warn", "Cancelled. Nothing was saved."],
   timeout: [
     "error",
-    "Microsoft did not answer in time. If its page said your organization must approve Senderban, ask your administrator; otherwise try again.",
+    "Microsoft did not answer in time. If its page said your organization must approve Senderban, send your administrator the link below; otherwise try again.",
   ],
   busy: ["warn", "Another sign-in is running. Wait for it to finish."],
   "browser-failed": ["error", "Could not open your browser. Try again."],
   "needs-approval": [
     "error",
-    "Your organization must approve Senderban before it can change mailbox rules. Ask your administrator. Nothing was saved.",
+    "Your organization must approve Senderban before it can use your mailbox. Send your administrator the link below, then sign in again. Nothing was saved.",
   ],
   scope: [
     "error",
@@ -81,7 +88,7 @@ function msSetBusy(busy) {
 
 function msStateText(account) {
   if (!account.signedIn) return "Signed out. Sign in again to use it.";
-  const base = "Signed in. Your block list applies here; new mail is not announced yet.";
+  const base = "Signed in. Your block list applies here, and new mail is announced.";
   return account.editedRules > 0
     ? `${base} ${String(account.editedRules)} Senderban rule(s) were changed in Outlook or are in error there: Senderban leaves those alone, so check them there.`
     : base;
@@ -141,15 +148,24 @@ async function msRefresh() {
   return true;
 }
 
+/** The link for the administrator stays until the next sign-in. */
+function msShowApproval(show) {
+  const link = msState?.adminConsentUrl ?? null;
+  msEls.approval.hidden = !show || link === null;
+  msEls.approvalLink.value = link ?? "";
+}
+
 async function msSignIn(request) {
   msSetBusy(true);
   msEls.cancel.hidden = false;
+  msShowApproval(false);
   try {
     setNotice("working", "Waiting for Microsoft in your browser…");
     const reply = await msApi.microsoftSignIn(request);
     const [tone, text] = MS_SIGN_IN_REPLY[reply] ?? MS_SIGN_IN_REPLY.failed;
     setNotice(tone, text);
     await msRefresh();
+    msShowApproval(MS_MAY_NEED_APPROVAL.has(reply));
     if (reply === "signed-in") {
       leaveAddView();
       offerRestart();
@@ -180,6 +196,9 @@ async function msRemove(account) {
 
 msEls.add.addEventListener("click", () => {
   if (!msBusy) void msSignIn({});
+});
+msEls.approvalLink.addEventListener("focus", () => {
+  msEls.approvalLink.select();
 });
 document.addEventListener("senderban-view", (event) => {
   if (event.detail !== "blocked" && !msLoaded) {

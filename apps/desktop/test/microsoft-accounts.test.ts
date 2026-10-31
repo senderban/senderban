@@ -223,8 +223,14 @@ describe("the page's state", () => {
     const page = await microsoftState(deps({ clientId: null }));
     expect(page).toEqual({
       available: false,
+      adminConsentUrl: null,
       accounts: [{ accountId: "ms-1", email: EMAIL, signedIn: true, editedRules: 0 }],
     });
+  });
+
+  it("gives the link for an administrator once there is an app registration", async () => {
+    const page = await microsoftState(deps());
+    expect(page.adminConsentUrl).toContain("/organizations/v2.0/adminconsent?client_id=");
   });
 
   it("counts the rules changed in Outlook", async () => {

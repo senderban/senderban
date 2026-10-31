@@ -164,6 +164,8 @@ describe("the page", () => {
     expect(html).toContain('<script src="microsoft.js"></script>');
     expect(html).toMatch(/id="microsoft-add"[^>]*disabled/u);
     expect(html).toContain('id="microsoft-unavailable"');
+    expect(html).toContain('id="microsoft-approval"');
+    expect(html).toContain('id="microsoft-approval-link"');
   });
 
   it("sets text with textContent, and never as markup", () => {

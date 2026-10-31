@@ -1,13 +1,22 @@
 import { z } from "zod";
 import { AdapterError } from "../adapter.js";
+import { parseAddress } from "../address.js";
 import { createBearerCaller } from "../oauth/bearer.js";
-import type { BearerCall } from "../oauth/bearer.js";
+import type { BearerCall, BearerRequest } from "../oauth/bearer.js";
 import { OVERSIZE } from "../oauth/http.js";
+import { sanitizeSubject } from "../watcher/watcher.js";
 
 /** Microsoft Graph v1.0, `mailFolder` and `messageRule` (read 2026-10-31, https://learn.microsoft.com/en-us/graph/api/resources/messagerule). Fixed host. */
 export const GRAPH_RULES_URL = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules";
 export const GRAPH_JUNK_URL =
   "https://graph.microsoft.com/v1.0/me/mailFolders/junkemail?$select=id";
+
+/**
+ * New mail of the Inbox, `message: delta` (read 2026-11-01, https://learn.microsoft.com/en-us/graph/api/message-delta): `Mail.ReadBasic` is the least it takes, for
+ * work and personal accounts alike. Fixed host.
+ */
+export const GRAPH_INBOX_DELTA_URL =
+  "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta";
 
 /** One request to Graph: connect, answer and body. Unit: milliseconds. */
 export const GRAPH_TIMEOUT_MS = 15_000;
@@ -24,6 +33,14 @@ export const GRAPH_LIST_MAX_PAGES = 10;
 const LIST_MAX = 2_000;
 /** The longest access token. Unit: characters. Microsoft documents none and says they are opaque; PROVISIONAL. */
 export const GRAPH_ACCESS_TOKEN_MAX_CHARS = 16_384;
+/** Messages one delta page holds, at most (`Prefer: odata.maxpagesize`). Unit: messages. Microsoft may send fewer. */
+export const GRAPH_DELTA_PAGE_SIZE = 25;
+/** The longest `@odata.nextLink` or `@odata.deltaLink` kept. Unit: characters. Microsoft documents none and the token is opaque; PROVISIONAL. */
+export const GRAPH_DELTA_LINK_MAX_CHARS = 8_192;
+/** A subject in a delta answer. Unit: characters. Twice the RFC 5322 line of 998 is padding already; the display cuts it to 200. */
+const DELTA_SUBJECT_MAX_CHARS = 8_192;
+/** A time in a delta answer: `2014-01-01T00:00:00Z`, with fractions at most. Unit: characters. */
+const DELTA_TIME_MAX_CHARS = 40;
 /**
  * Longest wait a `Retry-After` may set. Unit: seconds. An answer of a day must not silence an account for a day: past this the
  * engine's own backoff decides again.
@@ -97,6 +114,67 @@ const ErrorAnswer = z.looseObject({
   error: z.looseObject({ code: z.string().max(128).optional() }),
 });
 
+/** What a delta query may name and what it asks for. Fixed: the token keeps them, so a later link needs none of it again. */
+const DELTA_SELECT = "from,subject,receivedDateTime";
+
+// Entries are read one by one too: one odd message costs itself, and is counted.
+const DeltaAnswer = z.looseObject({
+  value: z.array(z.unknown()).max(GRAPH_DELTA_PAGE_SIZE * 4),
+  "@odata.nextLink": z.string().max(GRAPH_DELTA_LINK_MAX_CHARS).optional(),
+  "@odata.deltaLink": z.string().max(GRAPH_DELTA_LINK_MAX_CHARS).optional(),
+});
+const DeltaEntry = z.looseObject({
+  id: z.string().regex(GRAPH_ID),
+  "@removed": z.unknown().optional(),
+  receivedDateTime: z.string().max(DELTA_TIME_MAX_CHARS).nullish(),
+  subject: z.string().max(DELTA_SUBJECT_MAX_CHARS).nullish(),
+  from: Recipient.nullish(),
+});
+
+export interface GraphMail {
+  /** Graph's message id. Never shown. */
+  readonly id: string;
+  /** Validated, lowercased `local@domain`, or null when the sender could not be read safely: announced without a Block button. */
+  readonly from: string | null;
+  /** Control and bidi characters removed, cut. Display only. */
+  readonly subject: string;
+  /** When Microsoft received it. Epoch milliseconds. */
+  readonly receivedMs: number;
+}
+
+export interface GraphDeltaPage {
+  readonly mail: readonly GraphMail[];
+  /** Entries that could not be read. Deletions and changes are not mail and are not counted. */
+  readonly unreadable: number;
+  /** The link to read next. `more`: the round goes on, read it now; otherwise it is the start of the next round. */
+  readonly link: string;
+  readonly more: boolean;
+}
+
+/** Where a delta read starts: a new round from a time, or a link an earlier page gave. */
+export type GraphDeltaFrom = { readonly sinceMs: number } | { readonly link: string };
+
+/** Graph no longer knows the stored link (410, or `syncStateNotFound` and its like): a new round is what it asks for. */
+export class DeltaExpiredError extends AdapterError {
+  constructor() {
+    super("REJECTED", "Microsoft no longer knows this place in the mailbox");
+    this.name = "DeltaExpiredError";
+  }
+}
+
+/** One delta page was larger than the read cap: asking again reads the same bytes, so the watcher starts anew and says so. */
+export class DeltaTooLargeError extends AdapterError {
+  constructor() {
+    super("REJECTED", "a Microsoft delta page is larger than Senderban reads");
+    this.name = "DeltaTooLargeError";
+  }
+}
+
+export interface GraphMailClient {
+  /** One page of mail that came in. `from` a link is the next page or round; `from` a time starts a round with no mail from before it. */
+  delta(from: GraphDeltaFrom, signal?: AbortSignal): Promise<GraphDeltaPage>;
+}
+
 export interface GraphRuleList {
   readonly rules: readonly GraphRule[];
   /** Entries that could not be read. One of ours can be among them, grown past the bounds in Outlook. */
@@ -156,8 +234,10 @@ export interface GraphRuleClient {
   remove(id: string, signal?: AbortSignal): Promise<"removed" | "gone">;
 }
 
+export type GraphClient = GraphRuleClient & GraphMailClient;
+
 export type GraphCall = BearerCall<
-  "junk" | "rule-list" | "rule-create" | "rule-update" | "rule-delete"
+  "junk" | "rule-list" | "rule-create" | "rule-update" | "rule-delete" | "mail-delta"
 >;
 
 export interface GraphClientOptions {
@@ -214,8 +294,8 @@ function retryAfterSeconds(value: string | null, now: number): number {
   return Math.min(Math.max(seconds, 1), GRAPH_RETRY_AFTER_MAX_S);
 }
 
-/** A next link is an answer like any other: the token goes to Graph's own host and version or nowhere. The rest of its form is not measured. */
-function isGraphLink(value: string): boolean {
+/** A link is an answer like any other, and one read from disk no better: the token goes to Graph's own host and version or nowhere. The rest of its form is not measured. */
+export function isGraphLink(value: string): boolean {
   try {
     const url = new URL(value);
     return (
@@ -228,6 +308,14 @@ function isGraphLink(value: string): boolean {
     return false;
   }
 }
+
+/** A link a token may be sent to, and that fits where it is kept. */
+export function isDeltaLink(value: string): boolean {
+  return value.length <= GRAPH_DELTA_LINK_MAX_CHARS && isGraphLink(value);
+}
+
+/** Error codes that mean the place is lost (delta-query-overview: "40X-series ... such as `syncStateNotFound`"). */
+const DELTA_LOST = /syncState|resync/iu;
 
 function checkConditions(conditions: GraphConditions): void {
   const strings =
@@ -248,7 +336,33 @@ const conditionsBody = (conditions: GraphConditions): unknown =>
       }
     : { senderContains: conditions.senderContains };
 
-export function createGraphClient(options: GraphClientOptions): GraphRuleClient {
+/** The first request of a round. Outlook has no "from now" token (`$deltatoken=latest` is for Entra and OneDrive), and a round without a filter reads the whole folder. */
+function deltaStartUrl(sinceMs: number): string {
+  // Whole seconds, in the form the reference shows. Written by hand: the reference spells `$select` and `+`.
+  const since = new Date(sinceMs).toISOString().replace(/\.[0-9]{3}Z$/u, "Z");
+  return `${GRAPH_INBOX_DELTA_URL}?changeType=created&$select=${DELTA_SELECT}&$filter=receivedDateTime+ge+${since}`;
+}
+
+function readDeltaEntry(entry: unknown): GraphMail | "skip" | "unreadable" {
+  const parsed = DeltaEntry.safeParse(entry);
+  if (!parsed.success) return "unreadable";
+  const { id, subject, from, receivedDateTime } = parsed.data;
+  // A deletion, or a change that names only what changed (the reference: read state shows up here even when asked for new mail only).
+  if ("@removed" in parsed.data || receivedDateTime === null || receivedDateTime === undefined) {
+    return "skip";
+  }
+  const receivedMs = Date.parse(receivedDateTime);
+  if (!Number.isFinite(receivedMs)) return "unreadable";
+  const address = parseAddress(from?.emailAddress.address ?? "");
+  return {
+    id,
+    from: address.ok ? address.value.address : null,
+    subject: sanitizeSubject(subject ?? ""),
+    receivedMs,
+  };
+}
+
+export function createGraphClient(options: GraphClientOptions): GraphClient {
   const now = options.now ?? Date.now;
   const call = createBearerCaller<GraphCall["op"]>({
     who: "Microsoft",
@@ -264,7 +378,7 @@ export function createGraphClient(options: GraphClientOptions): GraphRuleClient 
   const send = async (
     op: GraphCall["op"],
     what: string,
-    request: { method: "GET" | "POST" | "PATCH" | "DELETE"; url: string; body?: string },
+    request: BearerRequest,
     maxBytes: number,
     signal: AbortSignal | undefined,
   ): Promise<{ status: number; json: unknown }> => {
@@ -418,6 +532,59 @@ export function createGraphClient(options: GraphClientOptions): GraphRuleClient 
       if (status === 204 || status === 200) return "removed";
       if (status === 404) return "gone";
       throw failure(status, json, "rule delete");
+    },
+
+    async delta(from, signal) {
+      const stored = "link" in from;
+      if (stored ? !isDeltaLink(from.link) : !Number.isFinite(from.sinceMs)) {
+        throw new AdapterError("REJECTED", "the mail position is not a valid value");
+      }
+      let answer: { status: number; json: unknown };
+      try {
+        answer = await send(
+          "mail-delta",
+          "mail delta",
+          {
+            method: "GET",
+            url: stored ? from.link : deltaStartUrl(from.sinceMs),
+            headers: { Prefer: `odata.maxpagesize=${String(GRAPH_DELTA_PAGE_SIZE)}` },
+          },
+          GRAPH_BODY_MAX_BYTES,
+          signal,
+        );
+      } catch (error) {
+        // An answer over the cap is this page's own doing (asking again reads the same bytes), not a passing network state.
+        if (
+          error instanceof AdapterError &&
+          error.code === "TRANSIENT" &&
+          error.message.includes(OVERSIZE)
+        ) {
+          throw new DeltaTooLargeError();
+        }
+        throw error;
+      }
+      const { status, json } = answer;
+      if (stored && (status === 404 || status === 410 || DELTA_LOST.test(errorCode(json) ?? ""))) {
+        throw new DeltaExpiredError();
+      }
+      if (status !== 200) throw failure(status, json, "mail delta");
+      const parsed = DeltaAnswer.safeParse(json);
+      if (!parsed.success) throw malformed("mail delta");
+      const next = parsed.data["@odata.nextLink"];
+      const round = parsed.data["@odata.deltaLink"];
+      // The reference: a page holds exactly one of the two.
+      const link = next ?? round;
+      if (link === undefined || (next !== undefined && round !== undefined) || !isDeltaLink(link)) {
+        throw malformed("mail delta");
+      }
+      const mail: GraphMail[] = [];
+      let unreadable = 0;
+      for (const entry of parsed.data.value) {
+        const one = readDeltaEntry(entry);
+        if (one === "unreadable") unreadable += 1;
+        else if (one !== "skip") mail.push(one);
+      }
+      return { mail, unreadable, link, more: next !== undefined };
     },
   };
 }

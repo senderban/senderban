@@ -3,8 +3,16 @@ import type { ApplyResult, OpaqueState, Plan } from "../adapter.js";
 import { BlockEntrySchema, BlocklistSchema, MAX_ENTRIES, checkEntry } from "../blocklist.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
 import type { GmailCursorStore } from "../gmail/watcher.js";
+import type { OutlookCursorStore } from "../graph/watcher.js";
 import type { Cursor, CursorStore } from "../watcher/watcher.js";
-import { ACCOUNT_ID_MAX, HISTORY_ID_DIGITS_MAX, UID_MAX, inTransaction, type Db } from "./db.js";
+import {
+  ACCOUNT_ID_MAX,
+  DELTA_LINK_MAX,
+  HISTORY_ID_DIGITS_MAX,
+  UID_MAX,
+  inTransaction,
+  type Db,
+} from "./db.js";
 
 /** Failed changes kept in full in a journal row. Unit: failures. The row also holds the count of all of them. */
 export const JOURNAL_FAILED_MAX = 20;
@@ -38,6 +46,13 @@ const CursorRowSchema = z.strictObject({
   accountId: z.string().min(1).max(ACCOUNT_ID_MAX),
   uidValidity: z.string().regex(/^\d{1,20}$/u),
   lastUid: z.number().int().min(0).max(UID_MAX),
+});
+
+const OutlookCursorRowSchema = z.strictObject({
+  accountId: z.string().min(1).max(ACCOUNT_ID_MAX),
+  link: z.string().min(1).max(DELTA_LINK_MAX),
+  newestMs: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  roundMs: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 });
 
 const GmailCursorRowSchema = z.strictObject({
@@ -205,6 +220,40 @@ export class Store {
     },
   };
 
+  /** What the Outlook watcher persists: Graph's place in the Inbox. Same rules as `gmailCursors`; `delete` is the account's removal. */
+  readonly outlookCursors: OutlookCursorStore & { delete(accountId: string): void } = {
+    get: (accountId) => {
+      const row = this.#db
+        .prepare("SELECT delta_link, newest_ms, round_ms FROM outlook_cursor WHERE account_id = ?")
+        .get(accountId);
+      if (row === undefined) return undefined;
+      const parsed = OutlookCursorRowSchema.safeParse({
+        accountId,
+        link: row["delta_link"],
+        newestMs: row["newest_ms"],
+        roundMs: row["round_ms"],
+      });
+      if (!parsed.success) return undefined;
+      const { link, newestMs, roundMs } = parsed.data;
+      return { link, newestMs, roundMs };
+    },
+    set: (accountId, cursor) => {
+      const checked = OutlookCursorRowSchema.parse({ accountId, ...cursor });
+      this.#db
+        .prepare(
+          `INSERT INTO outlook_cursor (account_id, delta_link, newest_ms, round_ms, updated_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (account_id) DO UPDATE SET delta_link = excluded.delta_link, newest_ms = excluded.newest_ms,
+             round_ms = excluded.round_ms, updated_at = excluded.updated_at
+           WHERE excluded.delta_link <> outlook_cursor.delta_link OR excluded.newest_ms <> outlook_cursor.newest_ms
+             OR excluded.round_ms <> outlook_cursor.round_ms`,
+        )
+        .run(checked.accountId, checked.link, checked.newestMs, checked.roundMs, now());
+    },
+    delete: (accountId) => {
+      this.#db.prepare("DELETE FROM outlook_cursor WHERE account_id = ?").run(accountId);
+    },
+  };
+
   // --- sync journal ---------------------------------------------------------------------------
 
   /** Records intent before the provider is written. Throws if this account already has a sync open. */
@@ -268,6 +317,7 @@ export class Store {
         .run(accountId);
       this.#db.prepare("DELETE FROM imap_cursor WHERE account_id = ?").run(accountId);
       this.#db.prepare("DELETE FROM gmail_cursor WHERE account_id = ?").run(accountId);
+      this.#db.prepare("DELETE FROM outlook_cursor WHERE account_id = ?").run(accountId);
     });
   }
 

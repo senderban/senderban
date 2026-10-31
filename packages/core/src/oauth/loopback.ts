@@ -73,6 +73,9 @@ export interface Loopback {
   close(): void;
 }
 
+/** Microsoft can say "someone must approve" under `access_denied` too: its code is the one thing read from the description, and it goes no further (the same codes as graph/oauth.ts). */
+const APPROVAL_CODE = /\bAADSTS(?:65001|90008|90094)\b/u;
+
 // The answer page is static and loads nothing, so the code in this URL cannot leak through a Referer or a request.
 const PAGE =
   "<!doctype html><html lang=en><meta charset=utf-8><title>Senderban</title>" +
@@ -220,10 +223,11 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
       // The words are never shown: only whether the person said no, whether someone else must approve, or something else.
       reply(res, 200, PAGE, "text/html; charset=utf-8", () => {
         finish(
-          error === "access_denied"
-            ? { kind: "denied" }
-            : error === "consent_required"
-              ? { kind: "needs-approval" }
+          error === "consent_required" ||
+            APPROVAL_CODE.test(url.searchParams.get("error_description") ?? "")
+            ? { kind: "needs-approval" }
+            : error === "access_denied"
+              ? { kind: "denied" }
               : { kind: "failed", reason: "provider-error" },
         );
       });

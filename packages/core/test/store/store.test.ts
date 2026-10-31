@@ -215,6 +215,45 @@ describe("Gmail watcher cursors", () => {
     b.close();
   });
 
+  it("keeps an Outlook cursor, writes it only when it changes, and drops it with the account", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    const cursor = { link: "https://graph.microsoft.com/v1.0/x", newestMs: 5, roundMs: 4 };
+    expect(store.outlookCursors.get("acct")).toBeUndefined();
+    store.outlookCursors.set("acct", cursor);
+    expect(store.outlookCursors.get("acct")).toEqual(cursor);
+
+    db.exec("UPDATE outlook_cursor SET updated_at = 'sentinel'");
+    store.outlookCursors.set("acct", cursor);
+    expect(db.prepare("SELECT updated_at FROM outlook_cursor").get()?.["updated_at"]).toBe(
+      "sentinel",
+    );
+    store.outlookCursors.set("acct", { ...cursor, newestMs: 6 });
+    expect(store.outlookCursors.get("acct")?.newestMs).toBe(6);
+    expect(db.prepare("SELECT updated_at FROM outlook_cursor").get()?.["updated_at"]).not.toBe(
+      "sentinel",
+    );
+
+    store.forgetAccount("acct");
+    expect(store.outlookCursors.get("acct")).toBeUndefined();
+    store.outlookCursors.set("acct", cursor);
+    store.outlookCursors.delete("acct");
+    expect(store.outlookCursors.get("acct")).toBeUndefined();
+  });
+
+  it("refuses an Outlook cursor out of bounds, in the code and in the table", () => {
+    const db = openDatabase(":memory:");
+    const store = new Store(db);
+    expect(() => {
+      store.outlookCursors.set("acct", { link: "x".repeat(8_193), newestMs: 0, roundMs: 0 });
+    }).toThrow();
+    expect(() => {
+      db.prepare(
+        "INSERT INTO outlook_cursor (account_id, delta_link, newest_ms, round_ms, updated_at) VALUES ('a', ?, 0, 0, 'x')",
+      ).run("x".repeat(8_193));
+    }).toThrow();
+  });
+
   it("writes only when the value changes, and may move backwards (a future cursor is replaced)", () => {
     const db = openDatabase(":memory:");
     const store = new Store(db);

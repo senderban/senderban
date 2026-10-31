@@ -6,6 +6,8 @@ import {
   MICROSOFT_TOKEN_BYTES,
   MICROSOFT_TOKEN_URL,
   ApprovalRequiredError,
+  MICROSOFT_ADMIN_REDIRECT,
+  buildMicrosoftAdminConsentUrl,
   buildMicrosoftAuthUrl,
   checkGrantedGraphScopes,
   createMicrosoftOAuthClient,
@@ -401,5 +403,19 @@ describe("Microsoft sign-in", () => {
       },
     });
     await expect(running).resolves.toEqual({ status: "aborted" });
+  });
+});
+
+describe("buildMicrosoftAdminConsentUrl", () => {
+  const CLIENT = "00001111-aaaa-2222-bbbb-3333cccc4444";
+
+  it("asks on organizations, never common, for what the app asks of a person", () => {
+    const url = new URL(buildMicrosoftAdminConsentUrl(CLIENT));
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "https://login.microsoftonline.com/organizations/v2.0/adminconsent",
+    );
+    expect(url.searchParams.get("client_id")).toBe(CLIENT);
+    expect(url.searchParams.get("scope")).toBe(GRAPH_SCOPES.join(" "));
+    expect(url.searchParams.get("redirect_uri")).toBe(MICROSOFT_ADMIN_REDIRECT);
   });
 });

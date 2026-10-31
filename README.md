@@ -154,7 +154,7 @@ user name and API key once (it covers every mailbox and domain on your MXroute a
 | mailbox.org                       | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
 | Purelymail                        | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
 | Other ManageSieve server          | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot 2026-10-31           |
-| Outlook / Hotmail / Microsoft 365 | Graph message rules                                | v0.2   | documented, not yet measured             |
+| Outlook / Hotmail / Microsoft 365 | Graph message rules, delta for new mail            | v0.2   | documented, not yet measured             |
 | iCloud, Yahoo, AOL, GMX, Web.de   | Other (IMAP): cleans on arrival, not a server rule | v0.2   | measured on Dovecot, not on the provider |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.

@@ -95,11 +95,9 @@ export interface WatchStatus {
   readonly paused: boolean;
   /** Mailboxes whose last sync failed: a block may be missing there until a sync works. */
   readonly behind: readonly string[];
-  /** `rulesOnly`: the account has server rules and no watcher, so "not watching" says nothing about it. */
   readonly accounts: readonly {
     readonly accountId: string;
     readonly state: string | null;
-    readonly rulesOnly?: boolean;
   }[];
 }
 
