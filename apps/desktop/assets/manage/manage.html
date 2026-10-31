@@ -139,7 +139,7 @@
 
         <section id="view-add" class="view narrow" hidden>
           <div class="tabs" role="group" aria-label="Provider">
-            <button type="button" id="provider-mx" class="tab">MXroute</button>
+            <button type="button" id="provider-mx" class="tab">Mail server</button>
             <button type="button" id="provider-gmail" class="tab">Gmail</button>
           </div>
 
@@ -150,6 +150,16 @@
               will not block that domain, and blocks already on your list for it stop applying.
             </p>
             <form id="account-form" autocomplete="off">
+              <div class="field">
+                <label for="account-provider">Provider</label>
+                <select id="account-provider">
+                  <option value="mxroute">MXroute</option>
+                  <option value="migadu">Migadu</option>
+                  <option value="mailbox-org">mailbox.org</option>
+                  <option value="purelymail">Purelymail</option>
+                  <option value="other">Other mail server</option>
+                </select>
+              </div>
               <div class="field">
                 <label for="account-address">Mail address</label>
                 <input
@@ -171,7 +181,7 @@
                   spellcheck="false"
                 />
               </div>
-              <div class="field">
+              <div id="account-host-field" class="field">
                 <label for="account-host">Server</label>
                 <input
                   id="account-host"
@@ -181,8 +191,13 @@
                   spellcheck="false"
                   placeholder="e.g. eagle.mxlogin.com"
                 />
-                <span class="meta">It is in your MXroute welcome mail.</span>
+                <span id="account-host-hint" class="meta">It is in your MXroute welcome mail.</span>
               </div>
+              <div id="account-port-field" class="field" hidden>
+                <label for="account-port">ManageSieve port</label>
+                <input id="account-port" type="number" required autocomplete="off" />
+              </div>
+              <p id="account-server" class="meta" hidden></p>
               <div class="row">
                 <button type="submit" id="account-save" class="primary">Add mailbox</button>
               </div>

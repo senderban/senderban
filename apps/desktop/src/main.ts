@@ -1133,11 +1133,13 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         // Account tag, outcome and times only: never the address, the server or the password.
         log("account-added", {
           account: accountTag(input.address),
+          provider: input.provider,
           result,
           ms: Date.now() - started,
+          reachMs: stages.reach?.ms,
           imapMs: stages.imap?.ms,
           sieveMs: stages.sieve?.ms,
-          timedOut: stages.imap?.timedOut === true || stages.sieve?.timedOut === true,
+          timedOut: Object.values(stages).find((stage) => stage.timedOut)?.stage,
         });
         return result;
       },

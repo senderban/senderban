@@ -9,8 +9,11 @@ export const SUPPORT_LEVELS = [
 ] as const;
 export type SupportLevel = (typeof SUPPORT_LEVELS)[number];
 
-/** `documented` = read in official docs only; `measured` = exercised against a real account. */
-export type Evidence = "documented" | "measured";
+/**
+ * `documented` = read in official docs only; `measured` = exercised against a real account; `dovecot` = the same code path
+ * measured on a local Dovecot + Pigeonhole, never on the provider's own servers.
+ */
+export type Evidence = "documented" | "measured" | "dovecot";
 
 export interface ProviderEntry {
   readonly id: string;
@@ -30,6 +33,34 @@ export const PROVIDERS: readonly ProviderEntry[] = [
     level: "native-rule",
     evidence: "documented",
     release: "v0.1",
+  },
+  {
+    id: "migadu",
+    name: "Migadu",
+    level: "sieve",
+    evidence: "dovecot",
+    release: "v0.2",
+  },
+  {
+    id: "mailbox-org",
+    name: "mailbox.org",
+    level: "sieve",
+    evidence: "dovecot",
+    release: "v0.2",
+  },
+  {
+    id: "purelymail",
+    name: "Purelymail",
+    level: "sieve",
+    evidence: "dovecot",
+    release: "v0.2",
+  },
+  {
+    id: "managesieve",
+    name: "Other ManageSieve server",
+    level: "sieve",
+    evidence: "dovecot",
+    release: "v0.2",
   },
   {
     id: "outlook",

@@ -232,7 +232,8 @@ p {
   align-items: center;
   gap: 8px;
 }
-input {
+input,
+select {
   padding: 5px 8px;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
@@ -272,6 +273,7 @@ button:disabled {
 }
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -429,6 +431,7 @@ input[type="checkbox"][role="switch"]:checked::before {
   font-size: 12px;
   color: var(--muted);
 }
-.field input {
+.field input,
+.field select {
   width: 100%;
 }

@@ -5,6 +5,7 @@
 // forgotten: nothing here ever receives it back, and every value shown came from main as plain text (textContent only).
 const mxApi = window.senderban;
 const mxEls = {
+  section: document.getElementById("keys"),
   list: document.getElementById("mxroute-keys"),
   empty: document.getElementById("mxroute-empty"),
   // Outlives a redraw of the list, unlike the message inside a key's block.
@@ -256,6 +257,11 @@ async function removeKey(key, message) {
 /** The key part of the Accounts view. The list holds no typed text, so a redraw loses nothing. */
 function mxDraw(result) {
   mxLimits = result.limits;
+  // A key is about MXroute alone: with no MXroute mailbox and no key there is nothing to say here.
+  mxEls.section.hidden =
+    result.keys.length === 0 &&
+    !result.keysUnreadable &&
+    !result.accounts.some((account) => account.mxroute);
   mxEls.empty.textContent = result.keysUnreadable
     ? "Could not read the saved keys. Quit Senderban, delete mxroute-keys.json from %APPDATA%\\Senderban and start it again, then save your key here."
     : "No key saved yet.";

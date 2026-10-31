@@ -4,10 +4,12 @@ import type { BlockEntry, Blocklist } from "../../src/blocklist.js";
 import {
   SieveAdapter,
   initialSieveState,
+  sieveFit,
   sieveStateForReinstall,
   sieveStateHoldsRules,
 } from "../../src/sieve/adapter.js";
 import { hasInclude, isOurMain } from "../../src/sieve/rules.js";
+import { DEFAULT_RENDER_OPTIONS, renderRules } from "../../src/sieve/rules.js";
 import { FakeSieveServer } from "./fake-server.js";
 
 const entry = (n: number, match: BlockEntry["match"], value: string): BlockEntry => ({
@@ -18,6 +20,8 @@ const entry = (n: number, match: BlockEntry["match"], value: string): BlockEntry
   createdAt: "2026-10-24T12:00:00.000Z",
 });
 
+const e = (value: string, n = 1): BlockEntry => entry(n, "exactAddress", value);
+
 function setup() {
   const server = new FakeSieveServer();
   const adapter = new SieveAdapter({
@@ -26,6 +30,9 @@ function setup() {
   });
   return { server, adapter };
 }
+
+const live = async (adapter: SieveAdapter, list: Blocklist, state: OpaqueState) =>
+  (await sync(adapter, list, state)).result.state;
 
 async function sync(adapter: SieveAdapter, list: Blocklist, state: OpaqueState) {
   const plan = await adapter.plan(list, state);
@@ -295,11 +302,214 @@ describe("SieveAdapter failure handling", () => {
     expect(server.scripts.size).toBe(0);
   });
 
-  it("fails with CAPABILITY_NOT_SUPPORTED when include is missing", async () => {
+  it("fails with CAPABILITY_NOT_SUPPORTED when a rule's extension is missing", async () => {
     const { server, adapter } = setup();
-    server.extensions.delete("include");
+    server.extensions.delete("envelope");
     expect(await failure(sync(adapter, [], initialSieveState()))).toBe("CAPABILITY_NOT_SUPPORTED");
     expect(server.scripts.size).toBe(0);
+  });
+
+  const noInclude = () => {
+    const parts = setup();
+    parts.server.extensions.delete("include");
+    return parts;
+  };
+
+  describe("on a server without include", () => {
+    it("makes the rules script itself the active one, and verifies that", async () => {
+      const { server, adapter } = noInclude();
+      const state = await live(adapter, [e("spam@evil.example")], initialSieveState());
+      expect(server.active).toBe("senderban-rules");
+      expect(server.scripts.has("senderban-main")).toBe(false);
+      expect(server.scripts.get("senderban-rules")).toContain("spam@evil.example");
+      const drift = await adapter.verify(state);
+      expect(drift.drifted).toBe(false);
+    });
+
+    it("updates the live script in place on the next change", async () => {
+      const { server, adapter } = noInclude();
+      const first = await live(adapter, [e("a@evil.example")], initialSieveState());
+      await live(adapter, [e("a@evil.example"), e("b@evil.example", 2)], first);
+      expect(server.active).toBe("senderban-rules");
+      expect(server.scripts.get("senderban-rules")).toContain("b@evil.example");
+    });
+
+    it("refuses before writing anything when the person has an active script", async () => {
+      const { server, adapter } = noInclude();
+      server.scripts.set("mine", "keep;\n");
+      server.active = "mine";
+      expect(await failure(sync(adapter, [e("a@evil.example")], initialSieveState()))).toBe(
+        "CAPABILITY_NOT_SUPPORTED",
+      );
+      expect(server.active).toBe("mine");
+      expect([...server.scripts.keys()]).toEqual(["mine"]);
+      expect(server.scripts.get("mine")).toBe("keep;\n");
+    });
+
+    it("looks again before taking the active place, and takes its script back when it lost it", async () => {
+      const { server, adapter } = noInclude();
+      server.scripts.set("mine", "keep;\n");
+      server.afterPut = () => {
+        server.active = "mine";
+      };
+      expect(await failure(sync(adapter, [e("a@evil.example")], initialSieveState()))).toBe(
+        "CAPABILITY_NOT_SUPPORTED",
+      );
+      expect(server.active).toBe("mine");
+      expect([...server.scripts.keys()]).toEqual(["mine"]);
+    });
+
+    it("never deletes a rules script this round did not write", async () => {
+      const { server, adapter } = noInclude();
+      const empty = renderRules([], DEFAULT_RENDER_OPTIONS);
+      server.scripts.set("senderban-rules", empty);
+      server.scripts.set("mine", "keep;\n");
+      server.beforeList = (nth) => {
+        if (nth === 2) server.active = "mine";
+      };
+      expect(await failure(sync(adapter, [], initialSieveState()))).toBe(
+        "CAPABILITY_NOT_SUPPORTED",
+      );
+      expect(server.scripts.has("senderban-rules")).toBe(true);
+      expect(server.commands).not.toContain("DELETESCRIPT");
+    });
+
+    it("keeps the refusal as the answer when taking its script back fails", async () => {
+      const { server, adapter } = noInclude();
+      server.scripts.set("mine", "keep;\n");
+      server.afterPut = () => {
+        server.active = "mine";
+        server.failDelete = true;
+      };
+      expect(await failure(sync(adapter, [e("a@evil.example")], initialSieveState()))).toBe(
+        "CAPABILITY_NOT_SUPPORTED",
+      );
+    });
+
+    it("counts its own script in the active place as already done, not as someone's", async () => {
+      const { server, adapter } = noInclude();
+      server.afterPut = () => {
+        server.active = "senderban-rules";
+      };
+      await sync(adapter, [e("a@evil.example")], initialSieveState());
+      expect(server.active).toBe("senderban-rules");
+      expect(server.scripts.has("senderban-rules")).toBe(true);
+    });
+
+    it("reports drift when another script took the active place", async () => {
+      const { server, adapter } = noInclude();
+      const state = await live(adapter, [e("a@evil.example")], initialSieveState());
+      server.scripts.set("mine", "keep;\n");
+      server.active = "mine";
+      expect((await adapter.verify(state)).drifted).toBe(true);
+    });
+
+    it("uninstalls a rules script that is active", async () => {
+      const { server, adapter } = noInclude();
+      const state = await live(adapter, [e("a@evil.example")], initialSieveState());
+      await adapter.uninstall(state);
+      expect(server.active).toBeNull();
+      expect(server.scripts.size).toBe(0);
+    });
+  });
+
+  it("leaves a directly active rules script alone once the server has include", async () => {
+    const { server, adapter } = setup();
+    server.extensions.delete("include");
+    const first = await live(adapter, [e("a@evil.example")], initialSieveState());
+    server.extensions.add("include");
+    const state = await live(adapter, [e("a@evil.example"), e("b@evil.example", 2)], first);
+    expect(server.active).toBe("senderban-rules");
+    expect(server.scripts.get("senderban-rules")).not.toContain("include");
+    expect((await adapter.verify(state)).drifted).toBe(false);
+    // One write per change: an include written into the live script and then overwritten would show as a third.
+    expect(server.puts.filter((name) => name === "senderban-rules")).toHaveLength(2);
+  });
+
+  describe("what a round costs", () => {
+    const round = async (
+      adapter: SieveAdapter,
+      server: FakeSieveServer,
+      list: Blocklist,
+      state: OpaqueState,
+    ) => {
+      server.commands.length = 0;
+      const next = await live(adapter, list, state);
+      return { next, commands: [...server.commands] };
+    };
+
+    it("sends one LISTSCRIPTS and one write per change, with include", async () => {
+      const { server, adapter } = setup();
+      const first = await round(adapter, server, [e("a@evil.example")], initialSieveState());
+      // LISTSCRIPTS behind the first write: a script activated meanwhile is seen, not switched off.
+      expect(first.commands).toEqual([
+        "GETSCRIPT",
+        "HAVESPACE",
+        "PUTSCRIPT",
+        "LISTSCRIPTS",
+        "GETSCRIPT",
+        "PUTSCRIPT",
+        "SETACTIVE",
+      ]);
+      const second = await round(adapter, server, [e("b@evil.example", 2)], first.next);
+      expect(second.commands).toEqual([
+        "GETSCRIPT",
+        "HAVESPACE",
+        "LISTSCRIPTS",
+        "GETSCRIPT",
+        "PUTSCRIPT",
+      ]);
+      server.commands.length = 0;
+      await adapter.verify(second.next);
+      expect(server.commands).toEqual(["GETSCRIPT", "LISTSCRIPTS", "GETSCRIPT"]);
+    });
+
+    it("costs a failing round no LISTSCRIPTS", async () => {
+      const { server, adapter } = setup();
+      const first = await round(adapter, server, [e("a@evil.example")], initialSieveState());
+      server.scripts.set("senderban-rules", "keep;\n");
+      server.commands.length = 0;
+      expect(await failure(sync(adapter, [e("b@evil.example", 2)], first.next))).toBe(
+        "REMOTE_CHANGED",
+      );
+      expect(server.commands).toEqual(["GETSCRIPT"]);
+    });
+
+    it("spends one more LISTSCRIPTS only when it takes the active place", async () => {
+      const { server, adapter } = noInclude();
+      const first = await round(adapter, server, [e("a@evil.example")], initialSieveState());
+      expect(first.commands).toEqual([
+        "GETSCRIPT",
+        "HAVESPACE",
+        "LISTSCRIPTS",
+        "PUTSCRIPT",
+        "LISTSCRIPTS",
+        "SETACTIVE",
+      ]);
+      const second = await round(adapter, server, [e("b@evil.example", 2)], first.next);
+      expect(second.commands).toEqual(["GETSCRIPT", "HAVESPACE", "LISTSCRIPTS", "PUTSCRIPT"]);
+    });
+  });
+
+  describe("sieveFit", () => {
+    const script = (name: string, active: boolean) => ({ name, active });
+    const all = new Set(["fileinto", "mailbox", "envelope", "include"]);
+    const bare = new Set(["fileinto", "mailbox", "envelope"]);
+
+    it("needs the rule's extensions everywhere", () => {
+      expect(sieveFit(new Set(["fileinto", "mailbox"]), [])).toBe("missing-extensions");
+    });
+    it("is fine with an active script where include can reach it", () => {
+      expect(sieveFit(all, [script("mine", true)])).toBe("ok");
+    });
+    it("refuses a person's active script where include cannot", () => {
+      expect(sieveFit(bare, [script("mine", true)])).toBe("own-script");
+    });
+    it("takes the active place only if it is free or already ours", () => {
+      expect(sieveFit(bare, [])).toBe("ok");
+      expect(sieveFit(bare, [script("mine", false)])).toBe("ok");
+      expect(sieveFit(bare, [script("senderban-rules", true)])).toBe("ok");
+    });
   });
 
   it("rejects state that is not ours or malformed", async () => {
