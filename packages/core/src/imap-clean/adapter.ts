@@ -55,6 +55,8 @@ export const RETRO_HOLD_MS = 1_800_000;
 export const RETRO_HOLD_MAX_MS = 21_600_000;
 /** Unit: milliseconds. A mail flood repeats the gap on every drain; every rule walks the Inbox at most once in this time. */
 export const SWEEP_ALL_GAP_MS = 3_600_000;
+/** Longest pace of a failing save of a waiting sweep. Unit: milliseconds. Gaps come at a sender's wish, and the write is up to 1 MB. */
+export const SAVE_RETRY_MS = 60_000;
 const DAY_MS = 86_400_000;
 
 const StateSchema = z.strictObject({
@@ -196,6 +198,7 @@ export class ImapCleanAdapter implements BlockAdapter {
   #sweepAll = false;
   /** The saved state says a sweep is owed: a flood of gaps writes it once. */
   #sweepOwed = false;
+  #saveTriedAt = Number.NEGATIVE_INFINITY;
   /** Entries still queued, as of the last saved state. */
   #queued = 0;
   /** The server turned the last move down: rules are held, but mail is not moving, and `verify` must say so. */
@@ -254,15 +257,19 @@ export class ImapCleanAdapter implements BlockAdapter {
     const due = this.#sweptAllAt + (force ? RETRO_HOLD_MS : SWEEP_ALL_GAP_MS);
     if (this.#now() < due) this.#deferSweep(due);
     else this.#startSweep();
-    if (!this.#sweepOwed) this.#saveSweepOwed();
+    this.#saveSweepOwed();
   }
 
+  /** Throws what the save threw. A try inside SAVE_RETRY_MS of a failed one waits: the request is in memory, and a later round tries. */
   #saveSweepOwed(): void {
+    if (this.#sweepOwed || this.#now() - this.#saveTriedAt < SAVE_RETRY_MS) return;
+    this.#saveTriedAt = this.#now();
     this.#options.updateState((state) => ({
       adapterId: IMAP_CLEAN_ADAPTER_ID,
       data: { ...parseState(state), sweepOwed: true },
     }));
     this.#sweepOwed = true;
+    this.#saveTriedAt = Number.NEGATIVE_INFINITY;
   }
 
   /** A method, so the compiler does not assume the flag is still false after an await. */
@@ -310,7 +317,7 @@ export class ImapCleanAdapter implements BlockAdapter {
   #plan(list: Blocklist, state: OpaqueState): Plan {
     const current = parseState(state);
     // A save that failed at the gap is tried once a round: without it a restart loses a sweep the cursor has already gone past.
-    if (this.#owesSweep() && !this.#sweepOwed) {
+    if (this.#owesSweep()) {
       try {
         this.#saveSweepOwed();
       } catch {

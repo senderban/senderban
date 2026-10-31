@@ -236,6 +236,17 @@ describe("scanHistory", () => {
     ]);
   });
 
+  it("reads only what is not on a remote when asked", () => {
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+    expect(scanHistory(dir, ["somelogin"], true)).toEqual([]);
+    expect(scanHistory(dir, ["somelogin"])).not.toEqual([]);
+    writeFileSync(join(dir, "plus.txt"), "fourthlogin\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "new");
+    expect(scanHistory(dir, ["somelogin", "fourthlogin"], true).map((f) => f.what)).toEqual(["#2"]);
+    git("update-ref", "-d", "refs/remotes/origin/main");
+  });
+
   it("reads a colour-forcing git setting away, and reports a type it does not read", () => {
     writeFileSync(join(dir, "notes.db"), Buffer.from("\0\0user thirdlogin\0\0", "latin1"));
     writeFileSync(join(dir, "setup.exe"), "MZ");

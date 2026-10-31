@@ -376,6 +376,18 @@ describe("SieveAdapter failure handling", () => {
     expect(server.scripts.get("senderban-rules")).toBe(edited);
   });
 
+  it("fails the round as before when a later write fails and no person's script was touched", async () => {
+    const { server, adapter } = setup();
+    let writes = 0;
+    server.beforePut = (name) => {
+      if (name !== "senderban-rules") return;
+      writes += 1;
+      if (writes === 2) throw new AdapterError("REJECTED", "refused");
+    };
+    const list = [entry(1, "exactAddress", "a@example.com")];
+    expect(await failure(sync(adapter, list, initialSieveState()))).toBe("REJECTED");
+  });
+
   it("counts a saved copy of a person's script as rules to take out", () => {
     const start = initialSieveState();
     const includeBackup = { scriptName: "mine", sha256: "0".repeat(64), content: "keep;" };

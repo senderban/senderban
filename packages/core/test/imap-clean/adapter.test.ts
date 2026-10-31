@@ -13,6 +13,7 @@ import {
   RETRO_BATCH,
   RETRO_SCAN_ABOVE,
   RETRO_WINDOW_UIDS,
+  SAVE_RETRY_MS,
   SWEEP_ALL_GAP_MS,
   initialCleanState,
 } from "../../src/imap-clean/adapter.js";
@@ -738,14 +739,23 @@ describe("clearing past mail", () => {
     const box = new FakeBox().fill([[1, "a@blocked.example"]]);
     let saved: OpaqueState = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
     let refuse = false;
+    let tries = 0;
+    const clock = { now: 1_000 };
     const updateState = (change: (state: OpaqueState) => OpaqueState): void => {
+      tries += 1;
       if (refuse) throw new Error("no");
       saved = change(saved);
     };
     const start = (): ImapCleanAdapter => {
       const link = new CleanLink();
       link.attach(box);
-      return new ImapCleanAdapter({ accountId: "x", link, initialState: saved, updateState });
+      return new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: saved,
+        updateState,
+        now: () => clock.now,
+      });
     };
     const first = start();
     first.sweepAll();
@@ -757,10 +767,20 @@ describe("clearing past mail", () => {
       first.sweepAll();
     }).toThrow("no");
     expect(dataOf(saved).sweepOwed).toBe(false);
+    // A flood of gaps inside the pace costs no more writes than one.
+    tries = 0;
+    first.sweepAll();
+    await first.plan([a], saved);
+    await first.plan([a], saved);
+    expect(tries).toBe(0);
+
+    clock.now += SAVE_RETRY_MS;
     await first.plan([a], saved); // still failing: the plan does not throw
+    expect(tries).toBe(1);
     expect(dataOf(saved).sweepOwed).toBe(false);
 
     refuse = false;
+    clock.now += SAVE_RETRY_MS;
     await first.plan([a], saved);
     expect(dataOf(saved).sweepOwed).toBe(true);
     first.retire();
@@ -855,11 +875,12 @@ describe("clearing past mail", () => {
     adapter.retire();
   });
 
-  it("asks again at the next gap when the state could not be saved, and keeps the request", () => {
+  it("asks again at a gap after the pace when the state could not be saved, and keeps the request", () => {
     const updateState = vi.fn<(change: (state: OpaqueState) => OpaqueState) => void>();
     updateState.mockImplementationOnce(() => {
       throw new Error("disk full");
     });
+    const clock = { now: 1_000 };
     const link = new CleanLink();
     link.attach(new FakeBox());
     const adapter = new ImapCleanAdapter({
@@ -867,11 +888,15 @@ describe("clearing past mail", () => {
       link,
       initialState: initialCleanState(),
       updateState,
+      now: () => clock.now,
     });
     expect(() => {
       adapter.sweepAll();
     }).toThrow("disk full");
     expect(adapter.hasWork).toBe(true);
+    adapter.sweepAll();
+    expect(updateState).toHaveBeenCalledTimes(1);
+    clock.now += SAVE_RETRY_MS;
     adapter.sweepAll();
     expect(updateState).toHaveBeenCalledTimes(2);
     adapter.retire();

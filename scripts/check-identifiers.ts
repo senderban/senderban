@@ -135,6 +135,8 @@ const BINARY =
  * in history is reported instead, so leaving it out is a decision and not a silence. gitleaks does not read these either.
  */
 const HISTORY_SKIPPED = ["exe", "dll", "node", "zip", "gz", "jar"];
+/** Largest output of one `git` call. Unit: bytes. The whole history's patch was 4 MB on 2026-10-31, and parsing 247 MiB took about a minute. */
+const GIT_OUTPUT_MAX_BYTES = 256 * 1024 * 1024;
 /** Generated: npm writes package maintainers' addresses into it. The denylist still reads it. */
 const LOCKFILE = /(?:^|\/)package-lock\.json$/u;
 
@@ -301,7 +303,7 @@ function git(
   return execFileSync("git", args, {
     cwd: root,
     encoding: encoding === "utf8" ? "utf8" : "buffer",
-    maxBuffer: 256 * 1024 * 1024,
+    maxBuffer: GIT_OUTPUT_MAX_BYTES,
   });
 }
 
@@ -364,15 +366,35 @@ export function addedByFile(patch: string): Map<string, string[]> {
 }
 
 /** Every line any commit added, merge resolutions included. */
-export function scanHistory(root: string, denylist: readonly string[]): Finding[] {
+export function scanHistory(
+  root: string,
+  denylist: readonly string[],
+  unpushedOnly = false,
+): Finding[] {
   const exact = freemailHosts(root);
+  const range = unpushedOnly ? ["--all", "--not", "--remotes"] : ["--all"];
+  try {
+    return scanRange(root, denylist, exact, range);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOBUFS") throw error;
+    const limit = `${String(GIT_OUTPUT_MAX_BYTES)} bytes`;
+    return [{ file: "history", line: 0, kind: "unscannable", what: `git log over ${limit}` }];
+  }
+}
+
+function scanRange(
+  root: string,
+  denylist: readonly string[],
+  exact: ReadonlySet<string>,
+  range: readonly string[],
+): Finding[] {
   // `--text`: git calls a UTF-16 file binary, and PowerShell's `>` writes those. Without its NUL bytes it reads as text.
   const patch = String(
     git(root, [
       "-c",
       "log.showRoot=true",
       "log",
-      "--all",
+      ...range,
       "-p",
       "-U0",
       "--text",
@@ -386,7 +408,7 @@ export function scanHistory(root: string, denylist: readonly string[]): Finding[
       ...HISTORY_SKIPPED.map((type) => `:(exclude,glob,icase)**/*.${type}`),
     ]),
   ).replaceAll("\0", "");
-  const unread = String(git(root, ["log", "--all", "--name-only", "--format="]))
+  const unread = String(git(root, ["log", ...range, "--name-only", "--format="]))
     .split("\n")
     .filter((file) => HISTORY_SKIPPED.some((type) => file.toLowerCase().endsWith(`.${type}`)));
   const skipped = [...new Set(unread)].map((file): Finding => ({
@@ -398,7 +420,7 @@ export function scanHistory(root: string, denylist: readonly string[]): Finding[
   // Commits and no diff at all: a setting changed what `git log` prints, and silence must not read as clean.
   if (
     !patch.includes("diff --git ") &&
-    String(git(root, ["rev-list", "--all", "--count"])).trim() !== "0"
+    String(git(root, ["rev-list", ...range, "--count"])).trim() !== "0"
   ) {
     skipped.push({
       file: "history",
@@ -457,7 +479,8 @@ function main(argv: readonly string[]): number {
       // Every commit message of every ref: one `git log`, scanned as one text (a hit names the line, not the commit).
       const messages = String(git(root, ["log", "--all", "--format=%B"]));
       found.push(...scanText(messages, "commit messages", terms, freemailHosts(root)));
-      found.push(...scanHistory(root, terms));
+      // A push checks only what it publishes: CI reads the whole history on every run.
+      found.push(...scanHistory(root, terms, argv.includes("--unpushed")));
     }
   }
   for (const f of found) console.error(`${f.file}:${String(f.line)}: ${shown(f, masked)}`);
