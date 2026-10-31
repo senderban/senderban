@@ -83,7 +83,7 @@
       <h1>Privacy policy</h1>
       <p class="lead">Senderban runs on your device. We never receive your mail data.</p>
       <p class="status">
-        <strong>Effective 30 October 2026.</strong> Senderban is an early-release, open-source
+        <strong>Effective 31 October 2026.</strong> Senderban is an early-release, open-source
         Windows app (<a href="/">senderban.com</a>). This policy describes the code in
         <a href="https://github.com/senderban/senderban">the public repository</a>, so you can check
         every statement against it.
@@ -135,9 +135,10 @@
 
       <h2>Google user data (Gmail)</h2>
       <p>
-        Gmail support uses your own Google Cloud project: you create an OAuth client there and enter
-        its client ID and secret in Senderban. Senderban never sees any credentials but yours, and
-        no one else holds access to your mail. It asks for exactly two permissions:
+        You sign in to Gmail with your Google account, on Google's page in your browser. Senderban
+        never sees your password. The OAuth client that comes with the app only names the app to
+        Google: it gives no one access to your mail, because the tokens stay on your device. It asks
+        for exactly two permissions:
       </p>
       <ul>
         <li>
@@ -152,10 +153,11 @@
         </li>
       </ul>
       <p>
-        What is stored on your device: your Gmail address, the OAuth client ID and secret you
-        entered, and a refresh token, the token and the secret both encrypted as described above.
-        Access tokens are kept in memory only. Google user data is used only to provide these
-        user-facing features and is not used for anything else.
+        What is stored on your device: your Gmail address and a refresh token, the token encrypted
+        as described above. If you chose to use your own Google Cloud project, also that project's
+        OAuth client ID and secret, the secret encrypted the same way. Access tokens are kept in
+        memory only. Google user data is used only to provide these user-facing features and is not
+        used for anything else.
       </p>
       <p>
         <strong>

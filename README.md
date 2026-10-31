@@ -81,9 +81,12 @@ Full policy: [senderban.com/privacy](https://senderban.com/privacy/).
 
 ### Gmail
 
-Senderban signs in through your own Google Cloud project, so nobody else holds access to your mail.
-That takes a one-time setup: [docs/gmail-setup.md](docs/gmail-setup.md). Then open Senderban from the
-tray, **Accounts**, **Add mailbox**, **Gmail**, paste the client, **Add Gmail account**, **Restart now**.
+Open Senderban from the tray, **Accounts**, **Add mailbox**, **Gmail**, **Add Gmail account**, sign in
+with your Google account in your browser, **Restart now**. There is nothing to set up.
+
+Google has not verified Senderban yet, so the sign-in page shows "Google hasn't verified this app"
+and the app is limited to 100 users. To sign in through a Google Cloud project you own instead, see
+[docs/gmail-setup.md](docs/gmail-setup.md).
 
 ### MXroute and other mail servers
 

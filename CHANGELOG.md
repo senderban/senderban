@@ -23,6 +23,9 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Changed
 
+- Gmail no longer needs a Google Cloud project: the installer comes with Senderban's own client and
+  you sign in with your Google account. Your own project stays available under **Use my own Google
+  project (advanced)**.
 - Servers without the Sieve `include` extension work: Senderban's rules become the active script
   when that place is free. A mailbox with its own active script on such a server is refused when
   added, and that script is never touched.

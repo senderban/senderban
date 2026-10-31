@@ -1,8 +1,8 @@
-# Gmail setup
+# Use your own Google project with Gmail (advanced)
 
-Senderban talks to Gmail through a Google Cloud project that you own. Nobody else holds access to
-your mail, and there is no Senderban server in between. This is a one-time setup. It needs a Google
-account and no payment.
+You do not need this page to use Gmail: Senderban comes with its own Google client, and you sign in
+with your Google account. This page is for people who want sign-in to go through a Google Cloud
+project they own. It is a one-time setup. It needs a Google account and no payment.
 
 Google changes the console's wording from time to time. If a label below does not match, look for the
 nearest one.
@@ -30,8 +30,8 @@ Open **Google Auth Platform** in the same project.
 ## 4. Connect Senderban
 
 1. Open Senderban from the tray icon, then **Accounts**, **Add mailbox**, **Gmail**.
-2. Paste the client ID and secret, and press **Save client**. The secret is stored encrypted on this
-   device.
+2. Open **Use my own Google project (advanced)**, paste the client ID and secret, and press
+   **Save client**. The secret is stored encrypted on this device.
 3. Press **Add Gmail account** and sign in in your browser.
 4. Google shows "Google hasn't verified this app". That is expected: the app is your own project.
    Continue.
