@@ -89,26 +89,13 @@ export const EXACT_HOSTS: readonly string[] = [
   "github.io",
   // The server field's placeholder in Advanced (advanced.js): MXroute's naming.
   "eagle.mxlogin.com",
-  // Find my provider (packages/core/src/detect/providers.ts, ADR 0018): the IMAP servers it suggests. Each is a provider's
-  // own public host, on its help page.
-  "imap.mail.me.com",
-  "imap.mail.yahoo.com",
-  "imap.aol.com",
-  "imap.gmx.net",
-  "imap.gmx.com",
-  "imap.web.de",
-  // Its zones of mail hosts. Exact and not in PUBLIC_ZONES: a host below one of these names a customer or a real server.
-  "protection.outlook.com",
-  "mail.icloud.com",
-  "am0.yahoodns.net",
-  "gm0.yahoodns.net",
-  "emig.gmx.net",
-  "protonmail.ch",
-  "mxrouting.net",
 ];
 
-/** `packages/core/src/freemail.ts` is itself a list of public mail providers; each is allowed as exactly itself. */
-const FREEMAIL_FILE = "packages/core/src/freemail.ts";
+/**
+ * These files are themselves lists of public mail providers; each name in them is allowed as exactly itself. A host below one
+ * of the detection table's zones stays out: it names a customer or a real server.
+ */
+const PROVIDER_FILES = ["packages/core/src/freemail.ts", "packages/core/src/detect/providers.ts"];
 
 /**
  * In code, a dotted word outside quotes counts as a host only with one of these top-level labels, so file names (a `.ts` or
@@ -213,7 +200,7 @@ function isReservedIpv4(address: string): boolean {
   );
 }
 
-/** True when `host` may appear in this repository. `exact` adds names allowed as exactly themselves (the freemail list). */
+/** True when `host` may appear in this repository. `exact` adds names allowed as exactly themselves (the provider lists). */
 export function isAllowedHost(host: string, exact: ReadonlySet<string> = new Set()): boolean {
   const h = host.toLowerCase().replace(/\.$/u, "").replace(LANE_SUFFIX, "");
   if (/^[\d.]+$/u.test(h)) return isReservedIpv4(h);
@@ -303,12 +290,13 @@ export function loadDenylist(env: NodeJS.ProcessEnv = process.env): {
   return pick(parse(readFileSync(file, "utf8")), "file");
 }
 
-/** The freemail provider names, read from the source so the two lists cannot drift. */
-export function freemailHosts(root: string): Set<string> {
-  const path = join(root, FREEMAIL_FILE);
-  if (!existsSync(path)) return new Set();
+/** The providers' names, read from the source so the lists cannot drift. */
+export function providerHosts(root: string): Set<string> {
   return new Set(
-    [...readFileSync(path, "utf8").matchAll(/"([a-z0-9.-]+\.[a-z]{2,})"/gu)].map((m) => m[1] ?? ""),
+    PROVIDER_FILES.map((file) => join(root, file))
+      .filter((path) => existsSync(path))
+      .flatMap((path) => [...readFileSync(path, "utf8").matchAll(/"([a-z0-9.-]+\.[a-z]{2,})"/gu)])
+      .map((m) => m[1] ?? ""),
   );
 }
 
@@ -334,7 +322,7 @@ export function decode(bytes: Buffer): string {
 
 /** Tracked files read from the working tree, or staged blobs. A file that cannot be read is a finding, not a pass. */
 export function scanRepo(root: string, denylist: readonly string[], staged = false): Finding[] {
-  const exact = freemailHosts(root);
+  const exact = providerHosts(root);
   const list = String(
     staged
       ? git(root, ["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"])
@@ -388,7 +376,7 @@ export function scanHistory(
   denylist: readonly string[],
   unpushedOnly = false,
 ): Finding[] {
-  const exact = freemailHosts(root);
+  const exact = providerHosts(root);
   const range = unpushedOnly ? ["--all", "--not", "--remotes"] : ["--all"];
   try {
     return scanRange(root, denylist, exact, range);
@@ -489,13 +477,13 @@ function main(argv: readonly string[]): number {
       console.error("check-identifiers: --message needs a file");
       return 2;
     }
-    found = scanText(readFileSync(file, "utf8"), "commit message", terms, freemailHosts(root));
+    found = scanText(readFileSync(file, "utf8"), "commit message", terms, providerHosts(root));
   } else {
     found = scanRepo(root, terms, argv.includes("--staged"));
     if (argv.includes("--messages")) {
       // Every commit message of every ref: one `git log`, scanned as one text (a hit names the line, not the commit).
       const messages = String(git(root, ["log", "--all", "--format=%B"]));
-      found.push(...scanText(messages, "commit messages", terms, freemailHosts(root)));
+      found.push(...scanText(messages, "commit messages", terms, providerHosts(root)));
       // A push checks only what it publishes: CI reads the whole history on every run.
       found.push(...scanHistory(root, terms, argv.includes("--unpushed")));
     }

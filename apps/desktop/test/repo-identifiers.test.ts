@@ -310,6 +310,14 @@ describe("isAllowedHost", () => {
     expect(isAllowedHost(host("notgoogle", "com"))).toBe(false);
   });
 
+  it("takes address ranges no host of anybody's lives in, and a public address not", () => {
+    expect(isAllowedHost(host("198", "18", "0", "1"))).toBe(true);
+    expect(isAllowedHost(host("192", "0", "0", "1"))).toBe(true);
+    expect(isAllowedHost(host("224", "0", "0", "1"))).toBe(true);
+    expect(isAllowedHost(host("198", "20", "0", "1"))).toBe(false);
+    expect(isAllowedHost(host("8", "8", "8", "8"))).toBe(false);
+  });
+
   it("keeps the exact-only list from growing (new tests use reserved names)", () => {
     // 23 test names, and one host the app itself names to people (ADR 0013).
     expect(EXACT_HOSTS.length).toBeLessThanOrEqual(24);

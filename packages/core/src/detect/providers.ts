@@ -98,16 +98,21 @@ const MX_ZONES: readonly (readonly [zone: string, answer: Detection])[] = [
   ["purelymail.com", { kind: "preset", provider: "purelymail" }],
 ];
 
-/** MXroute's mail host is the mailbox's server too (measured 2026-10-24); the relay behind it is not. */
-const MXROUTE_HOST = /^(?![a-z0-9-]*-relay\.)[a-z0-9-]+\.mxrouting\.net$/u;
+const MXROUTE_ZONE = "mxrouting.net";
 
 const inZone = (host: string, zone: string): boolean => host === zone || host.endsWith(`.${zone}`);
+
+/** MXroute's mail host is the mailbox's server too (measured 2026-10-24); the relay behind it is not. */
+function isMxrouteServer(host: string): boolean {
+  const name = host.slice(0, -`.${MXROUTE_ZONE}`.length);
+  return inZone(host, MXROUTE_ZONE) && /^[a-z0-9-]+$/u.test(name) && !name.endsWith("-relay");
+}
 
 /** The provider this mail host belongs to, or null. A zone matches whole labels: `evilgoogle.com` is not `google.com`. */
 export function answerForMailHost(host: string): Detection | null {
   const zone = MX_ZONES.find(([name]) => inZone(host, name));
   if (zone !== undefined) return zone[1];
-  return MXROUTE_HOST.test(host)
+  return isMxrouteServer(host)
     ? { kind: "server", provider: "mxroute", host, port: MANAGESIEVE_PORT }
     : null;
 }
