@@ -748,7 +748,7 @@ async function start(): Promise<Runtime> {
     states.set(account.id, "stopped");
   }
 
-  // "Other (IMAP)" mailboxes: no rule on any server, so the lane's rules act on the watcher's own connection (ADR 0012).
+  // "Other (IMAP)" mailboxes: no rule on any server, so the lane's rules act on the watcher's own connection (ADR 0014).
   const cleanAdapters = new Map<string, ImapCleanAdapter>();
   for (const account of configured.filter(isCleanAccount)) {
     const link = new CleanLink();
@@ -935,7 +935,7 @@ async function start(): Promise<Runtime> {
     },
   });
 
-  // Microsoft: one background lane per signed-in account. No watcher: new mail there is not announced yet (ADR 0012), and the lane follows the list.
+  // Microsoft: one background lane per signed-in account. No watcher: new mail there is not announced yet (ADR 0013), and the lane follows the list.
   const microsoftId = microsoftClientId();
   const graphBudgets = new GraphBudgets();
   const microsoftBuilt = buildMicrosoftLanes({

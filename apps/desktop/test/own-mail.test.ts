@@ -39,6 +39,25 @@ describe("collectOwnMail", () => {
     expect(canRejectSender("someone-else@gmail.com", own)).toBe(true);
   });
 
+  it("counts a Microsoft and a cleaning account by address, not by a login that is no address", () => {
+    const own = collectOwnMail([
+      { id: "m", microsoft: { email: "me@contoso.example", userId: "user-1" } },
+      {
+        id: "c",
+        clean: {
+          address: "you@fabrikam.example",
+          host: "imap.fabrikam.example",
+          port: 993,
+          secure: true,
+          user: "you",
+        },
+        passwordCipher: "AAECAw==",
+      },
+    ]);
+    expect([...own.addresses].sort()).toEqual(["me@contoso.example", "you@fabrikam.example"]);
+    expect([...own.domains].sort()).toEqual(["contoso.example", "fabrikam.example"]);
+  });
+
   it("does not offer 'Block at server' for a look-alike spelling of the person's own Gmail inbox", () => {
     const own = collectOwnMail([gmail("g", "me@gmail.com"), imap("a", "you@googlemail.com")]);
     for (const forged of [

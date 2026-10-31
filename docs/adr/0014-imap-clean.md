@@ -1,4 +1,4 @@
-# 0012 — Cleaning over IMAP where no rule can be written
+# 0014 — Cleaning over IMAP where no rule can be written
 
 Status: **accepted** (2026-10-31). Measured on a local Dovecot 2.4.5 container only; no iCloud, Yahoo, AOL or GMX account has been
 tried yet.

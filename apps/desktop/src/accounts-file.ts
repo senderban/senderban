@@ -4,7 +4,7 @@ import { AccountsFileSchema } from "@senderban/core";
 import type { AccountConfig } from "@senderban/core";
 import { safeStorage } from "electron";
 
-// 50 accounts x ~8 KiB of ciphertext is the worst case the schema allows; anything bigger is not ours.
+// 50 accounts x ~16 KiB of ciphertext (a Microsoft refresh token) is the worst case the schema allows; anything bigger is not ours.
 const FILE_MAX_BYTES = 1_048_576;
 
 /** Missing file = no accounts yet. A file that fails validation throws without echoing its content. */

@@ -1,4 +1,4 @@
-# 0012 — Outlook and Microsoft 365 through Graph message rules
+# 0013 — Outlook and Microsoft 365 through Graph message rules
 
 Status: **accepted for code, not measured** (2026-10-31). Nothing here has run against a real Microsoft mailbox: every shape comes from the
 v1.0 reference, read on 2026-10-31. M1 to M3 below decide the provisional numbers. Builds on ADR 0009 (the Gmail lane), which this one follows
@@ -66,7 +66,7 @@ switched off from October 2026 and fully by April 2027
 - **A rule only acts on mail arriving in the Inbox.** Mail already there stays, and retroactive cleaning is not offered.
 - **A work or school account may need approval.** Microsoft's default consent policy excludes `MailboxSettings.ReadWrite` for all but listed mail clients.
   Sign-in then reports that the organization must approve Senderban.
-- **A create that lands after the round gave up on it**, or that the list cannot show for two rounds, leaves a rule nothing knows, named `Senderban …`. The person can delete it in Outlook. Deleting by
+- **A create that lands after the round gave up on it**, or that the list cannot show for two rounds or at removal, leaves a rule nothing knows, named `Senderban …`. The person can delete it in Outlook. Deleting by
   name alone was refused: a second device's lane holds rules of the same form.
 
 ## Budget lines

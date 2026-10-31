@@ -69,7 +69,7 @@ export interface ManageOutcome {
  */
 export type ManageEntry = BlockEntry & {
   readonly gmail: "trash" | "no" | null;
-  /** What a signed-in Microsoft account does with the entry (ADR 0012); `null`: no Microsoft account, say nothing. */
+  /** What a signed-in Microsoft account does with the entry (ADR 0013); `null`: no Microsoft account, say nothing. */
   readonly outlook: "exact" | "wide" | "no" | null;
   readonly own: boolean;
   readonly applied: "yes" | "no" | "unknown";

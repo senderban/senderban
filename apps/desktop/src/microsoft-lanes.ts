@@ -163,7 +163,7 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
 }
 
 /**
- * What a Microsoft account does with one list entry (ADR 0012): "exact" for a single address, "wide" for a domain, which is a text match there, "no" for a
+ * What a Microsoft account does with one list entry (ADR 0013): "exact" for a single address, "wide" for a domain, which is a text match there, "no" for a
  * domain whose text match would also reach the person's own mail or a mail provider. Cheap: the window asks for the whole list on every change.
  */
 export function outlookCover(

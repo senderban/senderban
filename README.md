@@ -152,7 +152,8 @@ user name and API key once (it covers every mailbox and domain on your MXroute a
 "Measured" means it ran against a real account. "Measured on Dovecot, not on the provider" means
 the same code ran against a local Dovecot + Pigeonhole on 2026-10-31, and the provider's public
 ManageSieve port answered with the right abilities without a sign-in. No rule was written and no
-mail filtered at that provider ([ADR 0012](docs/adr/0012-generic-managesieve.md)).
+mail filtered at that provider ([ADR 0012](docs/adr/0012-generic-managesieve.md)). On the Other (IMAP)
+row it means the local Dovecot only ([ADR 0014](docs/adr/0014-imap-clean.md)).
 Not yet measured on MXroute: adding the `include` to a user's already-active Sieve script, and an
 envelope-sender match on its own (the test mail had the same From and envelope address).
 

@@ -233,7 +233,7 @@ const RefreshCipher = z
   .regex(/^[A-Za-z0-9+/]+={0,2}$/u);
 
 /**
- * A Microsoft mailbox (ADR 0012): Outlook.com or Microsoft 365. Only the refresh token is stored, as ciphertext; `refreshCipher` is missing
+ * A Microsoft mailbox (ADR 0013): Outlook.com or Microsoft 365. Only the refresh token is stored, as ciphertext; `refreshCipher` is missing
  * while the account is signed out. The client ID is the app's own, not per account.
  */
 export const MicrosoftAccountConfigSchema = z.strictObject({
@@ -256,7 +256,7 @@ export const MicrosoftSignInRequestSchema = GoogleSignInRequestSchema;
 
 /**
  * A mailbox with no rule mechanism a program can reach (iCloud, Yahoo, AOL, GMX): Senderban moves mail itself, over IMAP, while it
- * runs (ADR 0012). `address` is what the person knows it by; `user` is the login, which on iCloud may be only the part before the @.
+ * runs (ADR 0014). `address` is what the person knows it by; `user` is the login, which on iCloud may be only the part before the @.
  */
 export const CleanAccountConfigSchema = z.strictObject({
   id: z.string().regex(ACCOUNT_ID),

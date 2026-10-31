@@ -47,7 +47,8 @@ describe("a cleaning account in accounts.json", () => {
       passwordCipher: CIPHER,
     };
     const gmail = { id: "g", gmail: { email: "you@example.com" } };
-    for (const other of [imap, gmail]) {
+    const microsoft = { id: "m", microsoft: { email: "you@example.com", userId: "user-1" } };
+    for (const other of [imap, gmail, microsoft]) {
       const file = { version: 1, accounts: [clean(), other] };
       expect(AccountsFileSchema.safeParse(file).success).toBe(false);
     }
@@ -103,6 +104,7 @@ describe("the Other (IMAP) form", () => {
     ["a line break in the password", { password: "a\r\nb" }],
     ["an unknown key", { extra: 1 }],
     ["an id ending like a lane", { address: "you@example.mxroute" }],
+    ["an id ending like a Microsoft lane", { address: "you@example.graph" }],
   ])("refuses %s", (_, over) => {
     expect(CleanAddSchema.safeParse({ ...form, ...over }).success).toBe(false);
   });

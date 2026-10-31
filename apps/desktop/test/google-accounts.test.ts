@@ -163,6 +163,23 @@ describe("sign in", () => {
     expect(await signInGoogle(deps, {})).toEqual({ reply: "duplicate" });
   });
 
+  it("refuses a mailbox that a cleaning account already holds", async () => {
+    await saveAccounts(accountsPath, [
+      {
+        id: "clean",
+        clean: {
+          address: "me@gmail.com",
+          host: "imap.example.com",
+          port: 993,
+          secure: true,
+          user: "me",
+        },
+        passwordCipher: "AAECAw==",
+      },
+    ]);
+    expect(await signInGoogle(deps, {})).toEqual({ reply: "duplicate" });
+  });
+
   it("refuses a 51st account", async () => {
     await saveAccounts(
       accountsPath,

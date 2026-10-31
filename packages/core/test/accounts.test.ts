@@ -287,7 +287,7 @@ describe("MXroute key (advanced)", () => {
   it("refuses an id that could take another lane's id, also from a file", () => {
     const added = { ...account(), password: "pw" };
     delete (added as { passwordCipher?: string }).passwordCipher;
-    for (const id of ["a@example.com.mxroute", "a@example.com.gmail"]) {
+    for (const id of ["a@example.com.mxroute", "a@example.com.gmail", "a@example.com.graph"]) {
       expect(NewAccountSchema.safeParse({ ...added, id }).success).toBe(false);
     }
   });
@@ -504,6 +504,7 @@ describe("AccountAddSchema", () => {
     ["a name reserved for tests", { ...form, host: "mail.test" }],
     ["localhost", { ...form, host: "localhost" }],
     ["an address that ends like a lane id", { ...form, address: "you@example.mxroute" }],
+    ["an address that ends like a Microsoft lane", { ...form, address: "you@example.graph" }],
     ["a line break in the password", { ...form, password: "a\r\nb" }],
     ["a NUL in the password", { ...form, password: "a\u0000b" }],
     ["a password over 255 octets", { ...form, password: "ş".repeat(128) }],

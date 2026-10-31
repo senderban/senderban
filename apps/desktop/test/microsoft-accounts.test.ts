@@ -141,6 +141,23 @@ describe("signing in", () => {
     await expect(signInMicrosoftAccount(deps(), {})).resolves.toBe("duplicate");
   });
 
+  it("refuses a mailbox that a cleaning account already holds", async () => {
+    await saveAccounts(path, [
+      {
+        id: EMAIL,
+        clean: {
+          address: EMAIL,
+          host: "imap.example.com",
+          port: 993,
+          secure: true,
+          user: EMAIL,
+        },
+        passwordCipher: await encryptPassword("password"),
+      },
+    ]);
+    await expect(signInMicrosoftAccount(deps(), {})).resolves.toBe("duplicate");
+  });
+
   it("binds a re-sign-in to the account and replaces the token", async () => {
     await withAccount();
     const signIn = vi.fn((options: MicrosoftSignInOptions) => {

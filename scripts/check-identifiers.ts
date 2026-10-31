@@ -62,7 +62,7 @@ const PUBLIC_ZONES = [
  * public suffixes the address parser is tested on, and single public hosts. New tests use reserved names; this list does not grow.
  */
 export const EXACT_HOSTS: readonly string[] = [
-  // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0012).
+  // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0013).
   "account.live.com",
   "a.co",
   "b.com",
@@ -112,7 +112,7 @@ const WIDE_TLDS = new Set([
 /** Files read as code: outside quotes only BARE_TLDS count. Every other text file (md, yml, json, html, txt, env) uses WIDE_TLDS. */
 const CODE_FILE = /\.(?:[cm]?[jt]sx?|css)$/iu;
 /** Lane ids put a provider suffix after the mailbox domain (`a@example.com.mxroute`); the domain before it is what is checked. */
-const LANE_SUFFIX = /\.(?:mxroute|gmail)$/u;
+const LANE_SUFFIX = /\.(?:mxroute|gmail|graph)$/u;
 
 /**
  * The address parser's hostile inputs (a Cyrillic letter, a percent-encoded letter, a `\t` escape inside a domain) would leave

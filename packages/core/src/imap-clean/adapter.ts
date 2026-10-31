@@ -170,7 +170,7 @@ function needlesOf(entry: BlockEntry): string[] {
 /**
  * IMAP cleaning for providers with no rule API (iCloud, Yahoo, AOL, GMX, Web.de). **Not a block on the server**: nothing is written
  * there, so a mail stays in the Inbox while the app is closed. The rules live in this lane's state; `screen` applies them to new
- * mail on the watcher's own connection, and each new entry also clears the last RETRO_DAYS days (ADR 0012).
+ * mail on the watcher's own connection, and each new entry also clears the last RETRO_DAYS days (ADR 0014).
  */
 export class ImapCleanAdapter implements BlockAdapter {
   readonly id = IMAP_CLEAN_ADAPTER_ID;

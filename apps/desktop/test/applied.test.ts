@@ -61,6 +61,31 @@ describe("laneViewOf", () => {
   });
 });
 
+describe("a cleaning lane next to a Microsoft lane", () => {
+  const domain = { value: "spam.example", action: "junk", match: "subdomains" } as const;
+  const both = {
+    entries: [junk],
+    running: ["clean", "ms.graph"],
+    failed: [] as string[],
+    mxroute: new Set<string>(),
+    gmail: new Set<string>(),
+    rules: new Set(["ms.graph"]),
+    settled: new Set(["ms.graph"]),
+    skipped: false,
+    refused: () => new Set<string>(),
+  };
+
+  it("carries what Outlook will not take", () => {
+    expect(appliedFor(domain, false, null, laneViewOf(both), "no").applied).toBe("yes");
+  });
+
+  // A block holds on every mailbox: with its watcher away this one moves nothing, so no row can be confirmed.
+  it("leaves every row unconfirmed while the cleaning lane is away", () => {
+    const away = laneViewOf({ ...both, failed: ["clean"] });
+    expect(appliedFor(junk, false, null, away, "exact").applied).toBe("unknown");
+  });
+});
+
 describe("a Microsoft account in the list", () => {
   const domain = { value: "spam.example", action: "junk", match: "subdomains" } as const;
   const rulesOnly = laneViewOf({
