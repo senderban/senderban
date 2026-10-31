@@ -4,7 +4,8 @@
  * relative-luminance formula): on --bg and on --surface, text (fg, muted, accent, ok, warn, error) is
  * >= 4.5:1 in both themes (lowest: ok 5.02 light, error 6.79 dark); --control-border >= 3:1 (lowest
  * 3.61); --accent-fg on --accent 7.21 light / 9.04 dark. --line is a divider only and must not be the
- * sole edge of a control (SC 1.4.11).
+ * sole edge of a control (SC 1.4.11). --heading (card titles, on --surface only): 4.56 light / 5.91 dark,
+ * measured 2026-10-31.
  */
 :root {
   color-scheme: light dark;
@@ -15,6 +16,7 @@
   --line: #d9e3ec;
   --control-border: #6f8499;
   --accent: #0a5c8a;
+  --heading: #0a6cff;
   --accent-fg: #ffffff;
   --ok: #0f7a4f;
   --warn: #8a5a00;
@@ -31,6 +33,7 @@
     --line: #1b3956;
     --control-border: #5f7d9a;
     --accent: #4cc2e6;
+    --heading: #4da3ff;
     --accent-fg: #04141f;
     --ok: #3ecf9a;
     --warn: #e3b04b;

@@ -334,6 +334,9 @@ summary:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
 }
+.card h2 {
+  color: var(--heading);
+}
 .card-head {
   display: flex;
   flex-wrap: wrap;
