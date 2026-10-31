@@ -4,7 +4,7 @@ import {
   MAX_ACCOUNTS,
   NewAccountSchema,
   accountFromForm,
-  isImapAccount,
+  accountLogins,
   mailboxKey,
 } from "@senderban/core";
 import type { AccountAddInput, AccountConfig, NewAccount } from "@senderban/core";
@@ -74,11 +74,7 @@ export interface AccountAddSteps {
 function refusal(accounts: readonly AccountConfig[], account: NewAccount): AccountAddResult | null {
   const mailbox = mailboxKey(account.imap.user);
   const taken = accounts.some(
-    (a) =>
-      a.id === account.id ||
-      (isImapAccount(a) ? [a.imap.user, a.sieve.user] : [a.gmail.email]).some(
-        (login) => mailboxKey(login.toLowerCase()) === mailbox,
-      ),
+    (a) => a.id === account.id || accountLogins(a).some((login) => mailboxKey(login) === mailbox),
   );
   if (taken) return "exists";
   return accounts.length >= MAX_ACCOUNTS ? "limit" : null;

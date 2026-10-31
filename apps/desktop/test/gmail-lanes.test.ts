@@ -97,7 +97,7 @@ describe("createAccessTokenSource", () => {
   it("also bounds the part before the request (a refresh token that cannot be read)", async () => {
     const refresh = vi.fn();
     const token = createAccessTokenSource({
-      oauth: { refresh } as unknown as OAuthClient,
+      oauth: { refresh },
       refreshToken: () => new Promise(() => undefined),
       renewDeadlineMs: 20,
     });

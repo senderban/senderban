@@ -40,6 +40,7 @@ const PUBLIC_ZONES = [
   "github.com",
   "githubusercontent.com",
   "microsoft.com",
+  "microsoftonline.com",
   "electronjs.org",
   "nodejs.org",
   "npmjs.com",
@@ -61,6 +62,8 @@ const PUBLIC_ZONES = [
  * public suffixes the address parser is tested on, and single public hosts. New tests use reserved names; this list does not grow.
  */
 export const EXACT_HOSTS: readonly string[] = [
+  // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0012).
+  "account.live.com",
   "a.co",
   "b.com",
   "c.com",

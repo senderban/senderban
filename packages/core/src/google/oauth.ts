@@ -1,8 +1,17 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { AdapterError } from "../adapter.js";
+import { PKCE_VERIFIER } from "../oauth/pkce.js";
 import { GOOGLE_TIMEOUT_MS, parseJson, readBounded } from "./http.js";
 import type { GoogleCall } from "./http.js";
+
+export {
+  RANDOM_BYTES,
+  loopbackRedirectUri,
+  newPkce,
+  newState,
+  stateMatches,
+} from "../oauth/pkce.js";
+export type { Pkce } from "../oauth/pkce.js";
 
 // Google OAuth 2.0 for a Desktop-app client, loopback redirect, PKCE.
 // Read 2026-10-26: https://developers.google.com/identity/protocols/oauth2/native-app (endpoints, parameters, PKCE
@@ -23,45 +32,7 @@ export const GOOGLE_SCOPES = [GMAIL_FILTERS_SCOPE, GMAIL_METADATA_SCOPE] as cons
  * characters. Anything larger is not a token of Google's.
  */
 export const GOOGLE_TOKEN_BYTES = { code: 256, access: 2048, refresh: 512 } as const;
-/** The PKCE verifier Google accepts: 43-128 characters of the unreserved set (native-app page, read 2026-10-26). */
-const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/u;
 const PRINTABLE = /^[!-~]+$/u;
-
-/**
- * Random bytes behind the PKCE verifier and the `state`. 32 bytes = 256 bits; the verifier is 43 base64url
- * characters (Google: 43-128), the state is 43 as well (RFC 6749 §10.12 asks for an unguessable value).
- */
-export const RANDOM_BYTES = 32;
-
-export interface Pkce {
-  readonly verifier: string;
-  /** S256: base64url(SHA-256(verifier)), no padding. */
-  readonly challenge: string;
-}
-
-export function newPkce(): Pkce {
-  const verifier = randomBytes(RANDOM_BYTES).toString("base64url");
-  return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };
-}
-
-export function newState(): string {
-  return randomBytes(RANDOM_BYTES).toString("base64url");
-}
-
-/** Constant-time comparison of the `state` that came back; any other length is a different value. */
-export function stateMatches(expected: string, received: string): boolean {
-  const a = Buffer.from(expected, "utf8");
-  const b = Buffer.from(received, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** The redirect URI of a loopback listener, in the form Google documents (`http://127.0.0.1:port`). */
-export function loopbackRedirectUri(port: number): string {
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new RangeError("port must be an integer from 1 to 65535");
-  }
-  return `http://127.0.0.1:${String(port)}`;
-}
 
 export interface AuthUrlInput {
   readonly clientId: string;
@@ -265,7 +236,7 @@ export function createOAuthClient(options: OAuthClientOptions): OAuthClient {
   return {
     async exchangeCode({ code, verifier, redirectUri }, signal) {
       printable(code, GOOGLE_TOKEN_BYTES.code, "the authorization code");
-      if (!VERIFIER.test(verifier))
+      if (!PKCE_VERIFIER.test(verifier))
         throw new AdapterError("REJECTED", "the PKCE verifier is not valid");
       printable(redirectUri, 64, "the redirect address");
       const { status, text } = await post(

@@ -35,6 +35,19 @@ const planFor = (accountId: string, store: Store): Plan => ({
 });
 const ok = (data: unknown): ApplyResult => ({ applied: 1, failed: [], state: state(data) });
 
+describe("a state write that changes nothing", () => {
+  it("leaves the row alone", () => {
+    const store = new Store(openDatabase(":memory:"));
+    store.setState("a", { adapterId: "graph", data: { rules: [] } });
+    store.setState("a", { adapterId: "graph", data: { rules: [] } });
+    store.setState("a", { adapterId: "graph", data: { rules: ["x"] } });
+    expect(store.getState("a")).toEqual({ adapterId: "graph", data: { rules: ["x"] } });
+    store.setState("a", { adapterId: "other", data: { rules: ["x"] } });
+    expect(store.getState("a")?.adapterId).toBe("other");
+    store.close();
+  });
+});
+
 describe("block list", () => {
   it("adds, dedups on (match, value) and normalises", () => {
     const store = new Store(openDatabase(":memory:"));

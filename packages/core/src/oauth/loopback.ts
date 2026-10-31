@@ -1,11 +1,12 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { GOOGLE_TOKEN_BYTES, loopbackRedirectUri, stateMatches } from "./oauth.js";
+import { loopbackRedirectUri, stateMatches } from "./pkce.js";
+import type { LoopbackHostName } from "./pkce.js";
 
 /**
  * How long the sign-in waits for the person to finish in the browser. Unit: milliseconds. PROVISIONAL (5 min):
- * long enough to read Google's consent page and pick an account, short enough that a forgotten tab does not keep
+ * long enough to read the provider's consent page and pick an account, short enough that a forgotten tab does not keep
  * a port open for the rest of the session.
  */
 export const LOOPBACK_TIMEOUT_MS = 300_000;
@@ -24,32 +25,45 @@ export const LOOPBACK_LIMITS = {
 const REQUEST_TIMEOUT_MS = 10_000;
 /** A real redirect is one short GET line and a few headers. Unit: bytes. */
 const MAX_HEADER_BYTES = 8192;
+/**
+ * The same for `localhost`, where the code is long and a browser adds every cookie of that name (cookies are not port-scoped, so a developer's machine
+ * may hold several KiB). Unit: bytes. It must hold MAX_CODE_BYTES and those.
+ */
+const LOCALHOST_HEADER_BYTES = 16_384;
 /** Idle keep-alive sockets close at once: the listener answers one request per connection. Unit: milliseconds. */
 const KEEP_ALIVE_TIMEOUT_MS = 1;
-/** Google's authorization codes are at most 256 bytes (oauth2 page, "Token size", read 2026-10-26); printable ASCII. */
-const CODE_PATTERN = new RegExp(`^[\\x21-\\x7e]{1,${String(GOOGLE_TOKEN_BYTES.code)}}$`, "u");
+/** Google's authorization codes are at most 256 bytes (oauth2 page, "Token size", read 2026-10-26); printable ASCII. A provider with longer ones says so. */
+const DEFAULT_CODE_BYTES = 256;
+/** The longest code any provider may ask for: it must fit the request line under MAX_HEADER_BYTES. */
+const MAX_CODE_BYTES = 6144;
 
 export type LoopbackResult =
   | { readonly kind: "code"; readonly code: string }
-  /** The person pressed "Cancel" or "Deny" on Google's page (`error=access_denied`). */
+  /** The person pressed "Cancel" or "Deny" on the provider's page (`error=access_denied`). */
   | { readonly kind: "denied" }
+  /** The provider says someone else must approve this app first (`error=consent_required`). */
+  | { readonly kind: "needs-approval" }
   | {
       readonly kind: "failed";
       /** Fixed words: nothing from the request is carried here. */
       readonly reason:
-        "timeout" | "aborted" | "too-many-requests" | "google-error" | "listener-error";
+        "timeout" | "aborted" | "too-many-requests" | "provider-error" | "listener-error";
     };
 
 export interface LoopbackOptions {
   /** The `state` this sign-in sent; only a request that carries it is believed. */
   readonly state: string;
+  /** The name the provider redirects to; the listener binds 127.0.0.1 either way. */
+  readonly hostName?: LoopbackHostName;
+  /** The longest code this provider sends. Unit: bytes. */
+  readonly maxCodeBytes?: number;
   readonly timeoutMs?: number;
   readonly maxRequests?: number;
   readonly signal?: AbortSignal;
 }
 
 export interface Loopback {
-  /** Where Google sends the browser: `http://127.0.0.1:<port>`, the form Google documents for a Desktop client. */
+  /** Where the provider sends the browser: `http://<hostName>:<port>`. */
   readonly redirectUri: string;
   readonly host: string;
   readonly port: number;
@@ -98,8 +112,8 @@ function reply(
 }
 
 /**
- * The one-shot listener for Google's redirect (RFC 8252 §7.3 and §8.3: loopback, port open only for the request,
- * closed once the answer is in). It believes only a `GET /` with `Host` exactly `127.0.0.1:<port>` (a rebound DNS
+ * The one-shot listener for the provider's redirect (RFC 8252 §7.3 and §8.3: loopback, port open only for the request,
+ * closed once the answer is in). It believes only a `GET /` with `Host` exactly `<hostName>:<port>` (a rebound DNS
  * name or a second origin cannot use it) and the `state` of this sign-in, compared in constant time. Anything else
  * gets a bare 400 that echoes nothing and the listener keeps waiting: a stray request from another program must not
  * end the sign-in, and cannot finish it. It stops on the first believed answer, at the time limit, after
@@ -108,6 +122,12 @@ function reply(
 export async function startLoopback(options: LoopbackOptions): Promise<Loopback> {
   const maxRequests = options.maxRequests ?? LOOPBACK_MAX_REQUESTS;
   const timeoutMs = options.timeoutMs ?? LOOPBACK_TIMEOUT_MS;
+  const hostName = options.hostName ?? "127.0.0.1";
+  const maxCodeBytes = options.maxCodeBytes ?? DEFAULT_CODE_BYTES;
+  if (!Number.isInteger(maxCodeBytes) || maxCodeBytes < 1 || maxCodeBytes > MAX_CODE_BYTES) {
+    throw new RangeError("maxCodeBytes is out of range");
+  }
+  const codePattern = new RegExp(`^[\\x21-\\x7e]{1,${String(maxCodeBytes)}}$`, "u");
   const inRange = (value: number, range: { readonly min: number; readonly max: number }): boolean =>
     Number.isInteger(value) && value >= range.min && value <= range.max;
   if (!inRange(timeoutMs, LOOPBACK_LIMITS.timeoutMs)) {
@@ -125,7 +145,8 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
   let answered = false;
   let requests = 0;
   let expectedHost = "";
-  const server: Server = createServer({ maxHeaderSize: MAX_HEADER_BYTES }, (req, res) => {
+  const maxHeaderSize = hostName === "localhost" ? LOCALHOST_HEADER_BYTES : MAX_HEADER_BYTES;
+  const server: Server = createServer({ maxHeaderSize }, (req, res) => {
     handle(req, res);
   });
   server.requestTimeout = REQUEST_TIMEOUT_MS;
@@ -196,18 +217,20 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
     const error = url.searchParams.get("error");
     if (error !== null) {
       answered = true;
-      // The words are never shown: only whether the person said no, or Google said something else.
+      // The words are never shown: only whether the person said no, whether someone else must approve, or something else.
       reply(res, 200, PAGE, "text/html; charset=utf-8", () => {
         finish(
           error === "access_denied"
             ? { kind: "denied" }
-            : { kind: "failed", reason: "google-error" },
+            : error === "consent_required"
+              ? { kind: "needs-approval" }
+              : { kind: "failed", reason: "provider-error" },
         );
       });
       return;
     }
     const code = url.searchParams.get("code");
-    if (code === null || !CODE_PATTERN.test(code)) {
+    if (code === null || !codePattern.test(code)) {
       bad();
       return;
     }
@@ -236,7 +259,7 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
     throw new Error("the listener has no TCP address");
   }
   const { port } = address satisfies AddressInfo;
-  expectedHost = `127.0.0.1:${String(port)}`;
+  expectedHost = `${hostName}:${String(port)}`;
   // A listener that fails after it started has nobody to tell: it ends the sign-in instead of hanging.
   server.on("error", () => {
     finish({ kind: "failed", reason: "listener-error" });
@@ -245,7 +268,7 @@ export async function startLoopback(options: LoopbackOptions): Promise<Loopback>
   else options.signal?.addEventListener("abort", onAbort, { once: true });
 
   return {
-    redirectUri: loopbackRedirectUri(port),
+    redirectUri: loopbackRedirectUri(port, hostName),
     host: "127.0.0.1",
     port,
     result,

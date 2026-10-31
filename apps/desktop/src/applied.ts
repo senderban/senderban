@@ -7,13 +7,17 @@ type BlockMatch = BlockEntry["match"];
  * of each MXroute lane's state, not 5,000.
  */
 export interface LaneView {
-  /** At least one lane writes folder rules (an IMAP account's Sieve lane). */
+  /** At least one lane writes folder rules for every entry (an IMAP account's Sieve lane). */
   readonly hasFolderLane: boolean;
+  /** Microsoft lanes that have not reported "nothing left to send": a first round, a backlog or a failure. */
+  readonly rulesBehind?: boolean;
   readonly folderBehind: boolean;
   readonly mxrouteBehind: boolean;
   readonly gmailBehind: boolean;
   /** A Gmail account has no lane this session (signed out, expired): a block does not reach it. */
   readonly missing: boolean;
+  /** A Microsoft account has no lane this session: unlike Gmail's, its rules take domains too, so every entry is in doubt. */
+  readonly missingAll?: boolean;
   /** Addresses a running MXroute lane holds; null when a lane's state could not be read. */
   readonly refused: HeldAddresses | null;
 }
@@ -27,19 +31,26 @@ export function laneViewOf(input: {
   readonly failed: Iterable<string>;
   readonly mxroute: ReadonlySet<string>;
   readonly gmail: ReadonlySet<string>;
+  /** Microsoft lanes. */
+  readonly rules?: ReadonlySet<string>;
   /** Gmail lanes whose last round left nothing to send: the signal is positive, so a backlog or a first round is not confirmed. */
   readonly settled: ReadonlySet<string>;
   readonly skipped: boolean;
+  readonly skippedAll?: boolean;
   readonly refused: () => HeldAddresses | null;
 }): LaneView {
   const behind = [...input.failed].filter((id) => input.running.includes(id));
-  const isFolderLane = (id: string) => !input.mxroute.has(id) && !input.gmail.has(id);
+  const isRulesLane = (id: string) => input.rules?.has(id) === true;
+  const isFolderLane = (id: string) =>
+    !input.mxroute.has(id) && !input.gmail.has(id) && !isRulesLane(id);
   return {
     hasFolderLane: input.running.some(isFolderLane),
     folderBehind: behind.some(isFolderLane),
     mxrouteBehind: behind.some((id) => input.mxroute.has(id)),
     gmailBehind: input.running.some((id) => input.gmail.has(id) && !input.settled.has(id)),
+    rulesBehind: input.running.some((id) => isRulesLane(id) && !input.settled.has(id)),
     missing: input.skipped,
+    missingAll: input.skippedAll === true,
     refused: input.entries.some((e) => e.action === "reject") ? input.refused() : new Set(),
   };
 }
@@ -57,19 +68,24 @@ export function appliedFor(
   own: boolean,
   gmail: "trash" | "no" | null,
   view: LaneView,
+  /** What a Microsoft account does with it; "no": its text match would reach the person's own mail, so Outlook does not take it. */
+  outlook: "exact" | "wide" | "no" | null = null,
 ): Applied {
   if (own) return { applied: "no", atServer: false };
   const onGmail = gmail === "trash";
+  const onOutlook = outlook === "exact" || outlook === "wide";
   const refusal = entry.action === "reject";
   const atServer = refusal && view.refused?.has(entry.value) === true;
   if (
     // Only a single address could have reached that account: a Gmail filter takes nothing else.
     (view.missing && entry.match === "exactAddress") ||
+    view.missingAll === true ||
     view.folderBehind ||
     (onGmail && view.gmailBehind) ||
+    (onOutlook && view.rulesBehind === true) ||
     (refusal && (view.mxrouteBehind || view.refused === null))
   ) {
     return { applied: "unknown", atServer };
   }
-  return { applied: view.hasFolderLane || onGmail ? "yes" : "no", atServer };
+  return { applied: view.hasFolderLane || onGmail || onOutlook ? "yes" : "no", atServer };
 }

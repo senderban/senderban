@@ -41,7 +41,7 @@ export const ACCESS_TOKEN_RENEW_DEADLINE_MS = 15_000;
  * each renewal only, so the plain value lives for the length of one request.
  */
 export function createAccessTokenSource(options: {
-  readonly oauth: OAuthClient;
+  readonly oauth: Pick<OAuthClient, "refresh">;
   readonly refreshToken: () => Promise<string>;
   readonly now?: () => number;
   readonly renewDeadlineMs?: number;

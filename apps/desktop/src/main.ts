@@ -19,9 +19,15 @@ import {
   initialMxrouteState,
   isGmailAccount,
   isImapAccount,
+  isMicrosoftAccount,
   mxrouteLaneId,
   createOAuthClient,
+  createMicrosoftOAuthClient,
+  graphEditedRules,
+  graphLaneId,
+  initialGraphState,
   GmailBudgets,
+  GraphBudgets,
   isOwnEntry,
   isOwnMailbox,
   initialGmailState,
@@ -41,7 +47,12 @@ import type {
   UnblockResult,
   WatcherState,
 } from "@senderban/core";
-import { connectManageSieve, imapflowConnector, signIn } from "@senderban/core/node";
+import {
+  connectManageSieve,
+  imapflowConnector,
+  signIn,
+  signInMicrosoft,
+} from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
 import { checkAccount } from "./account-check.js";
@@ -81,7 +92,24 @@ import {
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
 import { restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
-import { openGoogleAuthUrl } from "./google-url.js";
+import { openGoogleAuthUrl, openMicrosoftAuthUrl } from "./google-url.js";
+import {
+  cancelMicrosoftSignIn,
+  microsoftClientId,
+  microsoftState,
+  removeMicrosoftAccount,
+  signInMicrosoftAccount,
+  storeRefreshToken,
+} from "./microsoft-accounts.js";
+import type { MicrosoftDeps } from "./microsoft-accounts.js";
+import {
+  buildMicrosoftLanes,
+  createMicrosoftLifecycle,
+  microsoftSkippedNote,
+  microsoftWideNote,
+  outlookCover,
+} from "./microsoft-lanes.js";
+import type { MicrosoftLane, MicrosoftRuleLifecycle, MicrosoftSkipped } from "./microsoft-lanes.js";
 import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js";
 import type { OwnMailSet } from "./own-mail.js";
 import { applyPause } from "./pause.js";
@@ -135,6 +163,8 @@ interface Runtime {
   /** What removing or signing out a Gmail account does about its filters (google-accounts.ts). */
   readonly gmail: GmailFilterLifecycle;
   readonly sieve: SieveRulesLifecycle;
+  /** What removing a Microsoft account does about its rules (microsoft-accounts.ts). */
+  readonly microsoft: MicrosoftRuleLifecycle;
   /** Stops the lanes of a key the person removed. */
   readonly retireMxrouteKey: (ref: MxrouteKeyRef) => void;
 }
@@ -206,6 +236,8 @@ const clicking = new Set<string>();
 const mxrouteLanes = new Set<string>();
 /** Engine lanes that write Gmail filters: their failures are about Google's sign-in, not a mail password. */
 const gmailLanes = new Set<string>();
+/** Engine lanes that write Outlook rules: their failures are about Microsoft's sign-in, not a mail password. */
+const microsoftLanes = new Set<string>();
 /** Every Gmail lane that announced mail this session, removed ones included (at most MAX_ACCOUNTS): their toasts are trash-only. */
 const gmailToastLanes = new Set<string>();
 /** Gmail lanes held still while their account is being removed (a failed fan-out round is not news then). */
@@ -213,6 +245,8 @@ const heldGmailLanes = createHeldLanes();
 const heldSieveLanes = createHeldLanes();
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
 let gmailSkipped: GmailSkipped[] = [];
+/** Microsoft accounts that have no lane this session: a block or an Unblock does not reach them. */
+let microsoftSkipped: MicrosoftSkipped[] = [];
 /** Accounts whose blocked single addresses are also refused at the MXroute server (live lane, switch on). */
 const rejectingAccounts = new Set<string>();
 
@@ -234,7 +268,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
     (outcome.status === "applied" && (outcome.deferred ?? 0) === 0)
   ) {
     // Their entries stop reading "Not confirmed" now.
-    if (gmailLanes.has(id) && !gmailSettled.has(id)) manage?.notifyListSoon();
+    if ((gmailLanes.has(id) || microsoftLanes.has(id)) && !gmailSettled.has(id)) {
+      manage?.notifyListSoon();
+    }
     gmailSettled.add(id);
   } else {
     gmailSettled.delete(id);
@@ -262,7 +298,9 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
             ? "MXroute refused the API key: fix it under Accounts in Senderban, then restart Senderban."
             : gmailLanes.has(id)
               ? "Google refused the sign-in: sign in again under Accounts in Senderban, then restart Senderban."
-              : "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
+              : microsoftLanes.has(id)
+                ? "Microsoft refused the sign-in: sign in again under Accounts in Senderban, then restart Senderban. If your organization must approve Senderban, ask your administrator."
+                : "The password was refused: Senderban will not use it again for 30 minutes. Fix it, then restart Senderban."
           : outcome.code === "REMOTE_CHANGED"
             ? "Someone else changed Senderban's script on the server, so it stopped instead of overwriting it. It will not try again by itself."
             : "Check the account in Senderban.";
@@ -353,9 +391,16 @@ function updateTray(): void {
   manage?.notifyStatus();
   if (tray === null) return;
   const lines = [...states].map(([id, state]) => ({ label: `${id}: ${state}`, enabled: false }));
+  // A Microsoft account has rules and no watcher: named, but not something Pause reaches.
+  const ruleLines = [...microsoftLanes].map((id) => ({
+    label: `${runtime?.labels.get(id) ?? id}: rules`,
+    enabled: false,
+  }));
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      ...(lines.length === 0 ? [{ label: "No accounts configured", enabled: false }] : lines),
+      ...(lines.length + ruleLines.length === 0
+        ? [{ label: "No accounts configured", enabled: false }]
+        : [...lines, ...ruleLines]),
       { type: "separator" },
       {
         label: "Blocked senders…",
@@ -450,7 +495,7 @@ async function start(): Promise<Runtime> {
         status: outcome.status,
         ...(outcome.status === "failed" ? { code: outcome.code, detail: outcome.message } : {}),
         ...(outcome.status === "applied" || outcome.status === "partial"
-          ? { applied: outcome.applied, failed: outcome.failed }
+          ? { applied: outcome.applied, failed: outcome.failed, deferred: outcome.deferred }
           : {}),
       });
       noticeIfUnsynced(outcome);
@@ -748,6 +793,81 @@ async function start(): Promise<Runtime> {
     },
   });
 
+  // Microsoft: one background lane per signed-in account. No watcher: new mail there is not announced yet (ADR 0012), and the lane follows the list.
+  const microsoftId = microsoftClientId();
+  const graphBudgets = new GraphBudgets();
+  const microsoftBuilt = buildMicrosoftLanes({
+    accounts: configured,
+    oauth:
+      microsoftId === null
+        ? null
+        : createMicrosoftOAuthClient({
+            clientId: microsoftId,
+            onCall: (call) => {
+              log("microsoft-call", { ...call });
+            },
+          }),
+    budgets: graphBudgets,
+    own: () => own.get(),
+    reservedLaneIds: new Set(lanes),
+    saveState: (laneId, state) => {
+      store.setState(laneId, state);
+    },
+    decrypt: decryptPassword,
+    saveRefreshToken: (accountId, token) =>
+      storeRefreshToken(join(dir, "accounts.json"), accountId, token),
+    log,
+  });
+  microsoftSkipped = [...microsoftBuilt.skipped];
+  const microsoftLaneByAccount = new Map<string, MicrosoftLane>();
+  for (const lane of microsoftBuilt.lanes) {
+    try {
+      engine.addAccount({
+        id: lane.laneId,
+        initialState: initialGraphState(),
+        background: true,
+        ownGate: true,
+        adapter: lane.adapter,
+      });
+    } catch {
+      log("graph-lane-skipped", { account: accountTag(lane.accountId), reason: "engine" });
+      microsoftSkipped.push({ accountId: lane.accountId, email: lane.email, reason: "lane-id" });
+      continue;
+    }
+    lanes.push(lane.laneId);
+    microsoftLanes.add(lane.laneId);
+    microsoftLaneByAccount.set(lane.accountId, lane);
+    labels.set(lane.laneId, `${lane.email} (Outlook)`);
+  }
+  const microsoft = createMicrosoftLifecycle({
+    lanes: microsoftLaneByAccount,
+    store,
+    log,
+    // The same set as Gmail's: while a lane is held for a removal, a failed fan-out round is not news.
+    onHold: (laneId, held) => {
+      heldGmailLanes.hold(laneId, held);
+    },
+    onResumed: (laneId) => {
+      engine.requestSync(laneId);
+    },
+    skipReasonOf: (accountId) => microsoftSkipped.find((s) => s.accountId === accountId)?.reason,
+    onDone: (accountId, lane) => {
+      if (lane !== undefined) {
+        const at = lanes.indexOf(lane.laneId);
+        if (at >= 0) lanes.splice(at, 1);
+        microsoftLanes.delete(lane.laneId);
+        labels.delete(lane.laneId);
+        microsoftLaneByAccount.delete(accountId);
+        graphBudgets.forget(lane.laneId);
+        pending.dropAccount(lane.laneId);
+        manage?.notifyChanged();
+      }
+      store.forgetAccount(graphLaneId(accountId));
+      microsoftSkipped = microsoftSkipped.filter((s) => s.accountId !== accountId);
+      log("graph-lane-retired", { account: accountTag(accountId), hadLane: lane !== undefined });
+    },
+  });
+
   const sieve = createSieveLifecycle({
     lanes: sieveLanes,
     skipped: skippedAccounts,
@@ -825,6 +945,7 @@ async function start(): Promise<Runtime> {
     own,
     gmail,
     sieve,
+    microsoft,
     retireMxrouteKey: (ref) => {
       dropMxrouteKey(ref, blacklists.values(), {
         lanes,
@@ -840,6 +961,7 @@ async function start(): Promise<Runtime> {
 
 async function shutdown(): Promise<void> {
   cancelGoogleSignIn();
+  cancelMicrosoftSignIn();
   const current = await ready.promise.catch(() => null);
   if (current === null) return;
   log("quit");
@@ -948,6 +1070,47 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         },
       ),
     };
+    const microsoftDeps: MicrosoftDeps = {
+      accountsPath,
+      clientId: microsoftClientId(),
+      editedRules: (accountId) => {
+        const state = runtime?.store.getState(graphLaneId(accountId));
+        return state === undefined ? 0 : graphEditedRules(state);
+      },
+      makeOAuth: (clientId) =>
+        createMicrosoftOAuthClient({
+          clientId,
+          // Operation, HTTP status and duration only: no token, no code.
+          onCall: (call) => {
+            log("microsoft-call", { ...call });
+          },
+        }),
+      signIn: (options) =>
+        signInMicrosoft({
+          ...options,
+          onWiderGrant: (extras) => {
+            log("graph-scope-wider", { extras });
+          },
+          profile: {
+            onCall: (call) => {
+              log("microsoft-call", { ...call });
+            },
+          },
+        }),
+      openBrowser: openMicrosoftAuthUrl((url) => shell.openExternal(url)),
+      rules: {
+        prepare: async (accountId) => (await ready.promise).microsoft.prepare(accountId),
+        abort: (accountId) => {
+          runtime?.microsoft.abort(accountId);
+        },
+        done: (accountId) => {
+          runtime?.microsoft.done(accountId);
+        },
+      },
+      ...(googleDeps.onAccountsChanged === undefined
+        ? {}
+        : { onAccountsChanged: googleDeps.onAccountsChanged }),
+    };
     toasts = new Toasts({
       onActivation: () => {
         log("toast-activation");
@@ -1027,7 +1190,11 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           (gmailLanes.size > 0
             ? gmailMissNote(store.list(), result.target, (a) => isOwnMailbox(a, own.get()))
             : "") + gmailSkippedNote(gmailSkipped);
-        return { ...toast, text: toast.text + gmailNote };
+        const microsoftNote =
+          (microsoftLanes.size > 0
+            ? microsoftWideNote(store.list(), result.target, own.get())
+            : "") + microsoftSkippedNote(microsoftSkipped);
+        return { ...toast, text: toast.text + gmailNote + microsoftNote };
       },
     });
     // How many list entries reach the person's own mail, so none of them applies. Never throws: an account is stored by then.
@@ -1057,16 +1224,21 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           gmail: gmailLanes,
           settled: gmailSettled,
           skipped: gmailSkipped.length > 0,
+          skippedAll: microsoftSkipped.length > 0,
+          rules: microsoftLanes,
           refused: refusedAddresses,
         });
         return entries.map((entry) => {
           const gmail = gmailLanes.size > 0 ? gmailCover(entry, isOwn) : null;
           const isOwnSender = own !== undefined && isOwnEntry(entry, own);
+          const outlook =
+            microsoftLanes.size > 0 && own !== undefined ? outlookCover(entry, own) : null;
           return {
             ...entry,
             gmail,
+            outlook,
             own: isOwnSender,
-            ...appliedFor(entry, isOwnSender, gmail, view),
+            ...appliedFor(entry, isOwnSender, gmail, view, outlook),
           };
         });
       },
@@ -1179,7 +1351,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         });
         return outcome;
       },
-      googleCancel: cancelGoogleSignIn,
+      googleCancel: () => {
+        cancelGoogleSignIn();
+        cancelMicrosoftSignIn();
+      },
       status: async () => ({
         version: app.getVersion(),
         paused,
@@ -1188,10 +1363,12 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
             .filter((id) => runtime?.lanes.includes(id))
             .map((id) => runtime?.labels.get(id) ?? id),
           ...gmailSkipped.map((s) => s.email),
+          ...microsoftSkipped.map((s) => s.email),
         ],
         accounts: (await loadAccounts(accountsPath)).map((a) => ({
           accountId: a.id,
           state: states.get(isGmailAccount(a) ? gmailLaneId(a.id) : a.id) ?? null,
+          ...(isMicrosoftAccount(a) ? { rulesOnly: true } : {}),
         })),
       }),
       pause: (value) => setPaused(value, "window"),
@@ -1209,6 +1386,23 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
             app.quit();
           },
         });
+      },
+      microsoftState: () => microsoftState(microsoftDeps),
+      microsoftSignIn: async (request) => {
+        const started = Date.now();
+        const reply = await signInMicrosoftAccount(microsoftDeps, request);
+        // The outcome word and the time only: no address, no token.
+        log("microsoft-sign-in", {
+          reply,
+          again: request.accountId !== undefined,
+          ms: Date.now() - started,
+        });
+        return reply;
+      },
+      microsoftRemove: async (accountId) => {
+        const reply = await removeMicrosoftAccount(microsoftDeps, accountId);
+        log("microsoft-removed", { account: accountTag(accountId), reply });
+        return reply;
       },
       googleRemove: async (accountId) => {
         const reply = await removeGoogleAccount(googleDeps, accountId);
@@ -1252,7 +1446,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const outcome = describeUnblock(value, result, labels);
         // A Gmail account with no lane keeps its filter: the person is told, or "unblocked" would read as done.
         if (result.status !== "unblocked") return outcome;
-        const withGmail = outcome.text + gmailSkippedNote(gmailSkipped);
+        const withGmail =
+          outcome.text + gmailSkippedNote(gmailSkipped) + microsoftSkippedNote(microsoftSkipped);
         return stranded
           ? {
               tone: "warn",
@@ -1269,6 +1464,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     start().then(ready.resolve, ready.reject);
     void ready.promise.then((current) => {
       runtime = current;
+      updateTray();
       manage?.notifyChanged();
     });
     ready.promise.catch((error: unknown) => {

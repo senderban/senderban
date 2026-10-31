@@ -61,6 +61,68 @@ describe("laneViewOf", () => {
   });
 });
 
+describe("a Microsoft account in the list", () => {
+  const domain = { value: "spam.example", action: "junk", match: "subdomains" } as const;
+  const rulesOnly = laneViewOf({
+    entries: [junk],
+    running: ["ms.graph"],
+    failed: [],
+    mxroute: new Set(),
+    gmail: new Set(),
+    rules: new Set(["ms.graph"]),
+    settled: new Set(["ms.graph"]),
+    skipped: false,
+    refused: () => new Set(),
+  });
+
+  it("is not a lane that carries everything", () => {
+    expect(rulesOnly.hasFolderLane).toBe(false);
+    expect(appliedFor(junk, false, null, rulesOnly, "exact").applied).toBe("yes");
+    expect(appliedFor(domain, false, null, rulesOnly, "wide").applied).toBe("yes");
+  });
+
+  it("says no for what Outlook refuses when nothing else carries it", () => {
+    expect(appliedFor(domain, false, null, rulesOnly, "no").applied).toBe("no");
+    expect(appliedFor(domain, false, null, view(), "no").applied).toBe("yes");
+    expect(appliedFor(domain, false, "trash", rulesOnly, "no").applied).toBe("yes");
+  });
+
+  it("never says yes while the lane has not reported nothing left to send", () => {
+    const behind = laneViewOf({
+      entries: [junk],
+      running: ["ms.graph"],
+      failed: [],
+      mxroute: new Set(),
+      gmail: new Set(),
+      rules: new Set(["ms.graph"]),
+      settled: new Set(),
+      skipped: false,
+      refused: () => new Set(),
+    });
+    expect(behind.rulesBehind).toBe(true);
+    expect(appliedFor(junk, false, null, behind, "exact").applied).toBe("unknown");
+    expect(appliedFor(domain, false, null, behind, "no").applied).toBe("no");
+  });
+
+  it("puts every entry in doubt while a Microsoft account has no lane", () => {
+    const missing = view({ missingAll: true });
+    expect(appliedFor(domain, false, null, missing).applied).toBe("unknown");
+    expect(
+      laneViewOf({
+        entries: [junk],
+        running: [],
+        failed: [],
+        mxroute: new Set(),
+        gmail: new Set(),
+        settled: new Set(),
+        skipped: false,
+        skippedAll: true,
+        refused: () => new Set(),
+      }).missingAll,
+    ).toBe(true);
+  });
+});
+
 describe("appliedFor", () => {
   it("says yes for an entry whose lanes all worked", () => {
     expect(appliedFor(junk, false, null, view())).toEqual({ applied: "yes", atServer: false });

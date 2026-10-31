@@ -22,6 +22,11 @@ export const MAX_CONCURRENT_SYNCS = 5;
  * small leaves the main gate to the clicks of a person.
  */
 export const MAX_CONCURRENT_BACKGROUND = 2;
+/**
+ * The same for lanes with a gate of their own (`EngineAccount.ownGate`, Microsoft): their rounds hold a slot for as long as their provider takes, so an outage
+ * there must not hold the Gmail and MXroute lanes behind it. 50 such lanes in an outage run their 30 s deadlines in about 12 minutes, only each other's.
+ */
+export const MAX_CONCURRENT_OWN_GATE = 2;
 
 /**
  * Gmail new-mail polls in flight at once, on a gate of their own so a Google outage (every poll waiting out its 15 s request) cannot

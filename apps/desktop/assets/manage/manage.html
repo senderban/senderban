@@ -102,6 +102,19 @@
             <ul id="google-accounts" class="rows" aria-label="Gmail accounts"></ul>
           </section>
 
+          <section id="microsoft" class="card" hidden>
+            <div class="card-head">
+              <div class="grow">
+                <h2>Outlook and Microsoft 365</h2>
+                <p class="meta">
+                  Keeps your block list as rules on the mailbox. A whole domain is a text match
+                  there, so it can also catch longer domains that start the same way.
+                </p>
+              </div>
+            </div>
+            <ul id="microsoft-accounts" class="rows" aria-label="Microsoft accounts"></ul>
+          </section>
+
           <section id="keys" class="card">
             <div class="card-body">
               <h2>MXroute API key</h2>
@@ -141,6 +154,7 @@
           <div class="tabs" role="group" aria-label="Provider">
             <button type="button" id="provider-mx" class="tab">Mail server</button>
             <button type="button" id="provider-gmail" class="tab">Gmail</button>
+            <button type="button" id="provider-microsoft" class="tab">Microsoft</button>
           </div>
 
           <div id="panel-mx" class="panel">
@@ -245,6 +259,24 @@
               <button type="button" id="google-add" class="primary">Add Gmail account</button>
             </div>
           </div>
+
+          <div id="panel-microsoft" class="panel" hidden>
+            <p class="muted">
+              For Outlook.com, Hotmail, Live, MSN and Microsoft 365. Senderban opens Microsoft's
+              sign-in page in your browser and never sees your password. It asks to change mailbox
+              rules, to find your Junk folder and to read your address, and it reads no mail. A work
+              or school account may need your organization's approval first.
+            </p>
+            <p id="microsoft-unavailable" class="status" data-tone="warn" hidden>
+              Microsoft sign-in is not set up in this version of Senderban yet, so this button is
+              off.
+            </p>
+            <div class="row">
+              <button type="button" id="microsoft-add" class="primary" disabled>
+                Add Microsoft account
+              </button>
+            </div>
+          </div>
         </section>
       </main>
     </div>
@@ -252,5 +284,6 @@
     <script src="accounts.js"></script>
     <script src="advanced.js"></script>
     <script src="gmail.js"></script>
+    <script src="microsoft.js"></script>
   </body>
 </html>
