@@ -317,7 +317,8 @@ export class Store {
 function writeState(db: Db, accountId: string, state: OpaqueState): void {
   db.prepare(
     `INSERT INTO account_state (account_id, adapter_id, data, updated_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT (account_id) DO UPDATE SET adapter_id = excluded.adapter_id, data = excluded.data, updated_at = excluded.updated_at`,
+     ON CONFLICT (account_id) DO UPDATE SET adapter_id = excluded.adapter_id, data = excluded.data, updated_at = excluded.updated_at
+     WHERE excluded.data <> account_state.data OR excluded.adapter_id <> account_state.adapter_id`,
   ).run(accountId, state.adapterId, JSON.stringify(state.data ?? null), now());
 }
 

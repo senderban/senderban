@@ -10,6 +10,7 @@ import {
   checkGrantedGraphScopes,
   createMicrosoftOAuthClient,
   fetchGraphProfile,
+  graphScopeExtras,
   isMicrosoftClientId,
 } from "../../src/graph/oauth.js";
 import { signInMicrosoft } from "../../src/graph/sign-in.js";
@@ -150,6 +151,30 @@ describe("granted scopes", () => {
   });
 });
 
+describe("a grant wider than asked", () => {
+  it("counts what was not asked, and no names", () => {
+    expect(graphScopeExtras(undefined)).toBe(0);
+    expect(
+      graphScopeExtras("User.Read Mail.ReadBasic MailboxSettings.ReadWrite offline_access openid"),
+    ).toBe(0);
+    expect(
+      graphScopeExtras(
+        "User.Read Mail.ReadBasic MailboxSettings.ReadWrite Mail.ReadWrite Mail.Send",
+      ),
+    ).toBe(2);
+  });
+
+  it("signs in and reports it", async () => {
+    const fake = new FakeGraph();
+    fake.tokenScope = "User.Read Mail.ReadBasic MailboxSettings.ReadWrite Mail.Send";
+    const wider: number[] = [];
+    await expect(
+      signInWith(fake, { onWiderGrant: (extras) => wider.push(extras) }),
+    ).resolves.toMatchObject({ status: "signed-in" });
+    expect(wider).toEqual([1]);
+  });
+});
+
 describe("Microsoft token client", () => {
   it("exchanges a code with the verifier and no secret", async () => {
     const fake = new FakeGraph();
@@ -254,10 +279,12 @@ describe("Graph profile", () => {
     const fake = new FakeGraph();
     await expect(fetchGraphProfile(ACCESS, { fetch: fake.fetch })).resolves.toEqual({
       email: "me@outlook.example",
+      userId: "0123456789abcdef",
     });
     fake.me = { id: "1", mail: "Work@Contoso.Example", userPrincipalName: "w@onmicrosoft.example" };
     await expect(fetchGraphProfile(ACCESS, { fetch: fake.fetch })).resolves.toEqual({
       email: "work@contoso.example",
+      userId: "1",
     });
   });
 
@@ -266,6 +293,7 @@ describe("Graph profile", () => {
     fake.me = { id: "1", mail: "", userPrincipalName: "me@outlook.example" };
     await expect(fetchGraphProfile(ACCESS, { fetch: fake.fetch })).resolves.toEqual({
       email: "me@outlook.example",
+      userId: "1",
     });
   });
 
@@ -292,6 +320,7 @@ describe("Microsoft sign-in", () => {
       status: "signed-in",
       refreshToken: REFRESH,
       email: "me@outlook.example",
+      userId: "0123456789abcdef",
     });
   });
 
@@ -327,9 +356,16 @@ describe("Microsoft sign-in", () => {
 
   it("refuses another mailbox on a re-sign-in", async () => {
     const fake = new FakeGraph();
-    await expect(signInWith(fake, { expectEmail: "other@outlook.example" })).resolves.toEqual({
-      status: "wrong-account",
-    });
+    await expect(
+      signInWith(fake, { expect: { email: "me@outlook.example", userId: "someone-else" } }),
+    ).resolves.toEqual({ status: "wrong-account" });
+  });
+
+  it("holds a re-sign-in to who signed in, not to the address", async () => {
+    const fake = new FakeGraph();
+    await expect(
+      signInWith(fake, { expect: { email: "old@outlook.example", userId: "0123456789abcdef" } }),
+    ).resolves.toMatchObject({ status: "signed-in", email: "me@outlook.example" });
   });
 
   it("refuses a browser error it has no word for", async () => {

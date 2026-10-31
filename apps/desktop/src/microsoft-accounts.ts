@@ -138,13 +138,13 @@ export function signInMicrosoftAccount(
     const { clientId } = deps;
     if (clientId === null) return "no-client";
 
-    let expectEmail: string | undefined;
+    let expect: { email: string; userId: string } | undefined;
     if (request.accountId !== undefined) {
       const known = microsoftAccounts(await loadAccounts(deps.accountsPath)).find(
         (a) => a.id === request.accountId,
       );
       if (known === undefined) return "unknown-account";
-      expectEmail = known.microsoft.email;
+      expect = { email: known.microsoft.email, userId: known.microsoft.userId };
     }
 
     const abort = new AbortController();
@@ -155,7 +155,7 @@ export function signInMicrosoftAccount(
         clientId,
         oauth: deps.makeOAuth(clientId),
         openBrowser: deps.openBrowser,
-        ...(expectEmail === undefined ? {} : { expectEmail }),
+        ...(expect === undefined ? {} : { expect }),
         signal: abort.signal,
       });
     } finally {
@@ -171,9 +171,9 @@ export function signInMicrosoftAccount(
     }
 
     const refreshCipher = await encryptPassword(result.refreshToken);
-    const { email } = result;
+    const { email, userId } = result;
     const stored = await serialized(() =>
-      storeSignIn(deps.accountsPath, request.accountId, email, refreshCipher),
+      storeSignIn(deps.accountsPath, request.accountId, { email, userId, refreshCipher }),
     );
     if (stored !== "stored") return stored;
     await notifyChanged(deps);
@@ -184,8 +184,7 @@ export function signInMicrosoftAccount(
 async function storeSignIn(
   path: string,
   accountId: string | undefined,
-  email: string,
-  refreshCipher: string,
+  microsoft: { readonly email: string; readonly userId: string; readonly refreshCipher: string },
 ): Promise<"stored" | "unknown-account" | "duplicate" | "full"> {
   const accounts = await loadAccounts(path);
   if (accountId !== undefined) {
@@ -195,22 +194,22 @@ async function storeSignIn(
     await saveAccounts(
       path,
       accounts.map((a) =>
-        a.id === accountId && isMicrosoftAccount(a)
-          ? { ...a, microsoft: { email: a.microsoft.email, refreshCipher } }
-          : a,
+        // The address may have changed under the same identity (`signIn` held it to the userId): the newest is the one the person knows.
+        a.id === accountId && isMicrosoftAccount(a) ? { ...a, microsoft } : a,
       ),
     );
     return "stored";
   }
   if (accounts.length >= MAX_ACCOUNTS) return "full";
-  const key = mailboxKey(email);
-  if (accounts.some((a) => accountLogins(a).some((login) => mailboxKey(login) === key))) {
-    return "duplicate";
-  }
+  const key = mailboxKey(microsoft.email);
+  const taken = (a: AccountConfig): boolean =>
+    accountLogins(a).some((login) => mailboxKey(login) === key) ||
+    (isMicrosoftAccount(a) && a.microsoft.userId === microsoft.userId);
+  if (accounts.some(taken)) return "duplicate";
   const ids = new Set(accounts.map((a) => a.id));
   let id = `ms-${randomUUID().slice(0, 8)}`;
   while (ids.has(id)) id = `ms-${randomUUID().slice(0, 8)}`;
-  await saveAccounts(path, [...accounts, { id, microsoft: { email, refreshCipher } }]);
+  await saveAccounts(path, [...accounts, { id, microsoft }]);
   return "stored";
 }
 
@@ -231,7 +230,7 @@ export async function storeRefreshToken(
       path,
       accounts.map((a) =>
         a.id === accountId && isMicrosoftAccount(a)
-          ? { ...a, microsoft: { email: a.microsoft.email, refreshCipher } }
+          ? { ...a, microsoft: { ...a.microsoft, refreshCipher } }
           : a,
       ),
     );

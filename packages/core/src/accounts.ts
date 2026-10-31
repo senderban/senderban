@@ -235,6 +235,12 @@ export const MicrosoftAccountConfigSchema = z.strictObject({
   id: z.string().regex(ACCOUNT_ID),
   microsoft: z.strictObject({
     email: GmailAddress,
+    /** Who signed in, from `/me`: what a re-sign-in is held to, since an address can be reassigned. */
+    userId: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^[!-~]+$/u),
     refreshCipher: RefreshCipher.optional(),
   }),
 });

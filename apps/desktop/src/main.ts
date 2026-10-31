@@ -495,7 +495,7 @@ async function start(): Promise<Runtime> {
         status: outcome.status,
         ...(outcome.status === "failed" ? { code: outcome.code, detail: outcome.message } : {}),
         ...(outcome.status === "applied" || outcome.status === "partial"
-          ? { applied: outcome.applied, failed: outcome.failed }
+          ? { applied: outcome.applied, failed: outcome.failed, deferred: outcome.deferred }
           : {}),
       });
       noticeIfUnsynced(outcome);
@@ -826,6 +826,7 @@ async function start(): Promise<Runtime> {
         id: lane.laneId,
         initialState: initialGraphState(),
         background: true,
+        ownGate: true,
         adapter: lane.adapter,
       });
     } catch {
@@ -1087,6 +1088,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       signIn: (options) =>
         signInMicrosoft({
           ...options,
+          onWiderGrant: (extras) => {
+            log("graph-scope-wider", { extras });
+          },
           profile: {
             onCall: (call) => {
               log("microsoft-call", { ...call });

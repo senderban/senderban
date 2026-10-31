@@ -1,4 +1,4 @@
-import { getPublicSuffix } from "tldts";
+import { getPublicSuffix, parse } from "tldts";
 
 // Blocking a whole freemail domain would block millions of unrelated senders, so domain-level
 // blocks are refused for these. SEED LIST: incomplete by design; `isNotOffered` adds the Public
@@ -123,9 +123,10 @@ function isListed(list: ReadonlySet<string>, domain: string): boolean {
 }
 
 /** Every listed provider domain, for a rule that matches text and cannot rely on `isFreemail`'s labels. */
-export function freemailDomains(): Iterable<string> {
-  return [...FREEMAIL_DOMAINS, ...FREEMAIL_NOT_OFFERED];
+export function freemailDomains(): readonly string[] {
+  return ALL_FREEMAIL;
 }
+const ALL_FREEMAIL: readonly string[] = [...FREEMAIL_DOMAINS, ...FREEMAIL_NOT_OFFERED];
 
 /** True for a freemail domain or any subdomain of one (`mail.gmail.com`). Input must be lowercase ASCII. */
 export function isFreemail(domain: string): boolean {
@@ -173,9 +174,23 @@ export function isPublicSuffix(domain: string): boolean {
   return getPublicSuffix(domain, SUFFIX_OPTIONS) === domain;
 }
 
+/** Names reserved for tests and documentation (RFC 2606, RFC 6761): no real sender, but no cut of anything either. */
+const RESERVED_TOPS: ReadonlySet<string> = new Set(["example", "invalid", "test", "localhost"]);
+
+/**
+ * True when the last label is a delegated top-level domain. A forged From can name anything, and a label cut from a real one is what a text match would turn into
+ * a whole country's suffix. Not the same as "two letters": `.срб` is `xn--90a3ac`. A top-level domain newer than the shipped list reads as unknown: the safe side.
+ */
+export function hasKnownTop(domain: string): boolean {
+  if (RESERVED_TOPS.has(domain.slice(domain.lastIndexOf(".") + 1))) return true;
+  return parse(domain, { ...SUFFIX_OPTIONS, allowPrivateDomains: false }).isIcann === true;
+}
+
 /** True for a domain that other people's mail lives under, so it is never offered as a whole-domain block (K7). Input must be lowercase ASCII. */
 export function isNotOffered(domain: string): boolean {
   return (
+    // No top-level domain has one letter: such a From is forged, and a rule that matches text would reach the country it is cut from.
+    (domain.split(".").at(-1)?.length ?? 0) < 2 ||
     isFreemail(domain) ||
     isListed(FREEMAIL_NOT_OFFERED, domain) ||
     isCountrySuffix(domain) ||

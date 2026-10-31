@@ -83,7 +83,7 @@ function msStateText(account) {
   if (!account.signedIn) return "Signed out. Sign in again to use it.";
   const base = "Signed in. Your block list applies here; new mail is not announced yet.";
   return account.editedRules > 0
-    ? `${base} ${String(account.editedRules)} Senderban rule(s) were changed in Outlook: Senderban leaves those alone, so check them there.`
+    ? `${base} ${String(account.editedRules)} Senderban rule(s) were changed in Outlook or are in error there: Senderban leaves those alone, so check them there.`
     : base;
 }
 

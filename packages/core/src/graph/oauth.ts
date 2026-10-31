@@ -116,6 +116,27 @@ export function checkGrantedGraphScopes(scope: string | undefined): GraphScopeCh
   return { ok: true };
 }
 
+const ASKED_SCOPES: ReadonlySet<string> = new Set(
+  [
+    GRAPH_RULES_SCOPE,
+    GRAPH_FOLDER_SCOPE,
+    GRAPH_PROFILE_SCOPE,
+    "offline_access",
+    "openid",
+    "profile",
+    "email",
+  ].map((s) => s.toLowerCase()),
+);
+
+/**
+ * How many permissions a token holds beyond what Senderban asks for. Not refused (see above), but a consent link with wider scopes can widen what the
+ * next token holds, because the client ID is public, so the log says so: a count, never the names.
+ */
+export function graphScopeExtras(scope: string | undefined): number {
+  if (scope === undefined) return 0;
+  return [...scopeWords(scope)].filter((word) => !ASKED_SCOPES.has(word)).length;
+}
+
 /** A token answer. Microsoft may add fields (`ext_expires_in` is there already): bounded, not strict. `expires_in` is seconds. */
 const TokenAnswer = z.object({
   access_token: z.string().max(MICROSOFT_TOKEN_BYTES.access).regex(PRINTABLE),
@@ -320,12 +341,19 @@ export function createMicrosoftOAuthClient(options: MicrosoftOAuthOptions): Micr
   };
 }
 
+/** A user's id at Graph: a GUID at work, 16 hex digits for a personal account. Unit: characters, the same bound as the stored field. PROVISIONAL. */
+const GRAPH_USER_ID_MAX_CHARS = 256;
+
 /**
  * Bounded, not strict: Graph sends more than was selected (`@odata.context`). `mail` is null on many personal accounts, whose sign-in
  * address is in `userPrincipalName`.
  */
 const ProfileAnswer = z.object({
-  id: z.string().min(1).max(256),
+  id: z
+    .string()
+    .min(1)
+    .max(GRAPH_USER_ID_MAX_CHARS)
+    .regex(/^[!-~]+$/u),
   mail: z.string().max(320).nullish(),
   userPrincipalName: z.string().max(320).nullish(),
 });
@@ -333,6 +361,8 @@ const ProfileAnswer = z.object({
 export interface GraphProfile {
   /** The mailbox the token belongs to, in the canonical form `parseAddress` returns. */
   readonly email: string;
+  /** Who it is. An address can be reassigned or shared by a personal and a work account; Microsoft says not to identify anyone by one (claims-validation page). */
+  readonly userId: string;
 }
 
 export interface GraphProfileOptions {
@@ -382,5 +412,5 @@ export async function fetchGraphProfile(
   if (!address.ok) {
     throw new AdapterError("REJECTED", "Microsoft gave an address that cannot be used (profile)");
   }
-  return { email: address.value.address };
+  return { email: address.value.address, userId: parsed.data.id };
 }

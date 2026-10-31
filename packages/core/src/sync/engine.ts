@@ -1,6 +1,11 @@
 import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode, BlockAdapter, Drift, OpaqueState } from "../adapter.js";
-import { MAX_CONCURRENT_BACKGROUND, MAX_CONCURRENT_SYNCS, createGate } from "../gate.js";
+import {
+  MAX_CONCURRENT_BACKGROUND,
+  MAX_CONCURRENT_OWN_GATE,
+  MAX_CONCURRENT_SYNCS,
+  createGate,
+} from "../gate.js";
 import type { Gate } from "../gate.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
 import type { Store } from "../store/store.js";
@@ -55,6 +60,8 @@ export interface EngineAccount {
    * It runs on its own small gate, so a backlog on 50 of them cannot hold the slots a person's click waits for.
    */
   readonly background?: boolean;
+  /** Runs apart from the other background lanes, so that its provider's outage does not hold them (MAX_CONCURRENT_OWN_GATE). */
+  readonly ownGate?: boolean;
   /** State used the first time this account is synced, before the store has any. */
   readonly initialState: OpaqueState;
 }
@@ -190,6 +197,7 @@ export class SyncEngine {
   readonly #now: () => number;
   readonly #gate: Gate;
   readonly #backgroundGate: Gate;
+  readonly #ownGate = createGate(MAX_CONCURRENT_OWN_GATE);
   #disposed = false;
 
   constructor(store: Store, options: EngineOptions = {}) {
@@ -399,7 +407,9 @@ export class SyncEngine {
   }
 
   #gateFor(accountId: string): Gate {
-    return this.#accounts.get(accountId)?.background === true ? this.#backgroundGate : this.#gate;
+    const account = this.#accounts.get(accountId);
+    if (account?.ownGate === true) return this.#ownGate;
+    return account?.background === true ? this.#backgroundGate : this.#gate;
   }
 
   async #run(accountId: string): Promise<SyncOutcome> {

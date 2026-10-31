@@ -12,10 +12,16 @@ import {
 } from "../adapter.js";
 import { checkEntry, folderAction } from "../blocklist.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
-import { freemailDomains } from "../freemail.js";
+import { freemailDomains, hasKnownTop, isPublicSuffix } from "../freemail.js";
 import type { OwnMail } from "../notify/block-action.js";
 import { GRAPH_ID, RuleRefusedError, RuleSpaceError } from "./client.js";
-import type { GraphConditions, GraphRule, GraphRuleAction, GraphRuleClient } from "./client.js";
+import type {
+  GraphConditions,
+  GraphRule,
+  GraphRuleAction,
+  GraphRuleClient,
+  GraphRuleList,
+} from "./client.js";
 import { GraphBudgetError } from "./budget.js";
 
 export const GRAPH_ADAPTER_ID = "graph";
@@ -205,23 +211,57 @@ export function graphStateHoldsDeletable(state: OpaqueState): boolean {
   return parsed.data.rules.length + parsed.data.intent.length > 0;
 }
 
+/** Where account alerts come from: a look-alike of one, blocked after a phishing mail, would silence the real alerts in the middle of the attack. */
+const IDENTITY_DOMAINS = ["google", "microsoft", "apple"].map((name) => `${name}.com`);
+
 /**
- * Whether a text match of this domain would also reach the person's own mail or a mail provider. `senderContains` is a substring: `@contoso.co`
- * and `.contoso.co` match `@contoso.com`, `@gmail.co` every Gmail sender. The guards at the list work on labels and cannot see that, so such a
- * domain is refused on Outlook.
+ * Whether a text match of this domain would also reach the person's own mail, a mail provider or a whole country. `senderContains` is a substring:
+ * `@contoso.co` and `.contoso.co` match `@contoso.com`, `@gmail.co` every Gmail sender, `.gov.u` every `*.gov.uk`. The guards at the list work on labels and
+ * cannot see that, so such a domain is refused on Outlook. Every parent of the value is tried too: a subdomain of a look-alike reaches the same subdomain of the real name.
  */
 export function graphMatchReaches(
   entry: Pick<BlockEntry, "match" | "value">,
   own: OwnMail,
 ): boolean {
+  return graphReachTest(own)(entry);
+}
+
+export type GraphReachTest = (entry: Pick<BlockEntry, "match" | "value">) => boolean;
+
+const reachTests = new WeakMap<OwnMail, GraphReachTest>();
+
+/** The test for one own-mail set, the same function every time: a list read and every lane ask it thousands of times. */
+export function graphReachTest(own: OwnMail): GraphReachTest {
+  const found = reachTests.get(own);
+  if (found !== undefined) return found;
+  const guarded = [
+    ...own.domains,
+    ...[...own.addresses].map((a) => a.slice(a.lastIndexOf("@") + 1)),
+    ...freemailDomains(),
+    ...IDENTITY_DOMAINS,
+  ].map((domain) => `.${domain}`);
+  const test: GraphReachTest = (entry) => reachesGuarded(entry, guarded);
+  reachTests.set(own, test);
+  return test;
+}
+
+function reachesGuarded(
+  entry: Pick<BlockEntry, "match" | "value">,
+  guarded: readonly string[],
+): boolean {
   if (entry.match === "exactAddress") return false;
-  const reaches = (domain: string): boolean => `.${domain}`.includes(`.${entry.value}`);
-  for (const domain of own.domains) if (reaches(domain)) return true;
-  for (const address of own.addresses) {
-    if (reaches(address.slice(address.lastIndexOf("@") + 1))) return true;
-  }
-  for (const domain of freemailDomains()) if (reaches(domain)) return true;
-  return false;
+  const labels = entry.value.split(".");
+  // A last label that is no top-level domain is a forged name, likely a cut of a real one: its text match reaches everything under that suffix.
+  if (!hasKnownTop(entry.value)) return true;
+  // A parent that is a public suffix is not a value: `co.uk` under a name there says nothing about the sender.
+  const values = labels
+    .slice(0, -1)
+    .map((_, i) => labels.slice(i).join("."))
+    .filter((value, i) => i === 0 || !isPublicSuffix(value));
+  return values.some((value) => {
+    const needle = `.${value}`;
+    return guarded.some((domain) => domain.includes(needle));
+  });
 }
 
 const ruleName = (nonce: string): string => `Senderban ${nonce}`;
@@ -286,8 +326,8 @@ function holds(
   entries: readonly Held[],
 ): boolean {
   if (remote.displayName !== ruleName(nonce) || remote.isReadOnly === true) return false;
-  // Switched off by the person: new blocks must not go into a rule that does nothing.
-  if (remote.isEnabled === false) return false;
+  // Switched off by the person, or in error at Outlook: new blocks must not go into a rule that does nothing.
+  if (remote.isEnabled === false || remote.hasError === true) return false;
   if (setKeys(remote.exceptions).length > 0) return false;
   const held = remoteStrings(remote, kind);
   if (held === null || !sameStrings(held, strings(entries))) return false;
@@ -406,6 +446,11 @@ function schedule(
   return { writes: chosen, left: all - done };
 }
 
+/** Whether the list may hold this rule among the entries it could not read. */
+function maybeListed(listing: GraphRuleList, id: string): boolean {
+  return listing.unreadableIds.has(id) || listing.unreadable > listing.unreadableIds.size;
+}
+
 /** The removals of entries an edited rule holds: no write takes them, and the round reports them. */
 function leavingEdited(edited: readonly EditedRule[], removes: readonly Held[]): PlannedChange[] {
   const out: PlannedChange[] = [];
@@ -428,6 +473,17 @@ const CLEANUP_ENTRY: BlockEntry = {
   createdAt: "1970-01-01T00:00:00.000Z",
 };
 
+/** What the log may learn about a round: counts and a duration, never an address or a rule id. */
+export interface GraphRoundReport {
+  readonly ms: number;
+  readonly writes: number;
+  readonly applied: number;
+  readonly failed: number;
+  readonly deferred: number;
+  readonly edited: number;
+  readonly capacity: number;
+}
+
 export interface GraphAdapterOptions {
   /** The engine lane this adapter serves; it names the journal rows. */
   readonly accountId: string;
@@ -444,8 +500,13 @@ export interface GraphAdapterOptions {
   readonly roundBudgetMs?: number;
   readonly retryDelayMs?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
-  /** True for an entry this lane must not write (see `graphMatchReaches`). One already in a rule is taken out like an Unblock. */
-  readonly reaches?: (entry: Pick<BlockEntry, "match" | "value">) => boolean;
+  /**
+   * The current test for entries this lane must not write (`graphReachTest`). One already in a rule is taken out like an Unblock. Return the same function while
+   * nothing changed: what follows from a list is kept once for all lanes until the list or the test changes.
+   */
+  readonly reaches: () => GraphReachTest;
+  /** Told once per round: numbers only. */
+  readonly onRound?: (round: GraphRoundReport) => void;
 }
 
 const defaultSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -487,20 +548,34 @@ const snapshot = (work: Work): OpaqueState => {
   return { adapterId: GRAPH_ADAPTER_ID, data };
 };
 
+/** What follows from a list and a test alone. The engine hands every lane one list object: 50 lanes must not validate 5,000 entries 50 times. */
+interface Mirror {
+  readonly reaches: GraphReachTest;
+  readonly wanted: ReadonlyMap<string, Wanted>;
+  readonly hash: string;
+}
+const mirrors = new WeakMap<Blocklist, Mirror>();
+
 /**
  * The entries of the list this lane mirrors, by value. `reject` is Junk here (`folderAction`): only MXroute refuses at the door. The engine has
  * already left out what reaches the person's own mail.
  */
-function mirrored(list: Blocklist, reaches: GraphAdapterOptions["reaches"]): Map<string, Wanted> {
-  const out = new Map<string, Wanted>();
+function mirrored(list: Blocklist, reaches: GraphReachTest): Mirror {
+  const cached = mirrors.get(list);
+  if (cached?.reaches === reaches) return cached;
+  const wanted = new Map<string, Wanted>();
+  const hash = createHash("sha256");
   for (const raw of list) {
     const checked = checkEntry(raw);
     if (!checked.ok) continue;
     const { entry } = checked;
-    if (reaches?.(entry) === true) continue;
-    out.set(entry.value, { held: toHeld(entry), action: folderAction(entry.action) });
+    if (reaches(entry)) continue;
+    wanted.set(entry.value, { held: toHeld(entry), action: folderAction(entry.action) });
+    hash.update(entry.value).update(entry.action).update(entry.match).update("\n");
   }
-  return out;
+  const mirror = { reaches, wanted, hash: hash.digest("base64") };
+  mirrors.set(list, mirror);
+  return mirror;
 }
 
 /**
@@ -520,6 +595,7 @@ export class GraphAdapter implements BlockAdapter {
   readonly #retryDelayMs: number;
   readonly #sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly #reaches: GraphAdapterOptions["reaches"];
+  readonly #onRound: GraphAdapterOptions["onRound"];
   /** The inputs of the last plan that had nothing to do: the same inputs have nothing to do again. */
   #idleKey: string | null = null;
   #suspended = false;
@@ -538,6 +614,7 @@ export class GraphAdapter implements BlockAdapter {
     this.#retryDelayMs = options.retryDelayMs ?? GRAPH_RETRY_DELAY_MS;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#reaches = options.reaches;
+    this.#onRound = options.onRound;
   }
 
   capabilities(): Capabilities {
@@ -572,13 +649,11 @@ export class GraphAdapter implements BlockAdapter {
     this.#retired = true;
   }
 
-  #planKey(list: Blocklist, state: OpaqueState): string {
-    const hash = createHash("sha256");
-    for (const raw of list) {
-      if (raw.match !== "exactAddress" && this.#reaches?.(raw) === true) continue;
-      hash.update(raw.value).update(raw.action).update("\n");
-    }
-    return hash.update("\0").update(JSON.stringify(state.data)).digest("base64");
+  #planKey(mirror: Mirror, state: OpaqueState): string {
+    return createHash("sha256")
+      .update(mirror.hash)
+      .update(JSON.stringify(state.data))
+      .digest("base64");
   }
 
   plan(list: Blocklist, state: OpaqueState): Promise<Plan> {
@@ -591,14 +666,14 @@ export class GraphAdapter implements BlockAdapter {
     try {
       // A block click plans every lane, and a list holds thousands: the same list over the same state that had nothing to do last time has
       // nothing to do now, and is answered without parsing either.
-      const key = this.#planKey(list, state);
+      const mirror = mirrored(list, this.#reaches());
+      const key = this.#planKey(mirror, state);
       if (key === this.#idleKey) {
         return Promise.resolve({ accountId: this.#accountId, changes: [], basedOn: state });
       }
       const current = parseState(state);
-      const wanted = mirrored(list, this.#reaches);
       const { removes, adds } = this.#difference(
-        wanted,
+        mirror.wanted,
         [...current.rules, ...current.edited],
         current.intent,
       );
@@ -613,9 +688,9 @@ export class GraphAdapter implements BlockAdapter {
         ...writes.flatMap((w) => w.takes),
         ...leavingEdited(current.edited, removes),
       ];
-      // An unresolved intent must be dealt with by a round, and the engine only runs a round that has changes. An edited rule has to be looked at
-      // too: gone, or back as written, only a list can see it.
-      const pendingWork = current.intent.length > 0 || current.edited.length > 0;
+      // An unresolved intent must be dealt with by a round, and the engine only runs a round that has changes. An edited rule needs none of its own:
+      // the next round that writes anything lists the mailbox anyway, and sees it gone or back as written.
+      const pendingWork = current.intent.length > 0;
       this.#idleKey = changes.length === 0 && !pendingWork && left === 0 ? key : null;
       return Promise.resolve({
         accountId: this.#accountId,
@@ -656,8 +731,24 @@ export class GraphAdapter implements BlockAdapter {
       throw new AdapterError("TRANSIENT", "Outlook rules are being removed");
     }
     this.#active += 1;
+    const started = this.#now();
     try {
-      return await this.#round(plan, signal);
+      const result = await this.#round(plan, signal);
+      try {
+        const { edited, capacity } = parseState(result.state);
+        this.#onRound?.({
+          ms: this.#now() - started,
+          writes: plan.changes.length,
+          applied: result.applied,
+          failed: result.failed.length,
+          deferred: result.deferred ?? 0,
+          edited: edited.length,
+          capacity,
+        });
+      } catch {
+        // a report must not break a round
+      }
+      return result;
     } finally {
       this.#active -= 1;
       if (this.#active === 0) for (const resolve of this.#idle.splice(0)) resolve();
@@ -697,6 +788,8 @@ export class GraphAdapter implements BlockAdapter {
     let lost = 0;
     let edits = 0;
     let settledLater: number;
+    /** Rules the list did not show while it held one the client could not read: not confirmed, so not written to this round. */
+    const unseen = new Set<string>();
     const rateLimited = (cause: AdapterError): AdapterError =>
       new AdapterError(
         "TRANSIENT",
@@ -705,15 +798,16 @@ export class GraphAdapter implements BlockAdapter {
     try {
       // One read of the mailbox: what is really there decides what is ours, lost or changed.
       const listing = await this.#client.list(roundSignal);
-      const settled = this.#resolveIntents(work, listing.rules);
+      const settled = this.#resolveIntents(work, listing);
       settledLater = settled.adopted + settled.dropped;
       if (settled.changed) save();
       const remote = new Map(listing.rules.map((r) => [r.id, r]));
       const before = work.rules.length + work.edited.length;
       // A rule the client could not read is not a rule that is gone.
-      const gone = (id: string): boolean => !remote.has(id) && listing.unreadable === 0;
+      const gone = (id: string): boolean => !remote.has(id) && !maybeListed(listing, id);
       for (const rule of [...work.rules]) {
         const found = remote.get(rule.id);
+        if (found === undefined && !gone(rule.id)) unseen.add(rule.id);
         if (gone(rule.id)) {
           // Deleted in Outlook: the next plan puts back what is still wanted in a new rule, and that follow-up is `deferred`.
           lost += rule.entries.length;
@@ -771,14 +865,6 @@ export class GraphAdapter implements BlockAdapter {
     const heldByEdit = removes.filter((e) =>
       work.edited.some((r) => r.entries.some((held) => held.value === e.value)),
     );
-    if (heldByEdit.length > 0) {
-      const said = new Set(heldByEdit.map((e) => e.value));
-      work.edited = work.edited.map((r) => ({
-        ...r,
-        entries: r.entries.filter((e) => !said.has(e.value)),
-      }));
-      save();
-    }
     const edited = heldByEdit.map((e) => ({
       entryId: e.id,
       error: new AdapterError(
@@ -786,10 +872,25 @@ export class GraphAdapter implements BlockAdapter {
         "a Senderban rule changed in Outlook still holds this sender: remove it there",
       ),
     }));
+    // A rule the list did not confirm holds its entries until a round can see it: taken out of neither, and a move waits with it, or one value would sit in
+    // two rules, which the state refuses.
+    const held = new Set(
+      work.rules.filter((r) => unseen.has(r.id)).flatMap((r) => r.entries.map((e) => e.value)),
+    );
+    const waiting = [
+      ...removes.filter((e) => held.has(e.value)),
+      ...adds.filter((w) => held.has(w.held.value)).map((w) => w.held),
+    ];
+    const unconfirmed = waiting.map((e) => ({
+      entryId: e.id,
+      error: new AdapterError("TRANSIENT", "Outlook's rule list could not be read in full"),
+    }));
     const { writes, left } = schedule(
-      work.rules,
-      removes,
-      adds.filter((w) => leaving.has(w.held.value) || !inRules.has(w.held.value)),
+      work.rules.filter((r) => !unseen.has(r.id)),
+      removes.filter((e) => !held.has(e.value)),
+      adds.filter(
+        (w) => !held.has(w.held.value) && (leaving.has(w.held.value) || !inRules.has(w.held.value)),
+      ),
       work.capacity,
       GRAPH_MAX_WRITES_PER_ROUND,
     );
@@ -825,16 +926,21 @@ export class GraphAdapter implements BlockAdapter {
           save();
           break;
         }
-        // A new rule refused for another reason may be a stale folder id: read it again next time.
-        if (adapterError.code === "REJECTED" && write.rule === null && write.action === "junk") {
+        // A new rule refused for another reason may be a stale folder id: it is read again, once, by a round the engine runs by itself.
+        if (
+          adapterError.code === "REJECTED" &&
+          !(adapterError instanceof RuleSpaceError) &&
+          write.rule === null &&
+          write.action === "junk" &&
+          state.junkFolderId !== null
+        ) {
           work.junkFolderId = null;
           save();
+          if (handled === 0) throw new AdapterError("TRANSIENT", "the Junk folder is read again");
         }
-        // Nothing handled yet: the whole round failed for this reason. A rate limit or a rule Outlook will not take is reported below instead:
-        // thrown, the engine would stop asking, and these two can pass (an Unblock frees room).
-        const refused =
-          adapterError instanceof RuleRefusedError || adapterError instanceof RuleSpaceError;
-        if (handled === 0 && !quota && !refused) throw adapterError;
+        // Nothing handled yet: the whole round failed for this reason, and the engine does not ask again by itself. A mailbox with no room or a rule
+        // Outlook refuses waits for the next change of the list, which is what can cure it. A rate limit is reported below: it passes.
+        if (handled === 0 && !quota) throw adapterError;
         stopped = quota ? rateLimited(adapterError) : adapterError;
         break;
       }
@@ -844,11 +950,20 @@ export class GraphAdapter implements BlockAdapter {
     const unprocessedChanges = unprocessed.reduce((sum, w) => sum + w.takes.length, 0);
     const later = left + lost + settledLater + (stopped === null ? unprocessedChanges : 0);
     const stopError = stopped;
+    // Only here, with the report on its way: a round that throws has said nothing yet.
+    if (heldByEdit.length > 0) {
+      const said = new Set(heldByEdit.map((e) => e.value));
+      work.edited = work.edited.map((r) => ({
+        ...r,
+        entries: r.entries.filter((e) => !said.has(e.value)),
+      }));
+    }
     return {
       applied,
       // After an error or a rate limit the rest is reported as failed (the engine backs off and tries again); a stop for time is only deferred.
       failed: [
         ...edited,
+        ...unconfirmed,
         ...(stopError === null
           ? []
           : unprocessed.flatMap((w) =>
@@ -863,30 +978,37 @@ export class GraphAdapter implements BlockAdapter {
   /** Settles writes of an earlier round whose answer never came back. */
   #resolveIntents(
     work: Work,
-    remote: readonly GraphRule[],
+    listing: GraphRuleList,
   ): { changed: boolean; dropped: number; adopted: number } {
     if (work.intent.length === 0) return { changed: false, dropped: 0, adopted: 0 };
+    const remote = listing.rules;
     let dropped = 0;
     let adopted = 0;
+    const undecided: Intent[] = [];
     const known = new Set(work.rules.map((r) => r.id));
     for (const item of work.intent) {
       if (item.ruleId === null) {
+        // Found by its name: the nonce makes it ours even when it no longer reads as written, and then it is kept, not lost.
         const found = remote.find(
-          (r) => !known.has(r.id) && holds(r, item.nonce, item.kind, item.action, item.entries),
+          (r) => !known.has(r.id) && r.displayName === ruleName(item.nonce),
         );
         if (found === undefined) {
-          dropped += item.entries.length;
+          // It may be the entry the client could not read.
+          if (listing.unreadable > 0) undecided.push(item);
+          else dropped += item.entries.length;
           continue;
         }
         known.add(found.id);
         adopted += item.entries.length;
-        work.rules.push({
+        const record: RuleRecord = {
           id: found.id,
           nonce: item.nonce,
           kind: item.kind,
           action: item.action,
           entries: [...item.entries],
-        });
+        };
+        if (holds(found, item.nonce, item.kind, item.action, item.entries)) work.rules.push(record);
+        else work.edited.push(record);
         continue;
       }
       // A PATCH either landed (the rule holds the new entries) or did not: the rule then reads as before, which the normal read-back handles.
@@ -903,7 +1025,7 @@ export class GraphAdapter implements BlockAdapter {
         );
       } else dropped += item.entries.length;
     }
-    work.intent = [];
+    work.intent = undecided;
     return { changed: true, dropped, adopted };
   }
 
@@ -926,7 +1048,6 @@ export class GraphAdapter implements BlockAdapter {
       // Removing a rule needs no intent: gone before the state follows reads as "deleted in Outlook", and its entries are no longer wanted.
       await this.#retrying(() => this.#client.remove(rule.id, signal), signal);
       work.rules = work.rules.filter((r) => r.id !== rule.id);
-      save();
       return "written";
     }
     if (rule !== null) {
@@ -952,7 +1073,9 @@ export class GraphAdapter implements BlockAdapter {
       this.#settle(answer, { ...rule, entries: [...next] }, work, save);
       return "written";
     }
-    if (work.rules.length + work.intent.length >= GRAPH_MAX_RULES) throw new RuleSpaceError();
+    if (work.rules.length + work.edited.length + work.intent.length >= GRAPH_MAX_RULES) {
+      throw new RuleSpaceError();
+    }
     const graphAction: GraphRuleAction =
       action === "trash" ? { delete: true } : { moveToFolder: await this.#junkId(work, signal) };
     const nonce = newNonce();
@@ -977,9 +1100,9 @@ export class GraphAdapter implements BlockAdapter {
     work: Work,
     save: (strict?: boolean) => void,
   ): void {
+    // Not saved here: the state is 500 KB, the next intent carries this with it, and a round that dies first still has this write's intent on disk.
     if (holds(answer, record.nonce, record.kind, record.action, record.entries)) {
       work.rules.push(record);
-      save();
       return;
     }
     work.edited.push(record);
@@ -1041,23 +1164,25 @@ export class GraphAdapter implements BlockAdapter {
     const listing = await this.#client.list(signal);
     const remote = new Map(listing.rules.map((r) => [r.id, r]));
     let missing = 0;
-    let changed = current.edited.length;
-    let off = 0;
+    let changed = 0;
     for (const rule of current.rules) {
       const found = remote.get(rule.id);
       if (found === undefined) missing += 1;
       else if (!holds(found, rule.nonce, rule.kind, rule.action, rule.entries)) changed += 1;
-      else if (found.hasError === true) off += 1;
     }
-    const total = current.rules.length + current.edited.length;
-    const inPlace = total - missing - changed - off;
+    // A rule the person switched off or edited is theirs, and no drift; one Outlook calls broken is: its senders are not blocked, and nobody chose that.
+    const broken = current.edited.filter((r) => remote.get(r.id)?.hasError === true).length;
+    const total = current.rules.length;
+    const inPlace = total - missing - changed;
     const unresolved = current.intent.length;
-    const ok = missing + changed + off + unresolved === 0;
+    const ok = missing + changed + broken + unresolved === 0;
     return {
       drifted: !ok,
       detail: ok
-        ? "Outlook rules in place"
-        : `${String(missing)} missing, ${String(changed)} changed, ${String(off)} in error, ${String(unresolved)} writes not confirmed`,
+        ? current.edited.length > 0
+          ? `Outlook rules in place, ${String(current.edited.length)} changed there and left alone`
+          : "Outlook rules in place"
+        : `${String(missing)} missing, ${String(changed)} changed, ${String(broken)} in error, ${String(unresolved)} writes not confirmed`,
       checkedAt: new Date().toISOString(),
       checks: [
         {
@@ -1067,8 +1192,8 @@ export class GraphAdapter implements BlockAdapter {
         },
         {
           name: "rules-in-error",
-          ok: off === 0,
-          detail: `${String(off)} in error`,
+          ok: broken === 0,
+          detail: `${String(broken)} in error`,
         },
         {
           name: "pending-writes",
@@ -1096,7 +1221,7 @@ export class GraphAdapter implements BlockAdapter {
       junkFolderId: current.junkFolderId,
       capacity: current.capacity,
     };
-    this.#resolveIntents(work, listing.rules);
+    this.#resolveIntents(work, listing);
     const remote = new Map(listing.rules.map((r) => [r.id, r]));
     const left: RuleRecord[] = [];
     const edited: EditedRule[] = [];
@@ -1104,7 +1229,7 @@ export class GraphAdapter implements BlockAdapter {
       const found = remote.get(rule.id);
       // Gone: nothing to delete, and nothing to keep. Unless the list held a rule the client could not read: it may be this one.
       if (found === undefined) {
-        if (listing.unreadable > 0) edited.push(rule);
+        if (maybeListed(listing, rule.id)) edited.push(rule);
         continue;
       }
       if (
@@ -1124,7 +1249,7 @@ export class GraphAdapter implements BlockAdapter {
     const data: GraphState = {
       rules: left,
       edited,
-      intent: [],
+      intent: work.intent,
       junkFolderId: current.junkFolderId,
       capacity: current.capacity,
     };

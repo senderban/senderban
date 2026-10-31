@@ -1,6 +1,5 @@
 import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode } from "../adapter.js";
-import { mailboxKey } from "../address.js";
 import { askConsent, oneSignIn } from "../oauth/consent.js";
 import {
   ApprovalRequiredError,
@@ -9,6 +8,7 @@ import {
   buildMicrosoftAuthUrl,
   checkGrantedGraphScopes,
   fetchGraphProfile,
+  graphScopeExtras,
 } from "./oauth.js";
 import type { GraphProfileOptions, GraphScopeCheck, MicrosoftOAuthClient } from "./oauth.js";
 
@@ -18,8 +18,10 @@ export interface MicrosoftSignInOptions {
   readonly oauth: MicrosoftOAuthClient;
   /** Opens the URL in the person's browser. The caller (Electron's `shell.openExternal`) should still refuse anything but this host. */
   readonly openBrowser: (url: string) => Promise<void>;
-  /** A re-sign-in: the mailbox the account is bound to. Another mailbox in the end is refused (`wrong-account`). */
-  readonly expectEmail?: string;
+  /** A re-sign-in: the mailbox the account is bound to. Its address is preselected, and another identity in the end is refused (`wrong-account`). */
+  readonly expect?: { readonly email: string; readonly userId: string };
+  /** Told how many permissions the token holds beyond what was asked; never called with 0. */
+  readonly onWiderGrant?: (extras: number) => void;
   readonly profile?: GraphProfileOptions;
   readonly timeoutMs?: number;
   readonly openBrowserTimeoutMs?: number;
@@ -32,6 +34,7 @@ export type MicrosoftSignInResult =
       readonly refreshToken: string;
       /** From `/me`, never typed: canonical form. */
       readonly email: string;
+      readonly userId: string;
     }
   | { readonly status: "cancelled" }
   | { readonly status: "timeout" }
@@ -70,7 +73,7 @@ async function run(options: MicrosoftSignInOptions): Promise<MicrosoftSignInResu
         redirectUri,
         state,
         challenge: pkce.challenge,
-        ...(options.expectEmail === undefined ? {} : { loginHint: options.expectEmail }),
+        ...(options.expect === undefined ? {} : { loginHint: options.expect.email }),
       });
       return url.startsWith(`${MICROSOFT_AUTH_URL}?`) ? url : null;
     },
@@ -98,13 +101,17 @@ async function run(options: MicrosoftSignInOptions): Promise<MicrosoftSignInResu
     const scopes = checkGrantedGraphScopes(grant.scope);
     if (!scopes.ok) return { status: "scope", reason: scopes.reason };
     const profile = await fetchGraphProfile(grant.accessToken, options.profile, options.signal);
-    if (
-      options.expectEmail !== undefined &&
-      mailboxKey(profile.email) !== mailboxKey(options.expectEmail)
-    ) {
+    if (options.expect !== undefined && profile.userId !== options.expect.userId) {
       return { status: "wrong-account" };
     }
-    return { status: "signed-in", refreshToken: grant.refreshToken, email: profile.email };
+    const extras = graphScopeExtras(grant.scope);
+    if (extras > 0) options.onWiderGrant?.(extras);
+    return {
+      status: "signed-in",
+      refreshToken: grant.refreshToken,
+      email: profile.email,
+      userId: profile.userId,
+    };
   } catch (error) {
     if (options.signal?.aborted === true) return { status: "aborted" };
     if (error instanceof ApprovalRequiredError) return { status: "needs-approval" };

@@ -169,6 +169,7 @@ describe("graph client", () => {
     const list = await client.list();
     expect(list.rules.map((r) => r.id)).toEqual(["one"]);
     expect(list.unreadable).toBe(1);
+    expect([...list.unreadableIds]).toEqual(["two"]);
   });
 
   it("follows a next link on Graph's own host and version, and no other", async () => {

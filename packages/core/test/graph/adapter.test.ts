@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ApplyResult, OpaqueState } from "../../src/adapter.js";
+import type { AdapterError, ApplyResult, OpaqueState } from "../../src/adapter.js";
 import type { BlockEntry } from "../../src/blocklist.js";
 import {
   GRAPH_CLEANUP_ENTRY_ID,
@@ -10,10 +10,12 @@ import {
   graphLaneId,
   graphEditedRules,
   graphMatchReaches,
+  graphReachTest,
   graphStateHoldsDeletable,
   graphStateHoldsRules,
   initialGraphState,
 } from "../../src/graph/adapter.js";
+import type { GraphReachTest } from "../../src/graph/adapter.js";
 import { GraphBudgets } from "../../src/graph/budget.js";
 import { GRAPH_RULE_NAME, createGraphClient } from "../../src/graph/client.js";
 import { openDatabase } from "../../src/store/db.js";
@@ -41,6 +43,8 @@ const addrs = (count: number, prefix = "u"): string[] =>
 const listOf = (values: string[], action: BlockEntry["action"] = "junk"): BlockEntry[] =>
   values.map((v) => entry(v, action));
 
+const NOTHING_REACHED = graphReachTest({ domains: new Set(), addresses: new Set() });
+
 interface Rig {
   readonly fake: FakeGraph;
   readonly adapter: GraphAdapter;
@@ -64,6 +68,7 @@ function rig(
       saved.push(state);
     },
     sleep: () => Promise.resolve(),
+    reaches: () => NOTHING_REACHED,
     ...options,
   });
   return { fake, adapter, saved };
@@ -261,15 +266,19 @@ describe("GraphAdapter: what Outlook refuses", () => {
     r.fake.maxStrings = 2;
     let state = initialGraphState();
     const list = listOf(addrs(GRAPH_STRINGS_PER_RULE));
-    let last: ApplyResult | undefined;
-    for (let i = 0; i < 6; i += 1) {
+    let refused: unknown = null;
+    for (let i = 0; i < 8 && refused === null; i += 1) {
       const plan = await r.adapter.plan(list, state);
-      last = await r.adapter.apply(plan);
-      state = last.state;
+      try {
+        state = (await r.adapter.apply(plan)).state;
+      } catch (error) {
+        // The first refusal at the floor reads the Junk folder again; the next is the answer.
+        if ((error as AdapterError).code !== "TRANSIENT") refused = error;
+        state = r.saved.at(-1) as OpaqueState;
+      }
     }
     expect(capacityOf(state)).toBe(GRAPH_MIN_STRINGS_PER_RULE);
-    expect(last?.applied).toBe(0);
-    expect(last?.failed[0]?.error.code).toBe("REJECTED");
+    expect(refused).toMatchObject({ code: "REJECTED" });
     expect(intentOf(state)).toEqual([]);
   });
 
@@ -277,9 +286,8 @@ describe("GraphAdapter: what Outlook refuses", () => {
     const r = rig();
     r.fake.forced.set("POST", [400]);
     const plan = await r.adapter.plan(listOf(["a@spam.example"]), initialGraphState());
-    const result = await r.adapter.apply(plan);
-    expect(capacityOf(result.state)).toBe(GRAPH_STRINGS_PER_RULE);
-    expect(result.failed[0]?.error.code).toBe("REJECTED");
+    await expect(r.adapter.apply(plan)).rejects.toMatchObject({ code: "REJECTED" });
+    expect(capacityOf(r.saved.at(-1) as OpaqueState)).toBe(GRAPH_STRINGS_PER_RULE);
   });
 
   it("does not halve for a rule that shrinks, whatever Outlook says", async () => {
@@ -288,9 +296,8 @@ describe("GraphAdapter: what Outlook refuses", () => {
     const { state } = await settle(r, list, initialGraphState());
     r.fake.forced.set("PATCH", [400]);
     const plan = await r.adapter.plan(list.slice(1), state);
-    const result = await r.adapter.apply(plan);
-    expect(capacityOf(result.state)).toBe(GRAPH_STRINGS_PER_RULE);
-    expect(result.failed).toHaveLength(1);
+    await expect(r.adapter.apply(plan)).rejects.toMatchObject({ code: "REJECTED" });
+    expect(capacityOf(r.saved.at(-1) as OpaqueState)).toBe(GRAPH_STRINGS_PER_RULE);
   });
 
   it("reads the Junk folder again after a new rule was refused", async () => {
@@ -300,9 +307,13 @@ describe("GraphAdapter: what Outlook refuses", () => {
     r.fake.forced.set("POST", [400]);
     r.fake.calls.length = 0;
     const list = listOf(["b@spam.example"]);
-    const first = await r.adapter.apply(await r.adapter.plan(list, state));
-    expect((first.state.data as { junkFolderId: string | null }).junkFolderId).toBeNull();
-    await settle(r, list, first.state);
+    // TRANSIENT: the engine comes back by itself, and that round reads the folder.
+    await expect(r.adapter.apply(await r.adapter.plan(list, state))).rejects.toMatchObject({
+      code: "TRANSIENT",
+    });
+    const saved = r.saved.at(-1) as OpaqueState;
+    expect((saved.data as { junkFolderId: string | null }).junkFolderId).toBeNull();
+    await settle(r, list, saved);
     expect(r.fake.calls.filter((c) => c.url.includes("junkemail"))).toHaveLength(1);
   });
 
@@ -310,11 +321,10 @@ describe("GraphAdapter: what Outlook refuses", () => {
     const r = rig();
     r.fake.maxRules = 0;
     const plan = await r.adapter.plan(listOf(["a@spam.example"]), initialGraphState());
-    const result = await r.adapter.apply(plan);
-    expect(result.applied).toBe(0);
-    expect(result.failed[0]?.error.message).toContain("no room");
-    expect(capacityOf(result.state)).toBe(GRAPH_STRINGS_PER_RULE);
-    expect(intentOf(result.state)).toEqual([]);
+    await expect(r.adapter.apply(plan)).rejects.toThrow("no room");
+    const saved = r.saved.at(-1) as OpaqueState;
+    expect(capacityOf(saved)).toBe(GRAPH_STRINGS_PER_RULE);
+    expect(intentOf(saved)).toEqual([]);
   });
 
   it("reports 429 as failed (TRANSIENT), so the engine backs off and an Unblock is not shown as done", async () => {
@@ -359,6 +369,40 @@ describe("GraphAdapter: answers that never came back", () => {
     expect(r.fake.rules.size).toBe(1);
     expect(stateRules(state)).toHaveLength(1);
     expect(intentOf(state)).toEqual([]);
+  });
+
+  it.each([
+    ["in error", { hasError: true }],
+    ["switched off", { isEnabled: false }],
+  ])("keeps a lost create that came back %s: its name makes it ours", async (_name, change) => {
+    const r = rig();
+    r.fake.createThenFail = [500];
+    const list = listOf(["a@spam.example"]);
+    const plan = await r.adapter.plan(list, initialGraphState());
+    await expect(r.adapter.apply(plan)).rejects.toBeDefined();
+    const [rule] = [...r.fake.rules.values()];
+    if (rule === undefined) throw new Error("no rule");
+    Object.assign(rule, change);
+    const result = await r.adapter.apply(await r.adapter.plan(list, r.saved.at(-1) as OpaqueState));
+    expect(editedOf(result.state).map((x) => x.id)).toEqual([rule.id]);
+    expect(intentOf(result.state)).toEqual([]);
+  });
+
+  it("keeps an intent while the list holds a rule it could not read", async () => {
+    const r = rig();
+    r.fake.createThenFail = [500];
+    const list = listOf(["a@spam.example"]);
+    const plan = await r.adapter.plan(list, initialGraphState());
+    await expect(r.adapter.apply(plan)).rejects.toBeDefined();
+    const saved = r.saved.at(-1) as OpaqueState;
+    const [rule] = [...r.fake.rules.values()];
+    r.fake.forced.set("GET", [
+      { status: 200, body: { value: [{ id: rule?.id, displayName: 5 }] } },
+    ]);
+    const result = await r.adapter.apply(await r.adapter.plan(list, saved));
+    expect(intentOf(result.state)).toHaveLength(1);
+    const { state } = await settle(r, list, result.state);
+    expect(stateRules(state).map((x) => x.id)).toEqual([rule?.id]);
   });
 
   it("drops an intent nothing came of, and writes the entry again", async () => {
@@ -501,23 +545,59 @@ describe("GraphAdapter: rules that are not ours any more", () => {
   it("still sees an edited rule when the person deletes it, and writes what is wanted", async () => {
     const { r, list, state, rule } = await setUp();
     rule.exceptions = { subjectContains: ["invoice"] };
-    const { state: kept } = await settle(r, list, state).catch(() => ({ state }));
+    const longer = [...list, entry("b@spam.example")];
+    const { state: kept } = await settle(r, longer, state);
+    expect(editedOf(kept)).toHaveLength(1);
     r.fake.rules.delete(rule.id);
-    const first = await r.adapter.apply(await r.adapter.plan(list, kept));
-    const { state: end } = await settle(r, list, first.state);
+    const more = [...longer, entry("c@spam.example")];
+    const { state: end } = await settle(r, more, kept);
     expect(editedOf(end)).toEqual([]);
-    expect(r.fake.allStrings()).toEqual(["a@spam.example"]);
+    expect(r.fake.allStrings().sort()).toEqual([
+      "a@spam.example",
+      "b@spam.example",
+      "c@spam.example",
+    ]);
   });
 
   it("takes a rule back when it reads as written again", async () => {
     const { r, list, state, rule } = await setUp();
     rule.isEnabled = false;
-    const off = await r.adapter.apply(await r.adapter.plan(list, state));
+    const longer = [...list, entry("b@spam.example")];
+    const off = await settle(r, longer, state);
     expect(editedOf(off.state)).toHaveLength(1);
     rule.isEnabled = true;
-    const on = await r.adapter.apply(await r.adapter.plan(list, off.state));
+    const on = await settle(r, [...longer, entry("c@spam.example")], off.state);
     expect(editedOf(on.state)).toEqual([]);
-    expect(stateRules(on.state)).toHaveLength(1);
+    expect(stateRules(on.state).map((x) => x.id)).toContain(rule.id);
+  });
+
+  it("costs no request while nothing changes: an edited rule waits for the next round that writes", async () => {
+    const { r, list, state, rule } = await setUp();
+    rule.isEnabled = false;
+    const longer = [...list, entry("b@spam.example")];
+    const { state: kept } = await settle(r, longer, state);
+    r.fake.calls.length = 0;
+    expect((await r.adapter.plan(longer, kept)).changes).toEqual([]);
+    expect(r.fake.calls).toEqual([]);
+  });
+
+  it("reports a rule in error that stays held as edited: nobody chose that", async () => {
+    const { r, list, state, rule } = await setUp();
+    rule.hasError = true;
+    const { state: kept } = await settle(r, [...list, entry("b@spam.example")], state);
+    const drift = await r.adapter.verify(kept);
+    expect(drift.drifted).toBe(true);
+    expect(drift.detail).toContain("1 in error");
+  });
+
+  it("does not read as drift at every later Unblock: the page counts it instead", async () => {
+    const { r, list, state, rule } = await setUp();
+    rule.isEnabled = false;
+    const { state: kept } = await settle(r, [...list, entry("b@spam.example")], state);
+    expect(editedOf(kept)).toHaveLength(1);
+    const drift = await r.adapter.verify(kept);
+    expect(drift.drifted).toBe(false);
+    expect(drift.detail).toContain("1 changed there and left alone");
   });
 
   it("uninstall leaves an edited rule, says it stays, and does not hold the account", async () => {
@@ -550,6 +630,65 @@ describe("GraphAdapter: rules that are not ours any more", () => {
     await settle(r, list, saved);
     expect(r.fake.calls.some((c) => c.method === "POST")).toBe(false);
     expect(r.fake.rules.size).toBe(1);
+  });
+
+  it("writes nothing to a rule the list did not confirm: an Unblock waits, and says so", async () => {
+    const { r, list, state, rule } = await setUp();
+    const plan = await r.adapter.plan([], state);
+    r.fake.forced.set("GET", [{ status: 200, body: { value: [{ id: rule.id, displayName: 5 }] } }]);
+    r.fake.calls.length = 0;
+    const result = await r.adapter.apply(plan);
+    expect(r.fake.calls.map((c) => c.method)).toEqual(["GET"]);
+    expect(result.applied).toBe(0);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0]?.error.code).toBe("TRANSIENT");
+    expect(r.fake.rules.has(rule.id)).toBe(true);
+    expect(list).toHaveLength(1);
+  });
+
+  it("lets a move wait with its rule: one value never sits in two rules", async () => {
+    const { r, list, state, rule } = await setUp();
+    const moved = [entry((list[0] as BlockEntry).value, "trash")];
+    const plan = await r.adapter.plan(moved, state);
+    r.fake.forced.set("GET", [{ status: 200, body: { value: [{ id: rule.id, displayName: 5 }] } }]);
+    const result = await r.adapter.apply(plan);
+    expect(result.applied).toBe(0);
+    expect(result.failed).toHaveLength(2);
+    expect(r.fake.rules.size).toBe(1);
+    await expect(r.adapter.plan(moved, result.state)).resolves.toBeDefined();
+  });
+
+  it("still sees a rule that is gone next to an unreadable one of the person's", async () => {
+    const { r, state, rule } = await setUp();
+    const plan = await r.adapter.plan([], state);
+    r.fake.rules.delete(rule.id);
+    r.fake.forced.set("GET", [{ status: 200, body: { value: [{ id: "mine", displayName: 5 }] } }]);
+    const result = await r.adapter.apply(plan);
+    expect(result.failed).toEqual([]);
+    expect(stateRules(result.state)).toEqual([]);
+  });
+
+  it("treats every rule as unconfirmed when an entry has no id at all", async () => {
+    const { r, state, rule } = await setUp();
+    const plan = await r.adapter.plan([], state);
+    r.fake.forced.set("GET", [{ status: 200, body: { value: [{ displayName: 5 }] } }]);
+    const result = await r.adapter.apply(plan);
+    expect(result.failed).toHaveLength(1);
+    expect(stateRules(result.state).map((x) => x.id)).toEqual([rule.id]);
+  });
+
+  it("keeps the report of an edited rule for a later round when this one throws", async () => {
+    const { r, state, rule } = await setUp();
+    rule.exceptions = { subjectContains: ["invoice"] };
+    const longer = [entry("b@spam.example")];
+    r.fake.forced.set("POST", [401]);
+    await expect(r.adapter.apply(await r.adapter.plan(longer, state))).rejects.toMatchObject({
+      code: "AUTH_REQUIRED",
+    });
+    const saved = r.saved.at(-1) as OpaqueState;
+    expect(editedOf(saved)[0]?.entries).toHaveLength(1);
+    const result = await r.adapter.apply(await r.adapter.plan(longer, saved));
+    expect(result.failed[0]?.error.code).toBe("REMOTE_CHANGED");
   });
 
   it("does not take a rule it cannot read for one that is gone", async () => {
@@ -612,10 +751,15 @@ describe("GraphAdapter: rules that are not ours any more", () => {
     expect(r.fake.rules.has(rule.id)).toBe(true);
   });
 
-  it("reports a rule in error", async () => {
-    const { r, state, rule } = await setUp();
+  it("takes no new block into a rule Outlook marks as in error", async () => {
+    const { r, list, state, rule } = await setUp();
     rule.hasError = true;
-    expect((await r.adapter.verify(state)).detail).toContain("1 in error");
+    const before = JSON.stringify(rule);
+    const longer = [...list, entry("b@spam.example")];
+    const { state: end } = await settle(r, longer, state);
+    expect(JSON.stringify(r.fake.rules.get(rule.id))).toBe(before);
+    expect(editedOf(end).map((x) => x.id)).toEqual([rule.id]);
+    expect((await r.adapter.verify(state)).detail).toContain("1 changed");
   });
 });
 
@@ -651,12 +795,64 @@ describe("graphMatchReaches: a text match against the person's own mail", () => 
     },
   );
 
+  it.each(["gov.u", "co.k", "co.i", "com.c", "com.m", "edu.a", "gov.t"])(
+    "refuses %s: no top-level domain has one letter, and it is a cut of a country's",
+    async (value) => {
+      expect(graphMatchReaches(domain(value), own)).toBe(true);
+      const r = rig({ reaches: () => graphReachTest(own) });
+      await settle(r, [entry(value, "junk", "subdomains")], initialGraphState());
+      expect(r.fake.rules.size).toBe(0);
+    },
+  );
+
+  it("refuses a cut of an internationalised country code too: not every one has two letters", () => {
+    for (const suffix of [dot("xn--80au", "xn--90a3ac"), dot("xn--55qx5d", "xn--j6w193g")]) {
+      for (let cut = 1; cut < suffix.length - suffix.lastIndexOf(".") - 1; cut += 1) {
+        expect(graphMatchReaches(domain(suffix.slice(0, -cut)), own)).toBe(true);
+      }
+    }
+    expect(graphMatchReaches(domain(dot("shop", "xn--p1ai")), own)).toBe(false);
+    expect(graphMatchReaches(domain("spam.example"), own)).toBe(false);
+    expect(graphMatchReaches(domain("a.invalid"), own)).toBe(false);
+    expect(graphMatchReaches(domain("b.test"), own)).toBe(false);
+  });
+
+  it("refuses every cut of a country's suffix", () => {
+    for (const suffix of [
+      dot("co", "uk"),
+      dot("com", "tr"),
+      dot("gov", "uk"),
+      dot("com", "au"),
+      dot("co", "in"),
+      dot("co", "jp"),
+      dot("co", "kr"),
+      dot("com", "cn"),
+      dot("com", "br"),
+      dot("gov", "au"),
+    ]) {
+      expect(graphMatchReaches(domain(suffix.slice(0, -1)), own)).toBe(true);
+    }
+  });
+
+  it.each([
+    ["google", "co"],
+    ["microsoft", "co"],
+    ["apple", "co"],
+  ])("refuses a look-alike of where account alerts come from: %s.%s", (a, b) => {
+    expect(graphMatchReaches(domain(dot(a, b)), own)).toBe(true);
+  });
+
+  it("tries every parent of the value: a subdomain of a look-alike reaches a subdomain of the real one", () => {
+    expect(graphMatchReaches(domain(`mail.${LOOK_ALIKE}`), own)).toBe(true);
+    expect(graphMatchReaches(domain("mail.spam.example"), own)).toBe(false);
+  });
+
   it("leaves a single address alone", () => {
     expect(graphMatchReaches({ match: "exactAddress", value: `a@${LOOK_ALIKE}` }, own)).toBe(false);
   });
 
   it("keeps such a domain out of the rules, and takes it out of a rule that holds it", async () => {
-    const reaches = (e: { match: BlockEntry["match"]; value: string }) => graphMatchReaches(e, own);
+    const reaches = () => graphReachTest(own);
     const r = rig({ reaches });
     const refused = entry(LOOK_ALIKE, "junk", "subdomains");
     const fine = entry("spam.example", "junk", "subdomains");
@@ -724,11 +920,20 @@ describe("GraphAdapter lifecycle", () => {
     expect(graphStateHoldsRules(left)).toBe(true);
   });
 
+  it("uninstall deletes a rule whose round left only its intent on disk", async () => {
+    const r = rig();
+    await r.adapter.apply(await r.adapter.plan(listOf(["a@spam.example"]), initialGraphState()));
+    const left = await r.adapter.uninstall(r.saved.at(-1) as OpaqueState);
+    expect(r.fake.rules.size).toBe(0);
+    expect(graphStateHoldsRules(left)).toBe(false);
+  });
+
   it("uninstall finds a create whose answer was lost, and deletes it too", async () => {
     const r = rig();
     r.fake.createThenFail = [500];
     const plan = await r.adapter.plan(listOf(["a@spam.example"]), initialGraphState());
     await expect(r.adapter.apply(plan)).rejects.toBeDefined();
+    expect(graphStateHoldsDeletable(r.saved.at(-1) as OpaqueState)).toBe(true);
     const left = await r.adapter.uninstall(r.saved.at(-1) as OpaqueState);
     expect(r.fake.rules.size).toBe(0);
     expect(graphStateHoldsRules(left)).toBe(false);
@@ -773,6 +978,48 @@ describe("GraphAdapter lifecycle", () => {
     await expect(r.adapter.apply(plan)).rejects.toBeDefined();
     const next = await r.adapter.plan(list, r.saved.at(-1) as OpaqueState);
     expect(next.changes.map((c) => c.entry.id)).toEqual([GRAPH_CLEANUP_ENTRY_ID]);
+  });
+});
+
+describe("what the lanes share", () => {
+  it("works a list out once for all lanes, until the list or the test changes", async () => {
+    let asked = 0;
+    const own = { domains: new Set<string>(), addresses: new Set<string>() };
+    const counting: GraphReachTest = (e) => {
+      asked += 1;
+      return graphReachTest(own)(e);
+    };
+    const list = listOf(addrs(50));
+    await rig({ reaches: () => counting }).adapter.plan(list, initialGraphState());
+    expect(asked).toBe(50);
+    await rig({ reaches: () => counting }).adapter.plan(list, initialGraphState());
+    expect(asked).toBe(50);
+    const other: GraphReachTest = () => true;
+    const refused = await rig({ reaches: () => other }).adapter.plan(list, initialGraphState());
+    expect(refused.changes).toEqual([]);
+  });
+
+  it("reports a round in counts", async () => {
+    const reports: unknown[] = [];
+    const r = rig({ onRound: (round) => reports.push(round) });
+    await settle(r, listOf(["a@spam.example"]), initialGraphState());
+    expect(reports).toEqual([
+      {
+        ms: expect.any(Number) as number,
+        writes: 1,
+        applied: 1,
+        failed: 0,
+        deferred: 0,
+        edited: 0,
+        capacity: GRAPH_STRINGS_PER_RULE,
+      },
+    ]);
+  });
+
+  it("saves one state per write, not two", async () => {
+    const r = rig();
+    await settle(r, listOf(addrs(GRAPH_STRINGS_PER_RULE * 3)), initialGraphState());
+    expect(r.saved).toHaveLength(3);
   });
 });
 

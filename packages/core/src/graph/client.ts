@@ -91,6 +91,7 @@ const ListAnswer = z.looseObject({
   value: z.array(z.unknown()).max(LIST_MAX),
   "@odata.nextLink": z.string().max(2_048).optional(),
 });
+const RuleId = z.looseObject({ id: z.string().regex(GRAPH_ID) });
 const FolderAnswer = z.looseObject({ id: z.string().regex(GRAPH_ID) });
 const ErrorAnswer = z.looseObject({
   error: z.looseObject({ code: z.string().max(128).optional() }),
@@ -98,8 +99,10 @@ const ErrorAnswer = z.looseObject({
 
 export interface GraphRuleList {
   readonly rules: readonly GraphRule[];
-  /** Entries that could not be read: never ours (an id we hold passed the same check when it was written). */
+  /** Entries that could not be read. One of ours can be among them, grown past the bounds in Outlook. */
   readonly unreadable: number;
+  /** The ids of those that have a readable id: a rule in neither list is gone, unless some entry had no id at all. */
+  readonly unreadableIds: ReadonlySet<string>;
 }
 
 /** The one condition of a rule this lane writes. A rule never holds both: conditions of one rule are all required. */
@@ -332,6 +335,7 @@ export function createGraphClient(options: GraphClientOptions): GraphRuleClient 
     async list(signal) {
       const rules: GraphRule[] = [];
       let unreadable = 0;
+      const unreadableIds = new Set<string>();
       let url: string | undefined = GRAPH_RULES_URL;
       for (let pages = 0; url !== undefined; pages += 1) {
         if (pages >= GRAPH_LIST_MAX_PAGES) {
@@ -345,13 +349,17 @@ export function createGraphClient(options: GraphClientOptions): GraphRuleClient 
         for (const entry of parsed.data.value) {
           const one = RuleAnswer.safeParse(entry);
           if (one.success) rules.push(one.data);
-          else unreadable += 1;
+          else {
+            unreadable += 1;
+            const id = RuleId.safeParse(entry);
+            if (id.success) unreadableIds.add(id.data.id);
+          }
         }
         const next = parsed.data["@odata.nextLink"];
         if (next !== undefined && !isGraphLink(next)) throw malformed("rules list");
         url = next;
       }
-      return { rules, unreadable };
+      return { rules, unreadable, unreadableIds };
     },
 
     async create(rule, signal) {

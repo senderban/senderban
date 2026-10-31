@@ -176,6 +176,46 @@ const track = <T extends { engine: SyncEngine }>(s: T): T => {
   return s;
 };
 
+describe("a lane with a gate of its own", () => {
+  it("does not wait behind background lanes, nor they behind it", async () => {
+    const store = new Store(openDatabase(":memory:"));
+    const engine = new SyncEngine(store, { maxConcurrentBackground: 1 });
+    const stuck = Promise.withResolvers<undefined>();
+    const adapter = (run: () => Promise<undefined>): BlockAdapter => ({
+      id: "x",
+      capabilities: () => {
+        throw new Error("unused");
+      },
+      plan: async (_list, state) => {
+        await run();
+        return { accountId: "x", changes: [], basedOn: state };
+      },
+      apply: () => Promise.reject(new Error("unused")),
+      verify: () => Promise.reject(new Error("unused")),
+    });
+    const initialState = { adapterId: "x", data: null };
+    engine.addAccount({
+      id: "stuck",
+      initialState,
+      background: true,
+      ownGate: true,
+      adapter: adapter(() => stuck.promise),
+    });
+    engine.addAccount({
+      id: "other",
+      initialState,
+      background: true,
+      adapter: adapter(() => Promise.resolve(undefined)),
+    });
+    const waiting = engine.sync("stuck");
+    await expect(engine.sync("other")).resolves.toMatchObject({ status: "unchanged" });
+    stuck.resolve(undefined);
+    await waiting;
+    engine.dispose();
+    store.close();
+  });
+});
+
 describe("attemptDone", () => {
   it("does not wait for a round still queued for a slot: it has written nothing", async () => {
     const { store, engine, add } = track(setup({ maxConcurrent: 1 }));

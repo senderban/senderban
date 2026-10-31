@@ -47,6 +47,7 @@ const {
 const CLIENT = "00000000-1111-2222-3333-444444444444";
 const TOKEN = "M.C123_BL2.0.U.refresh-token-of-me";
 const EMAIL = "me@outlook.example";
+const USER = "0123456789abcdef";
 
 let dir: string;
 let path: string;
@@ -62,7 +63,12 @@ afterEach(async () => {
 const noOAuth = {} as MicrosoftOAuthClient;
 function deps(
   over: Partial<MicrosoftDeps> = {},
-  result: MicrosoftSignInResult = { status: "signed-in", refreshToken: TOKEN, email: EMAIL },
+  result: MicrosoftSignInResult = {
+    status: "signed-in",
+    refreshToken: TOKEN,
+    email: EMAIL,
+    userId: USER,
+  },
 ): MicrosoftDeps {
   return {
     accountsPath: path,
@@ -76,7 +82,7 @@ function deps(
 const stored = async () => (await loadAccounts(path)).filter(isMicrosoftAccount);
 const withAccount = async (id = "ms-1", email = EMAIL) => {
   await saveAccounts(path, [
-    { id, microsoft: { email, refreshCipher: await encryptPassword(TOKEN) } },
+    { id, microsoft: { email, userId: USER, refreshCipher: await encryptPassword(TOKEN) } },
   ]);
 };
 
@@ -138,11 +144,12 @@ describe("signing in", () => {
   it("binds a re-sign-in to the account and replaces the token", async () => {
     await withAccount();
     const signIn = vi.fn((options: MicrosoftSignInOptions) => {
-      expect(options.expectEmail).toBe(EMAIL);
+      expect(options.expect).toEqual({ email: EMAIL, userId: USER });
       return Promise.resolve<MicrosoftSignInResult>({
         status: "signed-in",
         refreshToken: "new-token",
-        email: EMAIL,
+        email: "renamed@outlook.example",
+        userId: USER,
       });
     });
     await expect(signInMicrosoftAccount(deps({ signIn }), { accountId: "ms-1" })).resolves.toBe(
@@ -151,6 +158,13 @@ describe("signing in", () => {
     expect(signIn).toHaveBeenCalledOnce();
     const [account] = await stored();
     expect(await decryptPassword(account?.microsoft.refreshCipher ?? "")).toBe("new-token");
+    expect(account?.microsoft.email).toBe("renamed@outlook.example");
+    expect(account?.microsoft.userId).toBe(USER);
+  });
+
+  it("refuses the same person under another address", async () => {
+    await withAccount("ms-1", "old@outlook.example");
+    await expect(signInMicrosoftAccount(deps(), {})).resolves.toBe("duplicate");
   });
 
   it("answers for an account that is gone", async () => {
@@ -276,8 +290,9 @@ describe("a refresh token that replaced itself", () => {
 describe("own mail", () => {
   it("counts a Microsoft account like any other", () => {
     const own = collectOwnMail([
-      { id: "ms-1", microsoft: { email: "me@contoso.example" } },
-      { id: "ms-2", microsoft: { email: "me@outlook.com" } },
+      { id: "ms-1", microsoft: { email: "me@contoso.example", userId: "a" } },
+      // A listed provider on purpose: its domain must not become the person's own.
+      { id: "ms-2", microsoft: { email: "me@outlook.com", userId: "b" } },
     ]);
     expect(own.addresses.has("me@contoso.example")).toBe(true);
     expect(own.domains.has("contoso.example")).toBe(true);
@@ -288,7 +303,9 @@ describe("own mail", () => {
 describe("lanes", () => {
   const log = vi.fn();
   const baseDeps = (over: Partial<Parameters<typeof buildMicrosoftLanes>[0]> = {}) => ({
-    accounts: [{ id: "ms-1", microsoft: { email: EMAIL, refreshCipher: "aGVsbG8=" } }],
+    accounts: [
+      { id: "ms-1", microsoft: { email: EMAIL, userId: USER, refreshCipher: "aGVsbG8=" } },
+    ],
     oauth: {
       exchangeCode: () => Promise.reject(new Error("unused")),
       refresh: () => Promise.reject(new Error("unused")),
@@ -313,8 +330,9 @@ describe("lanes", () => {
   it("leaves out what cannot act, and says why", () => {
     expect(buildMicrosoftLanes(baseDeps({ oauth: null })).skipped[0]?.reason).toBe("no-client");
     expect(
-      buildMicrosoftLanes(baseDeps({ accounts: [{ id: "ms-1", microsoft: { email: EMAIL } }] }))
-        .skipped[0]?.reason,
+      buildMicrosoftLanes(
+        baseDeps({ accounts: [{ id: "ms-1", microsoft: { email: EMAIL, userId: USER } }] }),
+      ).skipped[0]?.reason,
     ).toBe("signed-out");
     expect(
       buildMicrosoftLanes(baseDeps({ reservedLaneIds: new Set(["ms-1.graph"]) })).skipped[0]
@@ -382,12 +400,48 @@ describe("lanes", () => {
     expect(log).toHaveBeenCalledWith("graph-refresh-save-failed", expect.anything());
   });
 
+  it("says when a renewed token holds more than was asked, as a count", async () => {
+    const logged: unknown[] = [];
+    const { lanes } = buildMicrosoftLanes(
+      baseDeps({
+        log: (event, fields) => logged.push([event, fields]),
+        oauth: {
+          exchangeCode: () => Promise.reject(new Error("unused")),
+          refresh: () =>
+            Promise.resolve({
+              accessToken: "access",
+              expiresInSeconds: 3599,
+              scope: "User.Read Mail.ReadBasic MailboxSettings.ReadWrite Mail.Send",
+            }),
+        },
+        fetch: () => Promise.resolve(new Response(JSON.stringify({ value: [] }), { status: 200 })),
+      }),
+    );
+    await lanes[0]?.adapter.uninstall({
+      ...initialGraphState(),
+      data: {
+        rules: [],
+        edited: [
+          { id: "r", nonce: "0123456789abcdef", kind: "address", action: "trash", entries: [] },
+        ],
+        intent: [],
+        junkFolderId: null,
+        capacity: 100,
+      },
+    });
+    expect(logged).toContainEqual(["graph-scope-wider", { account: "ms-1", extras: 1 }]);
+    expect(JSON.stringify(logged)).not.toContain("Mail.Send");
+  });
+
   it("logs a request as its operation, status and time, with no address", async () => {
     const logged: unknown[] = [];
     const { lanes } = buildMicrosoftLanes(
       baseDeps({
         accounts: [
-          { id: "me@outlook.example", microsoft: { email: EMAIL, refreshCipher: "aGVsbG8=" } },
+          {
+            id: "me@outlook.example",
+            microsoft: { email: EMAIL, userId: USER, refreshCipher: "aGVsbG8=" },
+          },
         ],
         log: (event, fields) => logged.push([event, fields]),
         oauth: {

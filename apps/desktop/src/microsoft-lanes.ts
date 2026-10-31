@@ -5,6 +5,8 @@ import {
   createGraphClient,
   graphLaneId,
   graphMatchReaches,
+  graphReachTest,
+  graphScopeExtras,
   graphStateHoldsDeletable,
   graphStateHoldsRules,
   isMicrosoftAccount,
@@ -107,6 +109,8 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
       oauth: {
         refresh: async (token) => {
           const grant = await oauth.refresh(token);
+          const extras = graphScopeExtras(grant.scope);
+          if (extras > 0) deps.log("graph-scope-wider", { account: tag, extras });
           if (grant.refreshToken !== undefined) {
             try {
               cipher = (await deps.saveRefreshToken(account.id, grant.refreshToken)) ?? cipher;
@@ -143,7 +147,11 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
       adapter: new GraphAdapter({
         accountId: laneId,
         client: budgeted,
-        reaches: (entry) => graphMatchReaches(entry, deps.own()),
+        reaches: () => graphReachTest(deps.own()),
+        // Counts and a duration only.
+        onRound: (round) => {
+          deps.log("graph-round", { account: tag, ...round });
+        },
         checkpoint: (state) => {
           deps.saveState(laneId, state);
         },
@@ -241,7 +249,7 @@ export function createMicrosoftLifecycle(deps: MicrosoftLifecycleDeps): Microsof
         return deps.skipReasonOf(accountId) === undefined ? "restart-first" : "unreachable";
       }
       deps.onHold(laneId, true);
-      // Held still first, and the state read AFTER: a round that was running has saved its last rule by the time this returns.
+      // Held still first, and the state read AFTER: a round that was running has its last write's intent on disk by the time this returns, and `uninstall` settles it.
       if (!(await lane.adapter.suspend())) return "rules-left";
       const state = deps.store.getState(laneId);
       if (state === undefined || !graphStateHoldsRules(state)) return "ready";
