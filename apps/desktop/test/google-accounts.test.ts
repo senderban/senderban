@@ -126,6 +126,26 @@ describe("the client the installer comes with", () => {
     expect(madeFor).toEqual([BUILTIN_ID]);
     expect((await googleState(deps)).client).toEqual({ clientId: NEW_ID, builtIn: false });
   });
+
+  it("keeps a damaged client file unreadable with the built-in client in place, so a change still asks first", async () => {
+    const builtInClientPath = join(dir, "google-client.builtin.json");
+    await writeFile(
+      builtInClientPath,
+      JSON.stringify({ clientId: BUILTIN_ID, clientSecret: SECRET }),
+    );
+    deps = { ...deps, builtInClientPath };
+    await signInGoogle(deps, {});
+    await writeFile(clientPath, "{ not json");
+
+    expect((await googleState(deps)).client).toBeNull();
+    expect(
+      await saveGoogleClientSettings(deps, {
+        clientId: NEW_ID,
+        clientSecret: SECRET,
+        confirmSignOut: false,
+      }),
+    ).toBe("needs-confirm");
+  });
 });
 
 describe("sign in", () => {

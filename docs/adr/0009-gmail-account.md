@@ -150,7 +150,7 @@ refreshes), as in the watcher's backoff (`DEFAULT_BACKOFF`). Not measured: real 
 does to an unverified production project that polls every minute.
 Shared resource per account: one lane, one deadline per call (15 s for the OAuth, profile and Gmail calls, as for MXroute; the engine's
 60 s round contains them), a 429 or `rateLimitExceeded` is shown and backed off, never
-swallowed; a write is not retried blindly (read the remote state first, RFC 9110 §9.2.2). Paid upstream: none (own project, own quota).
+swallowed; a write is not retried blindly (read the remote state first, RFC 9110 §9.2.2). Paid upstream: none today. Since the 2026-10-31 amendment everyone on the built-in client shares one project and its quota: 100 accounts at their client-side caps reach 9.2% of the 1.2M units/min project limit and 1.8% of the 80M/day billing threshold (performance review 2026-10-31); per-device caps exist, a cross-device ceiling is not possible without a server, and Google's page says overage charges are planned, so read it again before 1,000 installs.
 
 ### Budget lines still to be written into the adapter (performance review 2026-10-26, W1–W4)
 

@@ -136,8 +136,11 @@
       <h2>Google user data (Gmail)</h2>
       <p>
         You sign in to Gmail with your Google account, on Google's page in your browser. Senderban
-        never sees your password. The OAuth client that comes with the app only names the app to
-        Google: it gives no one access to your mail, because the tokens stay on your device. It asks
+        never sees your password, and the tokens Google issues stay on your device. The OAuth client
+        that comes with the app identifies the app to Google. It is inside the installer, so it is
+        no secret and it is the one part not in the repository; on its own it reads no mail, because
+        Google asks for your consent first. As the owner of that Google Cloud project, we can see
+        the totals Google shows there, such as the number of users and API traffic. Senderban asks
         for exactly two permissions:
       </p>
       <ul>

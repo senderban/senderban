@@ -42,7 +42,7 @@ const G_SIGN_IN_REPLY = {
   ],
   "client-refused": [
     "error",
-    "Google refused the client ID or secret. Check both under Credentials in Google Cloud and save them again.",
+    "Google refused this sign-in. If you use your own Google project, check the client ID and secret under Credentials in Google Cloud and save them again. Otherwise try again later.",
   ],
   unreachable: ["error", "Could not reach Google. Try again."],
   duplicate: ["warn", "This mailbox is already set up in Senderban. Nothing was saved."],
@@ -148,8 +148,8 @@ function gDrawClient() {
   if (client === null) gEls.own.open = true;
   gEls.intro.textContent =
     client === null
-      ? "This version of Senderban has no Google client of its own. Save yours below, then add your account."
-      : "Senderban opens Google's sign-in page in your browser and never sees your password. It asks to manage Gmail filters and to read mail headers, and it reads no mail bodies.";
+      ? "No Google client is in use. Save yours below, then add your account."
+      : "Senderban opens Google's sign-in page in your browser and never sees your password. It asks to manage Gmail filters and to read mail headers, and it reads no mail bodies. Until Google has reviewed Senderban, its page warns that the app is not verified.";
 }
 
 /** What the stored token is worth today. Text and colour-free: the state is said in words (never by colour alone). */
@@ -271,7 +271,7 @@ async function gSignIn(request) {
     setNotice(
       tone,
       days > 0
-        ? `${text} Google ends this access in ${String(days)} day(s) while your project is in testing; sign in again then.`
+        ? `${text} Google ends this access in ${String(days)} day(s) while this Google project is in testing; sign in again then.`
         : text,
     );
     await gRefresh();

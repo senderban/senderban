@@ -59,10 +59,11 @@ describe("the client the installer comes with", () => {
     expect((await activeGoogleClient(path, builtIn))?.builtIn).toBe(false);
   });
 
-  it("falls back to it from a client file that is not ours, and without it keeps failing", async () => {
+  it("never stands in for a client file that is not ours, with or without a built-in file", async () => {
     await writeFile(path, "{ not json");
+    await expect(activeGoogleClient(path, builtIn)).rejects.toBeInstanceOf(ClientFileInvalid);
     await writeFile(builtIn, JSON.stringify({ clientId: CLIENT_ID, clientSecret: SECRET }));
-    expect((await activeGoogleClient(path, builtIn))?.builtIn).toBe(true);
+    await expect(activeGoogleClient(path, builtIn)).rejects.toBeInstanceOf(ClientFileInvalid);
     await expect(activeGoogleClient(path)).rejects.toBeInstanceOf(ClientFileInvalid);
   });
 

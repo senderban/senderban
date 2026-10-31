@@ -87,14 +87,10 @@ export async function activeGoogleClient(
   userPath: string,
   builtInPath?: string,
 ): Promise<ActiveGoogleClient | null> {
-  try {
-    const file = await loadGoogleClient(userPath);
-    if (file !== null) {
-      return { clientId: file.clientId, getSecret: clientSecretGetter(file), builtIn: false };
-    }
-  } catch (error) {
-    // A file that is not ours does not shut out the built-in client; without one it stays what it was.
-    if (!(error instanceof ClientFileInvalid) || builtInPath === undefined) throw error;
+  // A file that is not ours throws here too: the tokens came from that client, so the built-in one must not stand in for it unseen.
+  const file = await loadGoogleClient(userPath);
+  if (file !== null) {
+    return { clientId: file.clientId, getSecret: clientSecretGetter(file), builtIn: false };
   }
   const builtIn = builtInPath === undefined ? null : await loadBuiltInGoogleClient(builtInPath);
   if (builtIn === null) return null;

@@ -40,8 +40,9 @@ jobs:
       - run: npm run build
       - run: npm test
       # The Google client the installer comes with (ADR 0009): a person signs in with their own account and never sees a client ID.
-      # A tag build stops without it; a manual run builds without one. The pair lives in repository secrets, never in the tree.
+      # A tag build stops without it; a manual run never gets it. The pair lives in repository secrets, never in the tree.
       - name: Google client for this installer
+        if: github.ref_type == 'tag'
         env:
           SENDERBAN_GOOGLE_CLIENT_ID: ${{ secrets.SENDERBAN_GOOGLE_CLIENT_ID }}
           SENDERBAN_GOOGLE_CLIENT_SECRET: ${{ secrets.SENDERBAN_GOOGLE_CLIENT_SECRET }}
