@@ -465,6 +465,7 @@ input[type="checkbox"][role="switch"]:checked::before {
 }
 
 .panel,
+#detect-form,
 #account-form,
 #clean-form,
 #mxroute-new form,

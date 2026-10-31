@@ -48,7 +48,7 @@ outright.
 
 RFC 5804 §1.8 has a client look up `_sieve._tcp.<domain>` before falling back to 4190. Senderban does not: the person names host and
 port, `nslookup` found no such record for any of the three providers (2026-10-31), and unsigned DNS should not choose where a password
-goes. If a provider ever depends on it, the record can fill the form, with the person confirming the name.
+goes. If a provider ever depends on it, the record can fill the form, with the person confirming the name. ADR 0018 does that.
 
 ## Scale budget
 

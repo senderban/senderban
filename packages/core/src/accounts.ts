@@ -427,15 +427,20 @@ const FormAddress = z
     return z.NEVER;
   });
 
-// Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
-// process's own confirmation are what protect the password.
-const FormHost = Host.refine(
-  (value) => PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value),
-  {
-    message: "not a public host name",
-    // Lower case: DNS does not care, and in a dialog a capital I then shows as an i, not as an l.
-  },
-).transform((value) => value.toLowerCase());
+/**
+ * Turns away addresses and common private names. A public name may still resolve anywhere: verified TLS and the main
+ * process's own confirmation are what protect the password.
+ */
+export const isPublicHostName = (value: string): boolean =>
+  Host.safeParse(value).success && PUBLIC_HOST_NAME.test(value) && !PRIVATE_HOST_ENDING.test(value);
+
+// Lower case: DNS does not care, and in a dialog a capital I then shows as an i, not as an l.
+const FormHost = Host.refine(isPublicHostName, { message: "not a public host name" }).transform(
+  (value) => value.toLowerCase(),
+);
+
+/** "Find my provider": the address alone, in the same form and under the same limits as the add form. */
+export const AccountDetectSchema = z.strictObject({ address: FormAddress });
 
 /**
  * The add form. A preset names its server here, in the main process: the page never says where a password goes for those. The port

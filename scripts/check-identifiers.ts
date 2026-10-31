@@ -89,6 +89,22 @@ export const EXACT_HOSTS: readonly string[] = [
   "github.io",
   // The server field's placeholder in Advanced (advanced.js): MXroute's naming.
   "eagle.mxlogin.com",
+  // Find my provider (packages/core/src/detect/providers.ts, ADR 0018): the IMAP servers it suggests. Each is a provider's
+  // own public host, on its help page.
+  "imap.mail.me.com",
+  "imap.mail.yahoo.com",
+  "imap.aol.com",
+  "imap.gmx.net",
+  "imap.gmx.com",
+  "imap.web.de",
+  // Its zones of mail hosts. Exact and not in PUBLIC_ZONES: a host below one of these names a customer or a real server.
+  "protection.outlook.com",
+  "mail.icloud.com",
+  "am0.yahoodns.net",
+  "gm0.yahoodns.net",
+  "emig.gmx.net",
+  "protonmail.ch",
+  "mxrouting.net",
 ];
 
 /** `packages/core/src/freemail.ts` is itself a list of public mail providers; each is allowed as exactly itself. */
@@ -176,7 +192,7 @@ function within(host: string, zone: string): boolean {
   return host === zone || host.endsWith(`.${zone}`);
 }
 
-/** Loopback, private and documentation ranges: RFC 1122, RFC 1918, RFC 3927, RFC 5737, RFC 6598, plus 0.0.0.0 and broadcast. */
+/** Loopback, private, documentation and special ranges: RFC 1122, RFC 1918, RFC 2544, RFC 3927, RFC 5737, RFC 5771, RFC 6598, RFC 6890, plus 0.0.0.0. */
 function isReservedIpv4(address: string): boolean {
   const o = address.split(".").map(Number);
   if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n > 255)) return true; // a version number, not an address
@@ -185,12 +201,13 @@ function isReservedIpv4(address: string): boolean {
     a === 0 ||
     a === 127 ||
     a === 10 ||
-    a === 255 ||
+    a >= 224 ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
     (a === 169 && b === 254) ||
     (a === 100 && b >= 64 && b <= 127) ||
-    (a === 192 && b === 0 && c === 2) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 198 && (b === 18 || b === 19)) ||
     (a === 198 && b === 51 && c === 100) ||
     (a === 203 && b === 0 && c === 113)
   );

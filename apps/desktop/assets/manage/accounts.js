@@ -5,6 +5,9 @@
 const acApi = window.senderban;
 const acEls = {
   groups: document.getElementById("account-groups"),
+  detectForm: document.getElementById("detect-form"),
+  detectAddress: document.getElementById("detect-address"),
+  detectFind: document.getElementById("detect-find"),
   form: document.getElementById("account-form"),
   address: document.getElementById("account-address"),
   password: document.getElementById("account-password"),
@@ -126,6 +129,7 @@ function acSetBusy(busy) {
   acBusy = busy;
   acEls.save.disabled = busy;
   acEls.cleanSave.disabled = busy;
+  acEls.detectFind.disabled = busy;
   for (const button of acEls.groups.querySelectorAll("button")) button.disabled = busy;
   for (const button of acEls.cleanRows.querySelectorAll("button")) button.disabled = busy;
 }
@@ -245,6 +249,7 @@ async function acLoadOnce({ quiet = false } = {}) {
   acCleanLimits = result.cleanLimits;
   acEls.cleanPort.min = String(acCleanLimits.port.min);
   acEls.cleanPort.max = String(acCleanLimits.port.max);
+  acEls.detectAddress.minLength = acLimits.address.min;
   acEls.cleanAddress.minLength = acLimits.address.min;
   acEls.cleanPassword.minLength = acLimits.password.min;
   acEls.cleanHost.minLength = acLimits.host.min;
@@ -326,6 +331,86 @@ async function acAddClean() {
   acSetBusy(false);
 }
 
+const AC_DNS_NAME =
+  "This name came from your domain's DNS records, which are no proof. Compare it with what your provider gave you.";
+
+/** The form the answer fills, and the sentence for it. Nothing typed for another address stays, and a password least of all. */
+function acApplyDetection(address, found) {
+  acEls.address.value = address;
+  acEls.cleanAddress.value = address;
+  for (const input of [acEls.password, acEls.cleanPassword, acEls.host, acEls.cleanHost]) {
+    input.value = "";
+  }
+  acEls.cleanLogin.value = "";
+  if (found.kind === "gmail") {
+    acShowProvider("gmail");
+    return ["ok", "This looks like Gmail or Google Workspace. Sign in below."];
+  }
+  if (found.kind === "microsoft") {
+    acShowProvider("microsoft");
+    return ["ok", "This looks like Outlook or Microsoft 365. Sign in below."];
+  }
+  if (found.kind === "clean") {
+    acShowProvider("other");
+    acEls.cleanHost.value = found.host;
+    acEls.cleanPort.value = String(found.port);
+    acEls.cleanPassword.focus();
+    const named = found.name === null ? `Found ${found.host}.` : `This looks like ${found.name}.`;
+    const before = found.switchOn ? " Switch on IMAP in its settings first." : "";
+    const check = found.name === null ? ` ${AC_DNS_NAME}` : "";
+    return [
+      found.name === null ? "warn" : "ok",
+      `${named} It has no server rules, so Senderban moves mail itself while it runs.${before} Enter an app password below.${check}`,
+    ];
+  }
+  if (found.kind === "preset" || found.kind === "server") {
+    acShowProvider("mx");
+    acEls.provider.value = found.provider;
+    acEls.port.value = String(found.kind === "server" ? found.port : acServers.port);
+    if (found.kind === "server") acEls.host.value = found.host;
+    acShowServer();
+    acEls.password.focus();
+    if (found.kind === "preset") {
+      const name = acServers.presets[found.provider].name;
+      return ["ok", `This looks like ${name}. Enter the password below.`];
+    }
+    const who = found.provider === "mxroute" ? "This looks like MXroute, at" : "Found a server at";
+    return ["warn", `${who} ${found.host}. ${AC_DNS_NAME}`];
+  }
+  if (found.kind === "unsupported") {
+    return ["warn", `This looks like ${found.name}, which Senderban cannot reach yet.`];
+  }
+  if (found.kind === "no-mail") {
+    return ["error", "This domain takes no mail. Check the address."];
+  }
+  if (found.kind === "dns-failed") {
+    return ["warn", "Could not read this domain's mail records. Pick your provider below."];
+  }
+  return ["warn", "Could not tell who runs this mailbox. Pick your provider below."];
+}
+
+const AC_DETECT_REFUSED = {
+  invalid: ["error", "Check the address."],
+  busy: ["warn", "A check is still running."],
+};
+
+async function acDetect() {
+  const address = acEls.detectAddress.value;
+  acSetBusy(true);
+  setNotice("working", "Looking up this mail domain. This can take up to 10 seconds…");
+  try {
+    const reply = await acApi.accountDetect(address);
+    // Typed over while the answer was on its way: the answer is about another address.
+    if (acEls.detectAddress.value !== address) setNotice("", "");
+    else if (typeof reply === "string") {
+      setNotice(...(AC_DETECT_REFUSED[reply] ?? ["error", "Could not look this up. See the log."]));
+    } else setNotice(...acApplyDetection(address.trim().toLowerCase(), reply));
+  } catch {
+    setNotice("error", "Could not look this up. See the log.");
+  }
+  acSetBusy(false);
+}
+
 async function acRemove(account) {
   acSetBusy(true);
   try {
@@ -401,6 +486,16 @@ acEls.provider.addEventListener("change", () => {
   // A port typed for one server means nothing on another, and the password would follow it.
   acEls.port.value = String(acServers.port);
   acShowServer();
+});
+
+acEls.detectAddress.addEventListener("input", () => {
+  if (acLimits !== null) acCheckLength(acEls.detectAddress, acLimits.address.max);
+});
+
+acEls.detectForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (acBusy || acServers === null || !acEls.detectForm.reportValidity()) return;
+  void acDetect();
 });
 
 acEls.cleanForm.addEventListener("submit", (event) => {

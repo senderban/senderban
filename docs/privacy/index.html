@@ -83,7 +83,7 @@
       <h1>Privacy policy</h1>
       <p class="lead">Senderban runs on your device. We never receive your mail data.</p>
       <p class="status">
-        <strong>Effective 31 October 2026.</strong> Senderban is an early-release, open-source
+        <strong>Effective 1 November 2026.</strong> Senderban is an early-release, open-source
         Windows app (<a href="/">senderban.com</a>). This policy describes the code in
         <a href="https://github.com/senderban/senderban">the public repository</a>, so you can check
         every statement against it.
@@ -105,6 +105,12 @@
           address, your login and your password. The password is stored encrypted with the operating
           system's credential protection (Windows DPAPI, through Electron's safeStorage), on your
           device only.
+        </li>
+        <li>
+          <strong>Find my provider.</strong> When you press it, the app looks up your address's mail
+          domain through your network's DNS, the same way your other apps look up a name, and may
+          connect to that domain's mail server to ask what it is. The domain leaves your device; the
+          rest of the address and your password do not. It is not stored or logged.
         </li>
         <li>
           <strong>Sender and subject of new mail.</strong> Only the From address and the Subject of

@@ -258,6 +258,27 @@
         </section>
 
         <section id="view-add" class="view narrow" hidden>
+          <form id="detect-form" autocomplete="off">
+            <div class="field">
+              <label for="detect-address">Mail address</label>
+              <input
+                id="detect-address"
+                type="text"
+                required
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="you@example.com"
+              />
+              <span class="meta"
+                >Senderban looks up who runs this mail domain and fills in the form below. It asks
+                your network's DNS and may connect to the mail server, without signing in.</span
+              >
+            </div>
+            <div class="row">
+              <button type="submit" id="detect-find">Find my provider</button>
+            </div>
+          </form>
+
           <div class="tabs" role="group" aria-label="Provider">
             <button type="button" id="provider-mx" class="tab">Mail server</button>
             <button type="button" id="provider-gmail" class="tab">Gmail</button>

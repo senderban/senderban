@@ -6,3 +6,4 @@ export * from "./oauth/loopback.js";
 export * from "./oauth/consent.js";
 export * from "./google/sign-in.js";
 export * from "./graph/sign-in.js";
+export * from "./detect/live.js";

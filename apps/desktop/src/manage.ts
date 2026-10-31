@@ -3,6 +3,7 @@ import {
   ACCOUNT_ADD_LIMITS,
   ACCOUNT_ID,
   AccountAddSchema,
+  AccountDetectSchema,
   CLEAN_ADD_LIMITS,
   CleanAddSchema,
   GOOGLE_CLIENT_ID_PATTERN,
@@ -28,6 +29,7 @@ import type {
   AccountAddInput,
   BlockEntry,
   CleanAddInput,
+  Detection,
   GoogleClientInput,
   MxrouteEnableInput,
   MxrouteInput,
@@ -140,6 +142,8 @@ export interface ManageHandlers {
     input: CleanAddInput,
     request: AccountAddRequest,
   ) => Promise<AccountAddResult>;
+  /** Who runs this address's mail domain, ended by `signal`. Stores nothing and sends nothing of the person's. The input has already passed the core schema. */
+  readonly accountDetect: (address: string, signal: AbortSignal) => Promise<Detection>;
   /** Deletes the account's rules from its server, then the account. */
   readonly accountRemove: (
     accountId: string,
@@ -197,6 +201,8 @@ export class ManageWindow {
   #adding = false;
   /** Aborts the add in flight when the window closes: nobody is left to read its answer. */
   #addAbort: AbortController | null = null;
+  /** The detection in flight: one at a time, and it ends with the window. */
+  #detectAbort: AbortController | null = null;
   /** An account changed since Senderban started, so the page keeps offering a restart, also after the window closed. */
   #restartPending = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
@@ -224,6 +230,9 @@ export class ManageWindow {
     );
     ipcMain.handle("manage:account-add", (event, value: unknown) => this.#accountAdd(event, value));
     ipcMain.handle("manage:clean-add", (event, value: unknown) => this.#cleanAdd(event, value));
+    ipcMain.handle("manage:account-detect", (event, value: unknown) =>
+      this.#accountDetect(event, value),
+    );
     ipcMain.handle("manage:account-remove", (event, id: unknown) => this.#accountRemove(event, id));
     ipcMain.handle("manage:google-state", (event) => this.#googleState(event));
     ipcMain.handle("manage:google-save-client", (event, value: unknown) =>
@@ -304,6 +313,7 @@ export class ManageWindow {
       this.#handlers.googleCancel();
       // Closing the window during the check is giving up: the account must not be stored behind the person's back.
       this.#addAbort?.abort();
+      this.#detectAbort?.abort();
     });
     this.#win = win;
     void win.loadFile(join(this.#assets, PAGE));
@@ -560,6 +570,27 @@ export class ManageWindow {
       `Server: ${host}, port ${String(port)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your provider's own settings page, letter by letter. A provider's app password is the one to use here. Senderban will move mail out of this inbox while it runs. At the next start that takes in the last 30 days of mail from everyone on your block list, to Junk or Trash as each entry says. The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
       (request) => this.#handlers.cleanAdd(parsed.data, request),
     );
+  }
+
+  /** A suggestion for the form, from the address alone. It changes nothing, so it runs beside everything else. */
+  async #accountDetect(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<Detection | "denied" | "invalid" | "busy" | "failed"> {
+    if (!this.#trusted(event)) return "denied";
+    if (this.#detectAbort !== null) return "busy";
+    const parsed = AccountDetectSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    const abort = new AbortController();
+    this.#detectAbort = abort;
+    try {
+      return await this.#handlers.accountDetect(parsed.data.address, abort.signal);
+    } catch (error) {
+      this.#handlers.onError("manage:account-detect", error);
+      return "failed";
+    } finally {
+      this.#detectAbort = null;
+    }
   }
 
   /** One add at a time. The caller has checked `#trusted` and `#adding`, with no await since. */

@@ -50,6 +50,7 @@ import type {
   BlockEntry,
   BlockResult,
   CleanEvent,
+  DetectFacts,
   SpamFilter,
   GmailWatcherState,
   ImapAccountConfig,
@@ -65,6 +66,7 @@ import type {
 import {
   cleanConnector,
   connectManageSieve,
+  detectMailProvider,
   imapflowConnector,
   signIn,
   signInMicrosoft,
@@ -1565,6 +1567,16 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const result = await setMxrouteEnabled(keysPath, accountsPath, input, domainCheck(onCall));
         log("mxroute-enabled", { key: keyTag(input), enabled: input.enabled, result });
         return result;
+      },
+      accountDetect: async (address, signal) => {
+        const started = Date.now();
+        let facts: DetectFacts = { records: 0, probes: 0, dnsError: null };
+        const domain = address.slice(address.lastIndexOf("@") + 1);
+        const found = await detectMailProvider(domain, signal, (seen) => {
+          facts = seen;
+        });
+        log("account-detect", { kind: found.kind, ms: Date.now() - started, ...facts });
+        return found;
       },
       accountAdd: async (input, request) => {
         const started = Date.now();

@@ -6,6 +6,9 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Added
 
+- **Find my provider** on **Add mailbox**: type your address and Senderban reads your domain's mail
+  records, asks the mail server what it is without signing in, and fills in the right form. Nothing is
+  saved until you add the mailbox yourself. See [ADR 0018](docs/adr/0018-provider-detection.md).
 - **Settings** page: the action a notification starts on (Junk or Trash), an opt-in to start on
   **Block at server** where the mailbox offers it, **Confirm each block**, and how long new-mail
   notifications stay on screen (Short, Long or Until I close them). See

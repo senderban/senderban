@@ -32,6 +32,8 @@ export * from "./watcher/watcher.js";
 export * from "./notify/pending.js";
 export * from "./accounts.js";
 export * from "./mail-server.js";
+export * from "./detect/detect.js";
+export * from "./detect/providers.js";
 export * from "./notify/block-action.js";
 export * from "./notify/unblock.js";
 export * from "./gate.js";

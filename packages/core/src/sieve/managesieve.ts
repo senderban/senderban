@@ -1,4 +1,4 @@
-import { isIP, connect as tcpConnect, type Socket } from "node:net";
+import { isIP, connect as tcpConnect, type LookupFunction, type Socket } from "node:net";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { AdapterError } from "../adapter.js";
 import { capabilitiesOf, parseResponse, type Response } from "./codec.js";
@@ -24,6 +24,8 @@ export interface ManageSieveEndpoint {
   readonly timeoutMs?: number;
   /** Stops the sign-in: the socket closes, so the password is not sent after the caller has given up. */
   readonly signal?: AbortSignal;
+  /** Replaces the socket's name lookup: a probe at a name from DNS refuses private addresses in it. */
+  readonly lookup?: LookupFunction;
   /** Only for private CAs / tests; certificate verification is never switched off. */
   readonly tls?: { readonly ca?: string | Buffer; readonly servername?: string };
 }
@@ -257,7 +259,11 @@ async function overTls<T>(
   const signal = options.signal;
   signal?.throwIfAborted();
 
-  const raw = tcpConnect({ host: options.host, port });
+  const raw = tcpConnect({
+    host: options.host,
+    port,
+    ...(options.lookup === undefined ? {} : { lookup: options.lookup }),
+  });
   const onAbort = (): void => {
     raw.destroy();
   };
