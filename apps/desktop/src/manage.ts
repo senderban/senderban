@@ -19,6 +19,7 @@ import {
   MxrouteKeyRefSchema,
   SERVER_PRESETS,
   QuietEntrySchema,
+  inZone,
   SettingsSchema,
   WatchPausedSchema,
   formServer,
@@ -63,6 +64,24 @@ const STATUS_PUSH_GAP_MS = 500;
  * main process and 1.1 MB of IPC (measured 2026-10-31), so rounds redraw the open list at most this often.
  */
 const LIST_PUSH_GAP_MS = 5_000;
+
+/**
+ * Unit: lookups per minute. A person presses this a handful of times in the life of an install, and it is the one way from the page to
+ * the network with no dialog in front: a compromised page must not get a channel out of it.
+ */
+const DETECTS_PER_MINUTE = 6;
+const DETECT_WINDOW_MS = 60_000;
+
+/**
+ * Compared here, by the process that asks: the page has no say in it. A name outside the address's domain may be the right one, for a
+ * hosted mailbox, but nothing about it says so (RFC 6186 §6).
+ */
+function outsideDomainNote(host: string, address: string): string {
+  const domain = address.slice(address.lastIndexOf("@") + 1);
+  return inZone(host, domain)
+    ? ""
+    : `This server is not part of ${domain}. That is normal for a hosted mailbox, but use it only if your provider names it.\n\n`;
+}
 
 /** What the page shows after an unblock; the same line the person reads in the window. */
 export interface ManageOutcome {
@@ -203,6 +222,8 @@ export class ManageWindow {
   #addAbort: AbortController | null = null;
   /** The detection in flight: one at a time, and it ends with the window. */
   #detectAbort: AbortController | null = null;
+  /** When the lookups of the last DETECT_WINDOW_MS began. */
+  #detectTimes: readonly number[] = [];
   /** An account changed since Senderban started, so the page keeps offering a restart, also after the window closed. */
   #restartPending = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
@@ -552,9 +573,10 @@ export class ManageWindow {
       server.presetName === null
         ? "Compare the name with what your mail provider gave you, letter by letter."
         : `This is ${server.presetName}'s server.`;
+    const outside = server.presetName === null ? outsideDomainNote(server.imapHost, address) : "";
     return this.#adds(
       "manage:account-add",
-      `Server: ${server.imapHost}\nFilters: ${server.sieveHost}, port ${String(server.sievePort)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. ${where} The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
+      `${outside}Server: ${server.imapHost}\nFilters: ${server.sieveHost}, port ${String(server.sievePort)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. ${where} The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
       (request) => this.#handlers.accountAdd(parsed.data, request),
     );
   }
@@ -567,7 +589,7 @@ export class ManageWindow {
     const { address, host, port } = parsed.data;
     return this.#adds(
       "manage:clean-add",
-      `Server: ${host}, port ${String(port)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your provider's own settings page, letter by letter. A provider's app password is the one to use here. Senderban will move mail out of this inbox while it runs. At the next start that takes in the last 30 days of mail from everyone on your block list, to Junk or Trash as each entry says. The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
+      `${outsideDomainNote(host, address)}Server: ${host}, port ${String(port)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your provider's own settings page, letter by letter. A provider's app password is the one to use here. Senderban will move mail out of this inbox while it runs. At the next start that takes in the last 30 days of mail from everyone on your block list, to Junk or Trash as each entry says. The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
       (request) => this.#handlers.cleanAdd(parsed.data, request),
     );
   }
@@ -576,11 +598,15 @@ export class ManageWindow {
   async #accountDetect(
     event: IpcMainInvokeEvent,
     value: unknown,
-  ): Promise<Detection | "denied" | "invalid" | "busy" | "failed"> {
+  ): Promise<Detection | "denied" | "invalid" | "busy" | "limit" | "failed"> {
     if (!this.#trusted(event)) return "denied";
     if (this.#detectAbort !== null) return "busy";
     const parsed = AccountDetectSchema.safeParse(value);
     if (!parsed.success) return "invalid";
+    const now = Date.now();
+    this.#detectTimes = this.#detectTimes.filter((time) => now - time < DETECT_WINDOW_MS);
+    if (this.#detectTimes.length >= DETECTS_PER_MINUTE) return "limit";
+    this.#detectTimes = [...this.#detectTimes, now];
     const abort = new AbortController();
     this.#detectAbort = abort;
     try {

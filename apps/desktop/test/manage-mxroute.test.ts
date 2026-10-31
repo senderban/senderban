@@ -303,6 +303,25 @@ describe("manage:account-add", () => {
     expect(options).toMatchObject({ defaultId: 0, cancelId: 0 });
   });
 
+  it("says so when the server is outside the address's domain, and not for a preset", async () => {
+    const ask = async (input: unknown): Promise<string | undefined> => {
+      accountAdd.mockImplementationOnce(async (_input, request) => {
+        await request.confirm();
+        return "cancelled";
+      });
+      showMessageBox.mockResolvedValueOnce({ response: 0 });
+      await call("manage:account-add", trusted, input);
+      return showMessageBox.mock.lastCall?.[1]?.detail as string | undefined;
+    };
+    const preset = { provider: "migadu", address: form.address, password: PASSWORD };
+    expect(await ask(form)).not.toContain("not part of");
+    expect(await ask({ ...form, host: "mail.example.net" })).toContain(
+      "This server is not part of example.com.",
+    );
+    expect(await ask({ ...form, host: "notexample.com" })).toContain("not part of");
+    expect(await ask(preset)).not.toContain("not part of");
+  });
+
   it("names a changed port in the question, for a preset too", async () => {
     accountAdd.mockImplementationOnce(async (_input, request) => {
       await request.confirm();

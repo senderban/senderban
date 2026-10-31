@@ -20,18 +20,25 @@ function tools(over: Partial<DetectTools> = {}): DetectTools & {
 } {
   return {
     findMx: vi.fn(noData),
-    findSrv: vi.fn(noData),
+    findSrv: vi.fn(noRecord),
     probe: vi.fn(() => Promise.resolve(false)),
     ...over,
   } as never;
 }
+
+/** What the real resolver says of a name with no record (measured 2026-11-01). */
+const noRecord = (): Promise<never> =>
+  Promise.reject(Object.assign(new Error("not found"), { code: "ENOTFOUND" }));
+
+const probed = (net: { probe: ReturnType<typeof vi.fn> }): unknown[] =>
+  net.probe.mock.calls.map((call: unknown[]) => call.slice(0, 2));
 
 const mx = (...hosts: (readonly [string, number])[]) =>
   vi.fn(() => Promise.resolve(hosts.map(([exchange, priority]) => ({ exchange, priority }))));
 
 const srv = (service: string, name: string, port: number, priority = 0) =>
   vi.fn((query: string) =>
-    query.startsWith(service) ? Promise.resolve([{ name, port, priority }]) : noData(),
+    query.startsWith(service) ? Promise.resolve([{ name, port, priority }]) : noRecord(),
   );
 
 describe("a domain Senderban knows", () => {
@@ -86,7 +93,7 @@ describe("an MX record", () => {
   it("matches whole labels, not the end of a name", async () => {
     const net = tools({ findMx: mx(["evilgoogle.com", 10]) });
     expect(await detectProvider("example.com", net)).toEqual({ kind: "unknown" });
-    expect(net.probe).toHaveBeenCalledWith("evilgoogle.com", 4190);
+    expect(probed(net)).toContainEqual(["evilgoogle.com", 4190]);
   });
 
   it("reads the lowest preference only, in any order and any case", async () => {
@@ -116,11 +123,11 @@ describe("a domain's answer that is no answer", () => {
     expect(net.probe).not.toHaveBeenCalled();
   });
 
-  it("reads a domain that does not exist as no mail", async () => {
+  it("calls a domain the resolver cannot find only that", async () => {
     const net = tools({
       findMx: vi.fn(() => Promise.reject(Object.assign(new Error("x"), { code: "ENOTFOUND" }))),
     });
-    expect(await detectProvider("example.com", net)).toEqual({ kind: "no-mail" });
+    expect(await detectProvider("example.com", net)).toEqual({ kind: "no-domain" });
     expect(net.probe).not.toHaveBeenCalled();
   });
 
@@ -147,7 +154,7 @@ describe("a server the table does not know", () => {
       findSrv: srv("_sieve", "sieve.example.net", 4190),
     });
     await detectProvider("example.com", net);
-    expect(net.probe.mock.calls).toEqual([
+    expect(probed(net)).toEqual([
       ["sieve.example.net", 4190],
       ["mail.example.net", 4190],
       ["example.com", 4190],
@@ -167,13 +174,13 @@ describe("a server the table does not know", () => {
   it("prefers the SRV record over a mail host that also answers", async () => {
     const net = tools({
       findMx: mx(["mail.example.net", 10]),
-      findSrv: srv("_sieve", "sieve.example.net", 2000),
+      findSrv: srv("_sieve", "sieve.example.com", 2000),
       probe: vi.fn(() => Promise.resolve(true)),
     });
     expect(await detectProvider("example.com", net)).toEqual({
       kind: "server",
       provider: "other",
-      host: "sieve.example.net",
+      host: "sieve.example.com",
       port: 2000,
     });
   });
@@ -198,12 +205,12 @@ describe("a server the table does not know", () => {
   it("falls back to the IMAP SRV record, for cleaning", async () => {
     const net = tools({
       findMx: mx(["mail.example.net", 10]),
-      findSrv: srv("_imaps", "imap.example.net", 993),
+      findSrv: srv("_imaps", "imap.example.com", 993),
     });
     expect(await detectProvider("example.com", net)).toEqual({
       kind: "clean",
       name: null,
-      host: "imap.example.net",
+      host: "imap.example.com",
       port: 993,
       switchOn: false,
     });
@@ -221,6 +228,111 @@ describe("a server the table does not know", () => {
   });
 });
 
+describe("a name outside the mail domain (RFC 6186 §6)", () => {
+  it.each([
+    ["an MX host that answers", { findMx: mx(["mail.attacker.example.net", 10]) }],
+    [
+      "a sieve SRV target that answers",
+      { findSrv: srv("_sieve", "mail.attacker.example.net", 4190) },
+    ],
+  ])("%s is told, not offered for the form", async (_, over) => {
+    const net = tools({
+      ...over,
+      probe: vi.fn((host: string) => Promise.resolve(host !== "example.com")),
+    });
+    expect(await detectProvider("example.com", net)).toEqual({
+      kind: "named",
+      service: "sieve",
+      host: "mail.attacker.example.net",
+      port: 4190,
+    });
+  });
+
+  it("an IMAP SRV target, which no probe has seen, is told too", async () => {
+    const net = tools({ findSrv: srv("_imaps", "imap.attacker.example.net", 993) });
+    expect(await detectProvider("example.com", net)).toEqual({
+      kind: "named",
+      service: "imap",
+      host: "imap.attacker.example.net",
+      port: 993,
+    });
+  });
+
+  it.each(["notexample.com", "example.com.attacker.example.net"])(
+    "%s does not pass for the domain",
+    async (host) => {
+      const net = tools({
+        findMx: mx([host, 10]),
+        probe: vi.fn((name: string) => Promise.resolve(name === host)),
+      });
+      expect(await detectProvider("example.com", net)).toMatchObject({ kind: "named", host });
+    },
+  );
+
+  it("a subdomain does", async () => {
+    const net = tools({
+      findMx: mx(["mail.eu.example.com", 10]),
+      probe: vi.fn(() => Promise.resolve(true)),
+    });
+    expect(await detectProvider("example.com", net)).toMatchObject({
+      kind: "server",
+      host: "mail.eu.example.com",
+    });
+  });
+});
+
+describe("the wait", () => {
+  it("does not wait for SRV queries the MX record makes useless", async () => {
+    const net = tools({
+      findMx: mx(["mx.migadu.com", 10]),
+      findSrv: vi.fn(() => new Promise<never>(() => undefined)),
+    });
+    expect(await detectProvider("example.com", net)).toMatchObject({ kind: "preset" });
+  });
+
+  it("stops the probes behind the first that answers", async () => {
+    const stopped: boolean[] = [];
+    const net = tools({
+      findMx: mx(["mail.example.com", 10]),
+      probe: vi.fn((host: string, _: number, stop: AbortSignal) =>
+        host === "mail.example.com"
+          ? Promise.resolve(true)
+          : new Promise<boolean>((resolve) => {
+              stop.addEventListener("abort", () => {
+                stopped.push(true);
+                resolve(false);
+              });
+            }),
+      ),
+    });
+    expect(await detectProvider("example.com", net)).toMatchObject({
+      kind: "server",
+      host: "mail.example.com",
+    });
+    expect(stopped).toEqual([true]);
+  });
+
+  it("keeps the order: a later probe does not beat an earlier one still running", async () => {
+    let first: (answer: boolean) => void = () => undefined;
+    const net = tools({
+      findMx: mx(["mail.example.com", 10]),
+      probe: vi.fn((host: string) =>
+        host === "mail.example.com"
+          ? new Promise<boolean>((resolve) => {
+              first = resolve;
+            })
+          : Promise.resolve(true),
+      ),
+    });
+    const found = detectProvider("example.com", net);
+    await vi.waitFor(() => {
+      expect(net.probe).toHaveBeenCalled();
+    });
+    first(true);
+    expect(await found).toMatchObject({ host: "mail.example.com" });
+  });
+});
+
 describe("what hostile DNS can do", () => {
   it.each([
     ["an address", "192.168.1.1"],
@@ -234,7 +346,7 @@ describe("what hostile DNS can do", () => {
   ])("an MX record holding %s reaches no socket", async (_, exchange) => {
     const net = tools({ findMx: mx([exchange, 10]) });
     await detectProvider("example.com", net);
-    expect(net.probe.mock.calls).toEqual([["example.com", 4190]]);
+    expect(probed(net)).toEqual([["example.com", 4190]]);
   });
 
   it.each([
@@ -245,7 +357,7 @@ describe("what hostile DNS can do", () => {
   ])("a sieve SRV record holding %s reaches no socket", async (_, name, port) => {
     const net = tools({ findSrv: srv("_sieve", name, port) });
     await detectProvider("example.com", net);
-    expect(net.probe.mock.calls).toEqual([["example.com", 4190]]);
+    expect(probed(net)).toEqual([["example.com", 4190]]);
   });
 
   it.each([

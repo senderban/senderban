@@ -36,6 +36,15 @@ async function listen(
   return { port: (server.address() as AddressInfo).port, closed };
 }
 
+describe("before TLS", () => {
+  it("stops at what a greeting can be, and does not wait for the rest", async () => {
+    const { port } = await listen(`"${"a".repeat(70_000)}`);
+    await expect(
+      probeManageSieve({ host: "127.0.0.1", port, timeoutMs: 5000 }),
+    ).rejects.toMatchObject({ message: expect.stringContaining("too large") as string });
+  });
+});
+
 const options = (port: number, signal?: AbortSignal) => ({
   host: "127.0.0.1",
   port,

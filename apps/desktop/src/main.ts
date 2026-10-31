@@ -1571,8 +1571,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       accountDetect: async (address, signal) => {
         const started = Date.now();
         let facts: DetectFacts = { records: 0, probes: 0, dnsError: null };
-        const domain = address.slice(address.lastIndexOf("@") + 1);
-        const found = await detectMailProvider(domain, signal, (seen) => {
+        const found = await detectMailProvider(domainOf(address), signal, (seen) => {
           facts = seen;
         });
         log("account-detect", { kind: found.kind, ms: Date.now() - started, ...facts });

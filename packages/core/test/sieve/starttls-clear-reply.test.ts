@@ -155,6 +155,13 @@ describe.skipIf(!hasOpenssl)("a server that answers STARTTLS with capabilities i
     await expect(signIn).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
   });
 
+  it("stops a probe at what a capability list can be, past TLS too", async () => {
+    const { port } = await serve({ clear: "", unasked: `"${"a".repeat(70_000)}` });
+    await expect(probeManageSieve(endpoint(port))).rejects.toMatchObject({
+      message: expect.stringContaining("too large") as string,
+    });
+  });
+
   it("never asks a compliant server", async () => {
     const { port, heard } = await serve({ clear: "", unasked: REAL_CAPS });
     expect((await probeManageSieve(endpoint(port))).plain).toBe(true);

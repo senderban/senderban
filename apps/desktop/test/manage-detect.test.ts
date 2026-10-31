@@ -103,6 +103,23 @@ describe("manage:account-detect", () => {
     expect(await call(trusted, { address: "you@example.com" })).toEqual({ kind: "gmail" });
   });
 
+  it("takes a handful a minute, and frees them after it", async () => {
+    vi.useFakeTimers();
+    try {
+      const replies = [];
+      for (let i = 0; i < 7; i += 1) {
+        replies.push(await call(trusted, { address: "you@example.com" }));
+      }
+      expect(replies.slice(0, 6)).toEqual(Array.from({ length: 6 }, () => ({ kind: "gmail" })));
+      expect(replies[6]).toBe("limit");
+      expect(accountDetect).toHaveBeenCalledTimes(6);
+      vi.advanceTimersByTime(60_000);
+      expect(await call(trusted, { address: "you@example.com" })).toEqual({ kind: "gmail" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ends with the window", async () => {
     let seen: AbortSignal | undefined;
     accountDetect.mockImplementationOnce((_, signal) => {

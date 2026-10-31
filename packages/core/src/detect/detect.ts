@@ -1,6 +1,12 @@
 import { isPublicHostName } from "../accounts.js";
 import { MANAGESIEVE_PORT } from "../mail-server.js";
-import { answerForMailHost, DOMAIN_ANSWERS, IMAPS_PORT, type Detection } from "./providers.js";
+import {
+  answerForMailHost,
+  DOMAIN_ANSWERS,
+  IMAPS_PORT,
+  inZone,
+  type Detection,
+} from "./providers.js";
 
 /** Unit: records. A DNS answer holds thousands at most, and no mail domain has more than a handful. */
 export const DNS_RECORDS_MAX = 32;
@@ -24,8 +30,8 @@ export interface SrvRecord {
 export interface DetectTools {
   readonly findMx: (domain: string) => Promise<readonly MxRecord[]>;
   readonly findSrv: (name: string) => Promise<readonly SrvRecord[]>;
-  /** True when a usable ManageSieve answers there behind verified TLS. Sends nothing of the person's. */
-  readonly probe: (host: string, port: number) => Promise<boolean>;
+  /** True when a usable ManageSieve answers there behind verified TLS. Sends nothing of the person's. `stop`: the answer is known. */
+  readonly probe: (host: string, port: number, stop: AbortSignal) => Promise<boolean>;
 }
 
 /** What a detection cost, for the log: never the domain or a server. */
@@ -113,20 +119,53 @@ function sieveCandidates(
   });
 }
 
-function imapFromSrv(srv: readonly SrvRecord[]): Detection | null {
+/**
+ * What may be put in front of a password. An attacker can forge a DNS answer but cannot get a public certificate for a name inside
+ * the person's domain, so inside is evidence and outside is none (RFC 6186 §6): an outside name is told, and typed by the person.
+ */
+const sieveAnswer = (domain: string, host: string, port: number): Detection =>
+  inZone(host, domain)
+    ? { kind: "server", provider: "other", host, port }
+    : { kind: "named", service: "sieve", host, port };
+
+function imapFromSrv(srv: readonly SrvRecord[], domain: string): Detection | null {
   for (const record of bySrvOrder(srv)) {
     const host = usableHost(record.name);
     if (host !== null && record.port === IMAPS_PORT) {
-      return { kind: "clean", name: null, host, port: IMAPS_PORT, switchOn: false };
+      return inZone(host, domain)
+        ? { kind: "clean", name: null, host, port: IMAPS_PORT, switchOn: false }
+        : { kind: "named", service: "imap", host, port: IMAPS_PORT };
     }
   }
   return null;
 }
 
 /**
+ * The first candidate in the list that answers: side by side, read in order, so one that is known stops the ones behind it and the
+ * click waits for a filtered port only in front of it.
+ */
+async function firstAnswering<T extends { readonly host: string; readonly port: number }>(
+  candidates: readonly T[],
+  tools: DetectTools,
+): Promise<T | undefined> {
+  const stop = new AbortController();
+  const answers = candidates.map(({ host, port }) =>
+    tools.probe(host, port, stop.signal).catch(() => false),
+  );
+  try {
+    for (const [index, answer] of answers.entries()) {
+      if (await answer) return candidates[index];
+    }
+    return undefined;
+  } finally {
+    stop.abort();
+  }
+}
+
+/**
  * Who runs a mail domain (the form's own check of the address comes first). A domain Senderban knows costs nothing; otherwise the
- * MX record picks from a fixed table, and only a mail host the table does not know is asked what it is. The three queries and the
- * probes run side by side: their wait is the longest of them, not the sum, and the live tools end all of them at one deadline.
+ * MX record picks from a fixed table, and only a mail host the table does not know is asked what it is. The three queries go out
+ * side by side, but the MX answer alone can end it; the live tools end the rest at one deadline.
  */
 export async function detectProvider(
   domain: string,
@@ -137,11 +176,10 @@ export async function detectProvider(
   if (known !== undefined) return known;
   if (!isPublicHostName(domain)) return { kind: "unknown" };
 
-  const [mx, sieve, imaps] = await Promise.all([
-    asked(tools.findMx(domain)),
-    asked(tools.findSrv(`_sieve._tcp.${domain}`)),
-    asked(tools.findSrv(`_imaps._tcp.${domain}`)),
-  ]);
+  const mxAnswer = asked(tools.findMx(domain));
+  const sieveAnswered = asked(tools.findSrv(`_sieve._tcp.${domain}`));
+  const imapsAnswered = asked(tools.findSrv(`_imaps._tcp.${domain}`));
+  const mx = await mxAnswer;
   const facts = { records: mx.records.length, dnsError: mx.code };
   const done = (probes: number, detection: Detection): Detection => {
     report?.({ ...facts, probes });
@@ -149,24 +187,22 @@ export async function detectProvider(
   };
 
   if (isNullMx(mx.records)) return done(0, { kind: "no-mail" });
-  const nothingListed = sieve.records.length === 0 && imaps.records.length === 0;
-  // ENOTFOUND is the domain's own no; ENODATA a domain with no MX, which may still name its servers. Anything else: no answer at all.
-  if (nothingListed && mx.code === "ENOTFOUND") return done(0, { kind: "no-mail" });
-  if (nothingListed && mx.code !== null && mx.code !== "ENODATA") {
-    return done(0, { kind: "dns-failed" });
-  }
-
   const primary = primaryHosts(mx.records);
   const provider = agreedProvider(primary);
   if (provider !== null) return done(0, provider);
 
-  const candidates = sieveCandidates(sieve.records, primary, domain);
-  const answers = await Promise.all(
-    candidates.map(({ host, port }) => tools.probe(host, port).catch(() => false)),
-  );
-  const found = candidates[answers.indexOf(true)];
-  if (found !== undefined) {
-    return done(candidates.length, { kind: "server", provider: "other", ...found });
+  const [sieve, imaps] = await Promise.all([sieveAnswered, imapsAnswered]);
+  const nothingListed = sieve.records.length === 0 && imaps.records.length === 0;
+  // ENOTFOUND is the resolver's no; ENODATA a domain with no MX, which may still name its servers. Anything else: no answer at all.
+  if (nothingListed && mx.code === "ENOTFOUND") return done(0, { kind: "no-domain" });
+  if (nothingListed && mx.code !== null && mx.code !== "ENODATA") {
+    return done(0, { kind: "dns-failed" });
   }
-  return done(candidates.length, imapFromSrv(imaps.records) ?? { kind: "unknown" });
+
+  const candidates = sieveCandidates(sieve.records, primary, domain);
+  const found = await firstAnswering(candidates, tools);
+  if (found !== undefined) {
+    return done(candidates.length, sieveAnswer(domain, found.host, found.port));
+  }
+  return done(candidates.length, imapFromSrv(imaps.records, domain) ?? { kind: "unknown" });
 }

@@ -340,15 +340,18 @@ function acApplyDetection(address, found) {
   acEls.cleanAddress.value = address;
   for (const input of [acEls.password, acEls.cleanPassword, acEls.host, acEls.cleanHost]) {
     input.value = "";
+    input.setCustomValidity("");
   }
   acEls.cleanLogin.value = "";
+  acEls.port.value = String(acServers.port);
+  acEls.cleanPort.value = acEls.cleanPort.defaultValue;
   if (found.kind === "gmail") {
     acShowProvider("gmail");
     return ["ok", "This looks like Gmail or Google Workspace. Sign in below."];
   }
   if (found.kind === "microsoft") {
     acShowProvider("microsoft");
-    return ["ok", "This looks like Outlook or Microsoft 365. Sign in below."];
+    return ["ok", "This looks like Outlook or Microsoft 365. See the Microsoft tab below."];
   }
   if (found.kind === "clean") {
     acShowProvider("other");
@@ -377,11 +380,27 @@ function acApplyDetection(address, found) {
     const who = found.provider === "mxroute" ? "This looks like MXroute, at" : "Found a server at";
     return ["warn", `${who} ${found.host}. ${AC_DNS_NAME}`];
   }
+  if (found.kind === "named") {
+    acShowProvider(found.service === "sieve" ? "mx" : "other");
+    acEls.provider.value = "other";
+    acEls.port.value = String(found.service === "sieve" ? found.port : acServers.port);
+    acEls.cleanPort.value = String(found.service === "imap" ? found.port : 993);
+    acShowServer();
+    (found.service === "sieve" ? acEls.host : acEls.cleanHost).focus();
+    const domain = address.slice(address.lastIndexOf("@") + 1);
+    return [
+      "warn",
+      `Your domain's records point to ${found.host}, which is outside ${domain}. That is normal for a hosted mailbox, but anyone on this network can forge those records. If your provider's own page names this server, type it below.`,
+    ];
+  }
   if (found.kind === "unsupported") {
     return ["warn", `This looks like ${found.name}, which Senderban cannot reach yet.`];
   }
   if (found.kind === "no-mail") {
     return ["error", "This domain takes no mail. Check the address."];
+  }
+  if (found.kind === "no-domain") {
+    return ["warn", "Could not find this domain. Check the address."];
   }
   if (found.kind === "dns-failed") {
     return ["warn", "Could not read this domain's mail records. Pick your provider below."];
@@ -392,6 +411,7 @@ function acApplyDetection(address, found) {
 const AC_DETECT_REFUSED = {
   invalid: ["error", "Check the address."],
   busy: ["warn", "A check is still running."],
+  limit: ["warn", "Too many lookups. Wait a minute, or pick your provider below."],
 };
 
 async function acDetect() {
@@ -409,6 +429,8 @@ async function acDetect() {
     setNotice("error", "Could not look this up. See the log.");
   }
   acSetBusy(false);
+  // The button took keyboard focus with it when it was disabled; a form that took it stays as it is.
+  if (document.activeElement === document.body) acEls.detectFind.focus();
 }
 
 async function acRemove(account) {
@@ -494,7 +516,11 @@ acEls.detectAddress.addEventListener("input", () => {
 
 acEls.detectForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (acBusy || acServers === null || !acEls.detectForm.reportValidity()) return;
+  if (acBusy || !acEls.detectForm.reportValidity()) return;
+  if (acServers === null) {
+    setNotice("error", "Could not load the accounts. Open Accounts again to retry.");
+    return;
+  }
   void acDetect();
 });
 

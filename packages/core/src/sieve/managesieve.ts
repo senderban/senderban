@@ -1,11 +1,17 @@
 import { isIP, connect as tcpConnect, type LookupFunction, type Socket } from "node:net";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { AdapterError } from "../adapter.js";
-import { capabilitiesOf, parseResponse, type Response } from "./codec.js";
+import { capabilitiesOf, MAX_RESPONSE_BYTES, parseResponse, type Response } from "./codec.js";
 import type { SieveScriptInfo, SieveSession } from "./session.js";
 
 // PROVISIONAL bound (milliseconds): one network step (connect, TLS handshake, one command).
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Unit: bytes. A greeting or a capability list ran to about 500 on the five servers read on 2026-11-01. Before TLS nobody is known,
+ * and a probe may meet a host DNS chose: neither has a reason to send a script's worth, and a parse of it runs on the main thread.
+ */
+const CAPABILITIES_MAX_BYTES = 64 * 1024;
 
 /** Replies after TLS from a server that spoke in clear: its own capabilities, if it repeats them, CAPABILITY's and NOOP's. */
 const CLEAR_REPLIES_MAX = 3;
@@ -49,12 +55,17 @@ type Channel = Socket | TLSSocket;
 class ResponseChannel {
   readonly socket: Channel;
   readonly #timeoutMs: number;
+  readonly #maxBytes: number;
   #buffer = Buffer.alloc(0);
   #failure: AdapterError | null = null;
   #wake: (() => void) | null = null;
 
   readonly #onData = (chunk: Buffer): void => {
     this.#buffer = Buffer.concat([this.#buffer, chunk]);
+    if (this.#buffer.length > this.#maxBytes) {
+      this.#failure ??= new AdapterError("TRANSIENT", "ManageSieve response too large");
+      this.socket.destroy();
+    }
     this.#notify();
   };
   readonly #onError = (error: Error): void => {
@@ -66,9 +77,10 @@ class ResponseChannel {
     this.#notify();
   };
 
-  constructor(socket: Channel, timeoutMs: number) {
+  constructor(socket: Channel, timeoutMs: number, maxBytes = MAX_RESPONSE_BYTES) {
     this.socket = socket;
     this.#timeoutMs = timeoutMs;
+    this.#maxBytes = maxBytes;
     socket.on("data", this.#onData);
     socket.on("error", this.#onError);
     socket.on("close", this.#onClose);
@@ -253,6 +265,7 @@ async function capabilitiesOverTls(
 async function overTls<T>(
   options: ManageSieveEndpoint,
   use: (secure: ResponseChannel, caps: ReadonlyMap<string, string>) => Promise<T>,
+  secureMaxBytes = MAX_RESPONSE_BYTES,
 ): Promise<T> {
   const port = checkEndpoint(options);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -283,7 +296,7 @@ async function overTls<T>(
       "connect",
     );
 
-    const plain = new ResponseChannel(raw, timeoutMs);
+    const plain = new ResponseChannel(raw, timeoutMs, CAPABILITIES_MAX_BYTES);
     const greeting = await plain.read();
     expectClearOk(greeting, "greeting");
     if (!capabilitiesOf(greeting).has("STARTTLS")) throw new NoStartTlsError();
@@ -321,7 +334,7 @@ async function overTls<T>(
       "TLS handshake",
     );
 
-    const secure = new ResponseChannel(tlsSocket, timeoutMs);
+    const secure = new ResponseChannel(tlsSocket, timeoutMs, secureMaxBytes);
     const afterTls = await withTimeout(
       capabilitiesOverTls(secure, spokeInClear),
       timeoutMs,
@@ -354,10 +367,14 @@ const offersPlain = (caps: ReadonlyMap<string, string>): boolean =>
  * lists no mechanism before it). Throws what `connectManageSieve` throws.
  */
 export function probeManageSieve(options: ManageSieveEndpoint): Promise<ManageSieveProbe> {
-  return overTls(options, (secure, caps) => {
-    secure.socket.destroy();
-    return Promise.resolve({ plain: offersPlain(caps), extensions: extensionsOf(caps) });
-  });
+  return overTls(
+    options,
+    (secure, caps) => {
+      secure.socket.destroy();
+      return Promise.resolve({ plain: offersPlain(caps), extensions: extensionsOf(caps) });
+    },
+    CAPABILITIES_MAX_BYTES,
+  );
 }
 
 /**

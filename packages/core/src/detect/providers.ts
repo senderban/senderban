@@ -5,7 +5,7 @@ export const IMAPS_PORT = 993;
 
 /**
  * What an address's mail domain says about who runs it. A suggestion only: it fills the add form, and the person's Add and the
- * main process's dialog stay in front of any password. `server` and a nameless `clean` carry a name read from DNS, the rest
+ * main process's dialog stay in front of any password. `server`, a nameless `clean` and `named` carry a name read from DNS, the rest
  * names from this file.
  */
 export type Detection =
@@ -27,9 +27,18 @@ export type Detection =
       /** IMAP is off until the person switches it on in the provider's settings. */
       readonly switchOn: boolean;
     }
+  /** DNS names a server outside the mail domain: shown as text, for the person to type if their provider names it (RFC 6186 §6). */
+  | {
+      readonly kind: "named";
+      readonly service: "sieve" | "imap";
+      readonly host: string;
+      readonly port: number;
+    }
   | { readonly kind: "unsupported"; readonly name: string }
-  /** The domain does not exist, or says it takes no mail (RFC 7505). */
+  /** The domain says it takes no mail (RFC 7505). */
   | { readonly kind: "no-mail" }
+  /** The resolver found no such domain: a filtering resolver says the same of a real one. */
+  | { readonly kind: "no-domain" }
   | { readonly kind: "dns-failed" }
   | { readonly kind: "unknown" };
 
@@ -77,7 +86,7 @@ export const DOMAIN_ANSWERS: ReadonlyMap<string, Detection> = new Map([
 
 /**
  * Zones of the hosts a provider receives mail on, longest first where one holds another. An MX record chooses one of these
- * answers and writes no server of its own, so a forged record reaches a known provider at worst. Read from public MX records
+ * answers and writes no server of its own, so a forged record that lands here reaches a known provider at worst. Read from public MX records
  * on 2026-11-01 and from Google's and Microsoft's setup pages; IMAP hosts from each provider's help page and from their
  * greetings over verified TLS, without signing in (ADR 0018).
  */
@@ -100,7 +109,8 @@ const MX_ZONES: readonly (readonly [zone: string, answer: Detection])[] = [
 
 const MXROUTE_ZONE = "mxrouting.net";
 
-const inZone = (host: string, zone: string): boolean => host === zone || host.endsWith(`.${zone}`);
+export const inZone = (host: string, zone: string): boolean =>
+  host === zone || host.endsWith(`.${zone}`);
 
 /** MXroute's mail host is the mailbox's server too (measured 2026-10-24); the relay behind it is not. */
 function isMxrouteServer(host: string): boolean {

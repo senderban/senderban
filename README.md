@@ -86,9 +86,9 @@ Full policy: [senderban.com/privacy](https://senderban.com/privacy/).
 
 Not sure which of these you need? Open **Accounts**, **Add mailbox**, type your address and press
 **Find my provider**. Senderban reads your domain's mail records, may ask the mail server what it is
-without signing in, and fills in the right form. A server name read from DNS is a suggestion: compare
-it with what your provider gave you. Nothing is saved until you add the mailbox yourself
-([ADR 0018](docs/adr/0018-provider-detection.md)).
+without signing in, and fills in the right form. DNS can be forged, so a server outside your domain is
+only shown to you: type it yourself if your provider's own page names it. Nothing is saved until you
+add the mailbox ([ADR 0018](docs/adr/0018-provider-detection.md)).
 
 ### Gmail
 

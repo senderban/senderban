@@ -111,6 +111,13 @@ describe("manage:clean-add", () => {
     expect(asked[0]?.detail).toContain("counts as your own");
   });
 
+  it("says so when the server is outside the address's domain", async () => {
+    await call("manage:clean-add", trusted, form);
+    expect(asked[0]?.detail).not.toContain("not part of");
+    await call("manage:clean-add", trusted, { ...form, host: "imap.example.net" });
+    expect(asked[1]?.detail).toContain("This server is not part of example.com.");
+  });
+
   it("offers a restart once saved", async () => {
     await call("manage:clean-add", trusted, form);
     const page = (await call("manage:mxroute-list", trusted)) as Record<string, unknown>;
