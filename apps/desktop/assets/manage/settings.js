@@ -9,8 +9,6 @@ const stEls = {
   confirm: document.getElementById("setting-confirm"),
   confirmText: document.getElementById("setting-confirm-text"),
   status: document.getElementById("settings-status"),
-  quietList: document.getElementById("quiet-list"),
-  quietEmpty: document.getElementById("quiet-empty"),
 };
 
 // What the page shows, and what main last confirmed.
@@ -84,46 +82,8 @@ stEls.confirm.addEventListener("change", () => {
   stChange({ confirmBlocks: stEls.confirm.checked });
 });
 
-// Entries are sender text: `textContent` only.
-function stQuietRow(value) {
-  const row = document.createElement("li");
-  const name = document.createElement("span");
-  name.textContent = value;
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.textContent = "Remove";
-  remove.setAttribute("aria-label", `Remove ${value}`);
-  remove.addEventListener("click", () => {
-    remove.disabled = true;
-    void stApi
-      .quietRemove(value)
-      .catch(() => "failed")
-      .then((reply) => {
-        if (reply !== "removed") stStatus("Could not save. See the log.");
-        void stQuietLoad();
-      });
-  });
-  row.append(name, remove);
-  return row;
-}
-
-async function stQuietLoad() {
-  const entries = await stApi.quiet().catch(() => null);
-  if (entries === null) {
-    stStatus("Could not read the settings. See the log.");
-    return;
-  }
-  stEls.quietList.replaceChildren(...entries.map(stQuietRow));
-  stEls.quietEmpty.hidden = entries.length > 0;
-}
-
-stApi.onChanged(() => {
-  void stQuietLoad();
-});
-
 document.addEventListener("senderban-view", (event) => {
   if (event.detail !== "settings") return;
-  void stQuietLoad();
   if (stSaving) return;
   void stApi.settings().then(
     (settings) => {

@@ -1,4 +1,4 @@
-/* exported stateBadge, leaveAddView */
+/* exported stateBadge, leaveAddView, senderValue */
 // Runs in the sandboxed manage page. Every sender value came from a mail header (untrusted), so it
 // is only ever assigned through textContent. This file holds the frame (views, side bar, restart
 // bar) and the block list; the other page scripts share its global scope.
@@ -22,6 +22,7 @@ const els = {
   notice: $("notice"),
   navBlocked: $("nav-blocked"),
   navAccounts: $("nav-accounts"),
+  navQuiet: $("nav-quiet"),
   navSettings: $("nav-settings"),
   navBlockedCount: $("nav-blocked-count"),
   navAccountsCount: $("nav-accounts-count"),
@@ -92,6 +93,7 @@ const VIEW_TITLE = {
   blocked: "Blocked senders",
   accounts: "Accounts",
   add: "Add mailbox",
+  quiet: "Don't ask again",
   settings: "Settings",
 };
 
@@ -271,8 +273,11 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   els.goAdd.hidden = name !== "accounts";
   els.navBlocked.toggleAttribute("aria-current", false);
   els.navAccounts.toggleAttribute("aria-current", false);
+  els.navQuiet.toggleAttribute("aria-current", false);
   els.navSettings.toggleAttribute("aria-current", false);
-  const current = { blocked: els.navBlocked, settings: els.navSettings }[name] ?? els.navAccounts;
+  const current =
+    { blocked: els.navBlocked, quiet: els.navQuiet, settings: els.navSettings }[name] ??
+    els.navAccounts;
   current.setAttribute("aria-current", "page");
   if (!keepNotice && els.notice.dataset.tone !== "working") setNotice("", "");
   els.count.textContent = "";
@@ -402,6 +407,9 @@ els.navBlocked.addEventListener("click", () => {
 });
 els.navAccounts.addEventListener("click", () => {
   showView("accounts");
+});
+els.navQuiet.addEventListener("click", () => {
+  showView("quiet");
 });
 els.navSettings.addEventListener("click", () => {
   showView("settings");

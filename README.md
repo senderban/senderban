@@ -34,7 +34,7 @@ in webmail and in whichever mail client you use. The block list is shared by all
 warning or a failure shows as a notification, and every block can be undone in the **Blocked senders**
 window. **Settings** picks the default action, whether a block that worked is confirmed, and how long
 new-mail notifications stay on screen. **Don't ask again** on a notification stops the questions about a
-sender without blocking it; Settings lists those senders and can take them back.
+sender without blocking it; its own page lists those senders, filters them and can take them back.
 
 | On                | Choices                                                            | Whole domain |
 | ----------------- | ------------------------------------------------------------------ | ------------ |

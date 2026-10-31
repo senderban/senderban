@@ -11,7 +11,7 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
   notifications stay on screen (Short, Long or Until I close them). See
   [ADR 0015](docs/adr/0015-settings-page.md).
 - **Don't ask again** on a notification stops the notifications from a sender or a whole domain. It
-  moves no mail and writes no rule, and Settings lists those senders with **Remove**. See
+  moves no mail and writes no rule, and its own page lists those senders, with a filter and **Remove**. See
   [ADR 0016](docs/adr/0016-dont-ask-again.md).
 - Every notification now says what it cannot offer, for example "This mailbox has no block-at-server
   option".

@@ -18,7 +18,7 @@ gets **Don't ask again**, and a list keeps those senders in `quiet.json` beside 
   own address" notice and every warning still show.
 - **A domain entry takes in subdomains**, as a domain block does. The click goes through `blockableDomain`, so a provider's domain or
   the person's own cannot be added, even by a click that does not match the toast.
-- **Taken back in Settings**: the list shows every entry with **Remove**.
+- **Taken back on its own page**: the list has its own view in the side bar, with a filter, and shows up to 500 matching entries with **Remove**.
 - **A file that cannot be used is set aside** as `quiet.json.unreadable`, and notifications show: the safe side, and the next click does
   not write over a list the person may want back.
 

@@ -26,6 +26,10 @@
             <span>Accounts</span>
             <span id="nav-accounts-count" class="count"></span>
           </button>
+          <button type="button" id="nav-quiet" class="nav">
+            <span>Don't ask again</span>
+            <span id="nav-quiet-count" class="count"></span>
+          </button>
           <button type="button" id="nav-settings" class="nav">
             <span>Settings</span>
           </button>
@@ -224,20 +228,29 @@
               </div>
             </div>
           </section>
-          <section class="card" aria-labelledby="settings-quiet">
-            <div class="card-head">
-              <h2 id="settings-quiet">Don't ask again</h2>
-            </div>
-            <p class="meta setting-note">
-              No notification for these senders. Their mail is left alone, and nothing is written to
-              your mailbox.
-            </p>
-            <p id="quiet-empty" class="meta setting-note" hidden>
-              Choose Don't ask again on a notification to add a sender.
-            </p>
-            <ul id="quiet-list" class="rows"></ul>
-          </section>
           <p id="settings-status" class="status" role="status" hidden></p>
+        </section>
+
+        <section id="view-quiet" class="view" hidden>
+          <p class="muted">
+            No notification for these senders. Their mail is left alone, and nothing is written to
+            your mailbox.
+          </p>
+          <div id="quiet-section">
+            <input
+              id="quiet-filter"
+              type="search"
+              placeholder="Filter by address or domain"
+              aria-label="Filter the Don't ask again list"
+              autocomplete="off"
+              spellcheck="false"
+              hidden
+            />
+            <ul id="quiet-list" aria-label="Don't ask again"></ul>
+            <p id="quiet-empty" class="muted" hidden></p>
+            <p id="quiet-cap" class="meta" data-tone="warn" hidden></p>
+            <p id="quiet-status" class="status" role="status" hidden></p>
+          </div>
         </section>
 
         <section id="view-add" class="view narrow" hidden>
@@ -450,5 +463,6 @@
     <script src="gmail.js"></script>
     <script src="microsoft.js"></script>
     <script src="settings.js"></script>
+    <script src="quiet.js"></script>
   </body>
 </html>

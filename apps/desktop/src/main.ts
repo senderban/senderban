@@ -1331,7 +1331,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         if (!(await quiet.add(target.value))) {
           return {
             tone: "warn",
-            text: "The Don't ask again list is full. Remove some entries in Settings.",
+            text: "The Don't ask again list is full. Open Senderban and remove some entries.",
           };
         }
         manage?.notifyChanged();
