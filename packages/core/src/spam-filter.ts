@@ -14,7 +14,7 @@ import { ACCOUNT_ID } from "./sync/engine.js";
 export const SPAM_LIMITS = [5, 10, 15] as const;
 export type SpamLimit = (typeof SPAM_LIMITS)[number];
 
-/** `ask` writes no rule: the mail stays, and its notification starts on "Block at server" where the mailbox offers it. */
+/** `ask` writes no rule: the mail stays, and its notification says it is over the limit. */
 export const SPAM_FILTER_ACTIONS = ["junk", "trash", "ask"] as const;
 
 const SpamLimitSchema = z.union([z.literal(5), z.literal(10), z.literal(15)]);
@@ -44,7 +44,7 @@ export function spamRule(filter: SpamFilter | null): SpamRule | null {
   return { limit: filter.limit, action: filter.action };
 }
 
-/** True when this mail's notification should start on "Block at server". */
+/** True when this mail's notification should say it is over the limit. A high score picks no action: its From may be forged. */
 export function overSpamLimit(filter: SpamFilter | null, score: number | null): boolean {
   return filter?.action === "ask" && score !== null && score >= filter.limit;
 }

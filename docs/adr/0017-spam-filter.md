@@ -15,9 +15,10 @@ filter keeps the script it had, byte for byte.
   ([Conf](https://spamassassin.apache.org/full/4.0.x/doc/Mail_SpamAssassin_Conf.html)). Nothing under 5 is offered. Whole numbers are
   all the list below needs.
 - **It moves one mail and blocks no sender.** There is no automatic block. A From can be forged, so spam sent in a customer's name would
-  otherwise put the customer on the block list; a move costs only the mail that scored. **Ask in the notification** is how a sender gets
-  blocked: no rule is written, the mail stays, and its toast says "Over your spam limit" and starts on **Block at server** where the mailbox
-  offers it (this is the second way a person opts in to that start, ADR 0008). A person clicks.
+  otherwise put the customer on the block list; a move costs only the mail that scored. **Ask in the notification** writes no rule: the mail
+  stays, and its toast says "Over your spam limit". It starts on the default action like any other toast. A first draft started it on
+  **Block at server**, and the security review measured what that costs: one click on forged mail refuses a third party for every mailbox on
+  the domain, with no copy, and high-scoring mail is the mail most likely to be forged. So a score picks no action (ADR 0008).
 - **The rule goes last**, so a blocked sender keeps the action of its entry.
 - **Gmail and Other (IMAP) have no filter.** Gmail gives no score and "Other (IMAP)" has no server rule.
 
@@ -51,6 +52,4 @@ unfiltered: the page says the filter needs a server that adds a score.
 - The watcher's `parseSpamScore` drops a score when a mail has two score lines, and the rule does not. A toast can show no score for a mail
   a rule would move.
 - The rule ends with `stop`, as block rules do, so a person's own Sieve rules after our include do not run for that mail.
-- `ask` starts a toast on an action that keeps no copy, on the mail most likely to carry a forged From. The filter is set per mailbox and the
-  person still clicks. Security review (2026-10-31) asked to drop the start and keep only the note; the owner chose it, ADR 0008 records it.
 - A mailbox with a filter writes the `spamFilter` key: an older version will not read that `accounts.json`.

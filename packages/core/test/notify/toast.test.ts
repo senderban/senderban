@@ -267,13 +267,14 @@ describe("buildMailToastXml", () => {
     expect(buildMailToastXml(toast({ rejectsAtServer: true }))).toContain('defaultInput="junk"');
   });
 
-  it("starts on Block at server for mail over the person's limit, and says why", () => {
+  it("says a mail is over the person's limit and still starts on the default action", () => {
     const xml = buildMailToastXml(toast({ rejectsAtServer: true, overSpamLimit: true }));
-    expect(xml).toContain('defaultInput="reject"');
+    expect(xml).toContain('defaultInput="junk"');
+    expect(xml).toContain('<selection id="reject"');
     expect(xml).toContain("Over your spam limit");
   });
 
-  it("stays on the default action over the limit where this mail cannot be refused", () => {
+  it("adds what the mailbox cannot offer to the same line", () => {
     const xml = buildMailToastXml(toast({ rejectsAtServer: false, overSpamLimit: true }), {
       defaultAction: "trash",
     });

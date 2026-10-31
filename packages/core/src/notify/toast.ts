@@ -42,7 +42,7 @@ export interface MailToast {
    * server"). The click is held to Trash again in `blockPending`, because a click does not have to match what the toast showed.
    */
   readonly trashOnly?: boolean;
-  /** At or over the limit the person set for this mailbox, with "ask" as what happens: the toast says so and starts on the block. */
+  /** At or over the limit the person set for this mailbox, with "ask" as what happens: the toast says so, and nothing more changes. */
   readonly overSpamLimit?: boolean;
 }
 
@@ -228,8 +228,7 @@ export function buildMailToastXml(toast: MailToast, options: ToastOptions = {}):
   const selections = choices
     .map(([id, label]) => `<selection id="${id}" content="${label}"/>`)
     .join("");
-  const startsOnBlock = preferServerBlock || toast.overSpamLimit === true;
-  const preselected = toast.rejectsAtServer && startsOnBlock ? "reject" : defaultAction;
+  const preselected = toast.rejectsAtServer && preferServerBlock ? "reject" : defaultAction;
   return (
     `${open}${visual(noteText(toast))}` +
     `<actions><input id="target" type="selection" defaultInput="${preselected}">${selections}</input>` +

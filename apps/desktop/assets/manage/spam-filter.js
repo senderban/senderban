@@ -35,7 +35,7 @@ const SF_ACTIONS = [
   {
     action: "ask",
     label: "Ask in the notification",
-    help: "The mail stays in the inbox, and its notification starts on Block at server where this mailbox offers it. Mail refused there leaves no copy, and the sender can be forged, so check it before you click.",
+    help: "The mail stays in the inbox, and its notification says it is over your limit, so you decide.",
   },
 ];
 const SF_DEFAULT_ACTION = "junk";

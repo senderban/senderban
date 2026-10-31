@@ -15,7 +15,7 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
   [ADR 0016](docs/adr/0016-dont-ask-again.md).
 - **Spam filter** on each mailbox on a mail server, in **Accounts**: Low (score 15 or more), Medium
   (10) or High (5). The server moves that mail to Junk or Trash, also while Senderban is closed, or the
-  notification asks and starts on **Block at server**. It never blocks a sender by itself, and it needs a
+  notification says the mail is over your limit. It never blocks a sender by itself, and it needs a
   mail server that adds a spam score. See [ADR 0017](docs/adr/0017-spam-filter.md).
 - Every notification now says what it cannot offer, for example "This mailbox has no block-at-server
   option".
