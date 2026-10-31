@@ -69,4 +69,15 @@ export const PROVIDERS: readonly ProviderEntry[] = [
     evidence: "documented",
     release: "v0.2",
   },
+  {
+    id: "icloud",
+    name: "iCloud Mail",
+    level: "imap-clean",
+    evidence: "documented",
+    release: "v0.2",
+  },
+  { id: "yahoo", name: "Yahoo Mail", level: "imap-clean", evidence: "documented", release: "v0.2" },
+  { id: "aol", name: "AOL Mail", level: "imap-clean", evidence: "documented", release: "v0.2" },
+  { id: "gmx", name: "GMX / Web.de", level: "imap-clean", evidence: "documented", release: "v0.2" },
+  { id: "proton", name: "Proton Mail", level: "sidecar", evidence: "documented", release: "later" },
 ];

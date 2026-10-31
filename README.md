@@ -38,6 +38,11 @@ result is shown in the notification, and every block can be undone in the **Bloc
 | MXroute           | **Move to Junk** (default), **Move to Trash**, **Block at server** | yes          |
 | Other mail server | **Move to Junk** (default), **Move to Trash**                      | yes          |
 | Gmail / Workspace | **Move this sender to Trash**                                      | no           |
+| Other (IMAP)      | **Move to Junk** (default), **Move to Trash**                      | yes          |
+
+**Other (IMAP)** is no rule on a server: Senderban moves the mail itself, only while it runs. With
+Senderban closed a blocked sender's mail stays in the inbox, and your phone sees it. Blocking someone
+there also moves their mail of the last 30 days out of the inbox.
 
 - **Block at server** (MXroute, one address, off until you switch it on) puts the address on the
   MXroute blacklist, which covers every mailbox on that mail domain. On the mailbox measured the
@@ -57,10 +62,13 @@ It is not an email client. It does not send, sync, search or download message bo
 
 - **Reads:** only the `From` and `Subject` of a newly arrived message, plus the server's
   `X-Spam-Score` header on IMAP accounts, on your device, to build the notification. No message
-  body. Nothing is sent to a Senderban server (there is none).
+  body. Nothing is sent to a Senderban server (there is none). An **Other (IMAP)** mailbox is the
+  exception to "newly arrived": to clear past mail, Senderban reads the sender of older messages in
+  that inbox, up to 30 days back and 50,000 messages, on your device. It keeps only what it moves.
 - **Writes:** rules on your mail provider, tagged as Senderban's own, and it leaves rules you created
   alone. The exception is the MXroute blacklist, which has no tag: Unblock removes an address there
-  even if you had listed it yourself.
+  even if you had listed it yourself. An **Other (IMAP)** mailbox gets no rule: Senderban moves mail
+  from blocked senders out of its inbox, and Unblock does not bring that mail back.
 - **The default action is reversible** (Junk or Trash). There is no permanent delete. **Block at
   server** is the one choice that can leave no copy, and you have to switch it on and pick it.
 - **Secrets** are stored encrypted with Windows DPAPI, for your Windows user, in
@@ -129,15 +137,16 @@ user name and API key once (it covers every mailbox and domain on your MXroute a
 
 ## Provider support
 
-| Provider                          | Mechanism                           | Target | Evidence                                 |
-| --------------------------------- | ----------------------------------- | ------ | ---------------------------------------- |
-| MXroute                           | Sieve (ManageSieve) + blacklist API | v0.1   | measured 2026-10-30                      |
-| Gmail / Workspace                 | Gmail filters (own OAuth client)    | v0.1   | measured 2026-10-30, Gmail only          |
-| Migadu                            | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot, not on the provider |
-| mailbox.org                       | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot, not on the provider |
-| Purelymail                        | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot, not on the provider |
-| Other ManageSieve server          | Sieve (ManageSieve)                 | v0.2   | measured on Dovecot 2026-10-31           |
-| Outlook / Hotmail / Microsoft 365 | Graph message rules                 | v0.2   | documented, not yet measured             |
+| Provider                          | Mechanism                                          | Target | Evidence                                 |
+| --------------------------------- | -------------------------------------------------- | ------ | ---------------------------------------- |
+| MXroute                           | Sieve (ManageSieve) + blacklist API                | v0.1   | measured 2026-10-30                      |
+| Gmail / Workspace                 | Gmail filters (own OAuth client)                   | v0.1   | measured 2026-10-30, Gmail only          |
+| Migadu                            | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
+| mailbox.org                       | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
+| Purelymail                        | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
+| Other ManageSieve server          | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot 2026-10-31           |
+| Outlook / Hotmail / Microsoft 365 | Graph message rules                                | v0.2   | documented, not yet measured             |
+| iCloud, Yahoo, AOL, GMX, Web.de   | Other (IMAP): cleans on arrival, not a server rule | v0.2   | measured on Dovecot, not on the provider |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
 "Measured" means it ran against a real account. "Measured on Dovecot, not on the provider" means

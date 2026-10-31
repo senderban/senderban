@@ -57,6 +57,7 @@ const OUTLOOK_PILL = {
   no: ["warn", "Outlook: not applied"],
 };
 const OWN_PILL = ["warn", "Not applied: your own mail"];
+const LOCAL_PILL = ["", "Other (IMAP): while Senderban runs"];
 
 const TABS = [
   { id: "all", label: "All", holds: () => true },
@@ -184,6 +185,7 @@ function row(entry) {
     if (gmail !== undefined) meta.append(pill(...gmail));
     const outlook = OUTLOOK_PILL[entry.outlook];
     if (outlook !== undefined) meta.append(pill(...outlook));
+    if (entry.local === true) meta.append(pill(...LOCAL_PILL));
     if (entry.applied === "unknown") meta.append(pill(...UNCONFIRMED_PILL));
   }
   what.append(senderValue(entry.value), meta);

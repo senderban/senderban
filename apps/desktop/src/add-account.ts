@@ -1,13 +1,21 @@
 import { readFile, stat, unlink } from "node:fs/promises";
 import {
+  CleanAccountConfigSchema,
   ImapAccountConfigSchema,
   MAX_ACCOUNTS,
   NewAccountSchema,
   accountFromForm,
   accountLogins,
+  cleanAccountFromForm,
   mailboxKey,
 } from "@senderban/core";
-import type { AccountAddInput, AccountConfig, NewAccount } from "@senderban/core";
+import type {
+  AccountAddInput,
+  AccountConfig,
+  CleanAddInput,
+  NewAccount,
+  NewCleanAccount,
+} from "@senderban/core";
 import type { AccountCheckResult } from "./account-check.js";
 import { encryptPassword, loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
 import { accountTag } from "./log.js";
@@ -38,7 +46,7 @@ export async function addAccountFromFile(inputPath: string, accountsPath: string
   const { password, ...rest } = parsed.data;
 
   const existing = await loadAccounts(accountsPath);
-  const refused = refusal(existing, parsed.data);
+  const refused = refusal(existing, parsed.data.id, parsed.data.imap.user);
   if (refused === "exists") {
     throw new AddAccountError(`account ${accountTag(rest.id)} already exists`);
   }
@@ -60,10 +68,10 @@ export type AccountAddResult =
   | "limit"
   | Exclude<AccountCheckResult, "ok">;
 
-export interface AccountAddSteps {
+export interface AccountAddSteps<A = NewAccount> {
   /** The person's own yes to sending this password to this server, asked by the main process. */
   readonly confirm: () => Promise<boolean>;
-  readonly check: (account: NewAccount, signal: AbortSignal) => Promise<AccountCheckResult>;
+  readonly check: (account: A, signal: AbortSignal) => Promise<AccountCheckResult>;
   /** Runs once, after a save; true when list entries stopped applying. It must not throw: the account is stored by then. */
   readonly onSaved: () => Promise<boolean>;
   /** The person gave up (the window closed): nothing is stored from here on. */
@@ -71,10 +79,14 @@ export interface AccountAddSteps {
 }
 
 /** Why this account cannot join the list, compared by mailbox as AccountsFileSchema does; null when it can. */
-function refusal(accounts: readonly AccountConfig[], account: NewAccount): AccountAddResult | null {
-  const mailbox = mailboxKey(account.imap.user);
+function refusal(
+  accounts: readonly AccountConfig[],
+  id: string,
+  address: string,
+): AccountAddResult | null {
+  const mailbox = mailboxKey(address);
   const taken = accounts.some(
-    (a) => a.id === account.id || accountLogins(a).some((login) => mailboxKey(login) === mailbox),
+    (a) => a.id === id || accountLogins(a).some((login) => mailboxKey(login) === mailbox),
   );
   if (taken) return "exists";
   return accounts.length >= MAX_ACCOUNTS ? "limit" : null;
@@ -84,30 +96,68 @@ function refusal(accounts: readonly AccountConfig[], account: NewAccount): Accou
  * The form's way in: nothing is stored until both logins worked. The network step stays outside `serialized`, so a slow server
  * never holds up another writer of accounts.json; the list is read again inside, because it may have changed meanwhile.
  */
-export async function addAccountFromForm(
+export function addAccountFromForm(
   path: string,
   input: AccountAddInput,
   steps: AccountAddSteps,
 ): Promise<AccountAddResult> {
   const account = accountFromForm(input);
-  const early = refusal(await loadAccounts(path), account);
+  const { password, ...rest } = account;
+  return addChecked(
+    path,
+    account,
+    password,
+    account.id,
+    account.imap.user,
+    steps,
+    (passwordCipher) => ImapAccountConfigSchema.parse({ ...rest, passwordCipher }),
+  );
+}
+
+/** The "Other (IMAP)" form: the same steps, one login, and no ManageSieve to reach. */
+export function addCleanFromForm(
+  path: string,
+  input: CleanAddInput,
+  steps: AccountAddSteps<NewCleanAccount>,
+): Promise<AccountAddResult> {
+  const account = cleanAccountFromForm(input);
+  const { password, ...rest } = account;
+  return addChecked(
+    path,
+    account,
+    password,
+    account.id,
+    account.clean.address,
+    steps,
+    (passwordCipher) => CleanAccountConfigSchema.parse({ ...rest, passwordCipher }),
+  );
+}
+
+async function addChecked<A>(
+  path: string,
+  account: A,
+  password: string,
+  id: string,
+  address: string,
+  steps: AccountAddSteps<A>,
+  stored: (passwordCipher: string) => AccountConfig,
+): Promise<AccountAddResult> {
+  const early = refusal(await loadAccounts(path), id, address);
   if (early !== null) return early;
   const gaveUp = (): boolean => steps.signal.aborted;
   if (!(await steps.confirm()) || gaveUp()) return "cancelled";
   const checked = await steps.check(account, steps.signal);
   if (checked !== "ok") return checked;
   if (gaveUp()) return "cancelled";
-  const { password, ...rest } = account;
   const passwordCipher = await encryptPassword(password);
-  const stored = await serialized(async () => {
+  const saved = await serialized(async () => {
     if (gaveUp()) return "cancelled";
     const accounts = await loadAccounts(path);
-    const late = refusal(accounts, account);
+    const late = refusal(accounts, id, address);
     if (late !== null) return late;
-    const entry = ImapAccountConfigSchema.parse({ ...rest, passwordCipher });
-    await saveAccounts(path, [...accounts, entry]);
+    await saveAccounts(path, [...accounts, stored(passwordCipher)]);
     return "saved" as const;
   });
-  if (stored !== "saved") return stored;
+  if (saved !== "saved") return saved;
   return (await steps.onSaved()) ? "saved-own-entries" : "saved";
 }

@@ -3,6 +3,8 @@ import {
   ACCOUNT_ADD_LIMITS,
   ACCOUNT_ID,
   AccountAddSchema,
+  CLEAN_ADD_LIMITS,
+  CleanAddSchema,
   GOOGLE_CLIENT_ID_PATTERN,
   GOOGLE_CLIENT_LIMITS,
   GOOGLE_CLIENT_SECRET_PATTERN,
@@ -22,6 +24,7 @@ import {
 import type {
   AccountAddInput,
   BlockEntry,
+  CleanAddInput,
   GoogleClientInput,
   MxrouteEnableInput,
   MxrouteInput,
@@ -71,6 +74,8 @@ export type ManageEntry = BlockEntry & {
   readonly own: boolean;
   readonly applied: "yes" | "no" | "unknown";
   readonly atServer: boolean;
+  /** An "Other (IMAP)" mailbox runs: Senderban itself applies the entry there, and only while it runs. */
+  readonly local: boolean;
 };
 
 /** What the window lends an add: the question only the main process can ask, and the end of the window as a signal. */
@@ -95,7 +100,15 @@ export interface WatchStatus {
 
 export interface AccountRemoveRequest {
   readonly confirm: (label: string, mxroute: boolean) => Promise<boolean>;
+  /** A cleaning account has no rules on a server: the question says so. */
+  readonly confirmClean: (label: string) => Promise<boolean>;
   readonly confirmLeaveRules: (label: string) => Promise<boolean>;
+}
+
+/** One "Other (IMAP)" mailbox on the Accounts view. */
+export interface CleanRow {
+  readonly accountId: string;
+  readonly label: string;
 }
 
 export interface ManageHandlers {
@@ -104,7 +117,7 @@ export interface ManageHandlers {
   /** Takes the entry off the list and every account; describes what happened. */
   readonly unblock: (id: string) => Promise<ManageOutcome>;
   /** The mailboxes and the MXroute keys (the key itself stays in the main process). */
-  readonly mxrouteList: () => Promise<MxroutePage>;
+  readonly mxrouteList: () => Promise<MxroutePage & { readonly clean?: readonly CleanRow[] }>;
   /** Stores the key encrypted. The input has already passed the core schema. */
   readonly mxrouteSave: (input: MxrouteInput) => Promise<MxrouteSaveResult>;
   /** Forgets a key on this device once the person said yes; no mailbox changes. */
@@ -117,6 +130,11 @@ export interface ManageHandlers {
   /** Tries the logins, then stores the account. The input has already passed the core schema. */
   readonly accountAdd: (
     input: AccountAddInput,
+    request: AccountAddRequest,
+  ) => Promise<AccountAddResult>;
+  /** Tries the login, then stores a cleaning account. The input has already passed the core schema. */
+  readonly cleanAdd: (
+    input: CleanAddInput,
     request: AccountAddRequest,
   ) => Promise<AccountAddResult>;
   /** Deletes the account's rules from its server, then the account. */
@@ -189,6 +207,7 @@ export class ManageWindow {
       this.#mxrouteEnable(event, value),
     );
     ipcMain.handle("manage:account-add", (event, value: unknown) => this.#accountAdd(event, value));
+    ipcMain.handle("manage:clean-add", (event, value: unknown) => this.#cleanAdd(event, value));
     ipcMain.handle("manage:account-remove", (event, id: unknown) => this.#accountRemove(event, id));
     ipcMain.handle("manage:google-state", (event) => this.#googleState(event));
     ipcMain.handle("manage:google-save-client", (event, value: unknown) =>
@@ -366,6 +385,7 @@ export class ManageWindow {
         addLimits: ACCOUNT_ADD_LIMITS,
         // Host names too: the page shows them, the main process alone decides where a password goes.
         addServers: { presets: SERVER_PRESETS, port: MANAGESIEVE_PORT },
+        cleanLimits: CLEAN_ADD_LIMITS,
         restartPending: this.#restartPending,
       };
     } catch (error) {
@@ -432,22 +452,48 @@ export class ManageWindow {
     if (this.#adding) return "busy";
     const parsed = AccountAddSchema.safeParse(value);
     if (!parsed.success) return "invalid";
+    const { address } = parsed.data;
+    const server = formServer(parsed.data);
+    const where =
+      server.presetName === null
+        ? "Compare the name with what your mail provider gave you, letter by letter."
+        : `This is ${server.presetName}'s server.`;
+    return this.#adds(
+      "manage:account-add",
+      `Server: ${server.imapHost}\nFilters: ${server.sieveHost}, port ${String(server.sievePort)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. ${where} The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
+      (request) => this.#handlers.accountAdd(parsed.data, request),
+    );
+  }
+
+  async #cleanAdd(event: IpcMainInvokeEvent, value: unknown): Promise<AccountAddReply> {
+    if (!this.#trusted(event)) return "denied";
+    if (this.#adding) return "busy";
+    const parsed = CleanAddSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    const { address, host, port } = parsed.data;
+    return this.#adds(
+      "manage:clean-add",
+      `Server: ${host}, port ${String(port)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. Compare the name with your provider's own settings page, letter by letter. A provider's app password is the one to use here. Senderban will move mail out of this inbox while it runs.`,
+      (request) => this.#handlers.cleanAdd(parsed.data, request),
+    );
+  }
+
+  /** One add at a time. The caller has checked `#trusted` and `#adding`, with no await since. */
+  async #adds(
+    channel: string,
+    detail: string,
+    add: (request: AccountAddRequest) => Promise<AccountAddResult>,
+  ): Promise<AccountAddReply> {
     this.#adding = true;
     const abort = new AbortController();
     this.#addAbort = abort;
     try {
-      const { address } = parsed.data;
-      const server = formServer(parsed.data);
-      const where =
-        server.presetName === null
-          ? "Compare the name with what your mail provider gave you, letter by letter."
-          : `This is ${server.presetName}'s server.`;
       const result = await this.#step(() =>
-        this.#handlers.accountAdd(parsed.data, {
+        add({
           confirm: () =>
             this.#ask({
               message: "Send this password to this server?",
-              detail: `Server: ${server.imapHost}\nFilters: ${server.sieveHost}, port ${String(server.sievePort)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. ${where} The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,
+              detail,
               yes: "Sign in",
               signal: abort.signal,
             }),
@@ -457,7 +503,7 @@ export class ManageWindow {
       if (result === "saved" || result === "saved-own-entries") this.#restartPending = true;
       return result;
     } catch (error) {
-      this.#handlers.onError("manage:account-add", error);
+      this.#handlers.onError(channel, error);
       return "failed";
     } finally {
       this.#addAbort = null;
@@ -477,6 +523,13 @@ export class ManageWindow {
             this.#ask({
               message: `Remove ${label}?`,
               detail: `Senderban deletes its rules from this mailbox and forgets the password on this device. Mail from blocked senders then reaches this inbox again.${mxroute ? " Your MXroute API key stays, and anything on your MXroute blacklist stays there." : ""}`,
+              yes: "Remove",
+            }),
+          confirmClean: (label) =>
+            this.#ask({
+              message: `Remove ${label}?`,
+              detail:
+                "Senderban stops moving mail in this mailbox and forgets the password on this device. Mail already moved stays where it is. Mail from blocked senders then stays in this inbox.",
               yes: "Remove",
             }),
           confirmLeaveRules: (label) =>

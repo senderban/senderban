@@ -11,9 +11,9 @@ import type { SieveSession } from "../src/sieve/session.js";
 export const DOVECOT_IMAGE = "dovecot/dovecot:2.4.5";
 const PASSWORD = "contract-pw";
 const MANAGESIEVE_PORT = 34190;
-const IMAPS_PORT = 31993;
 const DOVEADM = "/dovecot/bin/doveadm";
 const LMTPS_PORT = 31024;
+const IMAPS_PORT = 31993;
 
 export interface Dovecot {
   readonly password: string;
@@ -22,6 +22,8 @@ export interface Dovecot {
   readonly imapPort: number;
   readonly ca: Buffer;
   readonly endpoint: ManageSieveEndpoint;
+  /** Where IMAP over TLS answers, and what to trust there. */
+  readonly imap: { readonly host: string; readonly port: number; readonly ca: Buffer };
   connect(user: string, password?: string): Promise<SieveSession>;
   /** Delivers over LMTPS, the path a real MX uses, so the user's active Sieve script runs. */
   deliver(
@@ -116,6 +118,7 @@ export async function startDovecot(options: DovecotOptions = {}): Promise<Doveco
       imapPort,
       ca,
       endpoint,
+      imap: { host: "127.0.0.1", port: imapPort, ca },
       connect,
       deliver(user, mail) {
         const raw = `From: ${mail.from}\r\nTo: ${user}\r\nSubject: ${mail.subject}\r\n\r\nbody\r\n`;

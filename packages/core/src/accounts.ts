@@ -254,10 +254,28 @@ export type MicrosoftAccountConfig = z.infer<typeof MicrosoftAccountConfigSchema
 /** Sign in: a new account carries nothing, a re-sign-in names the account. */
 export const MicrosoftSignInRequestSchema = GoogleSignInRequestSchema;
 
+/**
+ * A mailbox with no rule mechanism a program can reach (iCloud, Yahoo, AOL, GMX): Senderban moves mail itself, over IMAP, while it
+ * runs (ADR 0012). `address` is what the person knows it by; `user` is the login, which on iCloud may be only the part before the @.
+ */
+export const CleanAccountConfigSchema = z.strictObject({
+  id: z.string().regex(ACCOUNT_ID),
+  clean: z.strictObject({
+    address: GmailAddress,
+    host: Host,
+    port: Port,
+    secure: z.boolean(),
+    user: User,
+  }),
+  passwordCipher: Ciphertext,
+});
+export type CleanAccountConfig = z.infer<typeof CleanAccountConfigSchema>;
+
 export const AccountConfigSchema = z.union([
   ImapAccountConfigSchema,
   GmailAccountConfigSchema,
   MicrosoftAccountConfigSchema,
+  CleanAccountConfigSchema,
 ]);
 export type AccountConfig = z.infer<typeof AccountConfigSchema>;
 
@@ -281,12 +299,19 @@ export function isMicrosoftAccount(account: AccountConfig): account is Microsoft
   return "microsoft" in account;
 }
 
-/** The addresses an account signs in with, lowercased: two accounts that share one are one mailbox. */
+/** Narrows to the kind that moves mail itself. */
+export function isCleanAccount(account: AccountConfig): account is CleanAccountConfig {
+  return "clean" in account;
+}
+
+/** The addresses an account signs in with or receives on, lowercased: two accounts that share one are one mailbox. */
 export function accountLogins(account: AccountConfig): string[] {
   if (isImapAccount(account)) {
     return [account.imap.user.toLowerCase(), account.sieve.user.toLowerCase()];
   }
-  return [isGmailAccount(account) ? account.gmail.email : account.microsoft.email];
+  if (isGmailAccount(account)) return [account.gmail.email];
+  if (isMicrosoftAccount(account)) return [account.microsoft.email];
+  return [account.clean.address];
 }
 
 export const AccountsFileSchema = z
@@ -445,6 +470,43 @@ export function formServer(input: AccountAddInput): FormServer {
     sievePort: MANAGESIEVE_PORT,
     presetName: preset.name,
   };
+}
+
+/** Unit: a TCP port, and ASCII characters of a login (RFC 4616 §2, the same bound as `User`). The form's own bounds come from here. */
+export const CLEAN_ADD_LIMITS = { port: PORT, login: { min: 1, max: 255 } } as const;
+
+/** A cleaning account as a person types it; the plaintext password exists only until it is encrypted. */
+export const NewCleanAccountSchema = CleanAccountConfigSchema.omit({ passwordCipher: true }).extend(
+  { password: Password },
+);
+export type NewCleanAccount = z.infer<typeof NewCleanAccountSchema>;
+
+/** Port of IMAP with STARTTLS (RFC 9051 §2.1); any other port is implicit TLS. Plain IMAP is never spoken on either. */
+export const IMAP_STARTTLS_PORT = 143;
+
+/** The "Other (IMAP)" form: nothing is discovered, the person gives the server and port from their provider's page. */
+export const CleanAddSchema = z.strictObject({
+  address: FormAddress,
+  host: FormHost,
+  port: Port,
+  /** Absent: the address. iCloud's own page names only the part before the @. */
+  login: User.optional(),
+  password: Password,
+});
+export type CleanAddInput = z.infer<typeof CleanAddSchema>;
+
+export function cleanAccountFromForm(input: CleanAddInput): NewCleanAccount {
+  return NewCleanAccountSchema.parse({
+    id: input.address,
+    clean: {
+      address: input.address,
+      host: input.host,
+      port: input.port,
+      secure: input.port !== IMAP_STARTTLS_PORT,
+      user: input.login ?? input.address,
+    },
+    password: input.password,
+  });
 }
 
 /** IMAP is always TLS on 993 and the login is the address; a server set up differently goes through `--add-account`. */

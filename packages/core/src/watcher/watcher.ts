@@ -31,6 +31,8 @@ export const DEFAULT_MAX_PER_DRAIN = 5;
  */
 export const CONNECT_SLOT_MS = 60_000;
 export const DEFAULT_BACKOFF = { baseMs: 1_000, maxMs: 300_000, stableMs: 30_000 } as const;
+/** Messages fetched per `exists`. More than this in one gap means a burst; the watcher announces few anyway. */
+export const FETCH_LIMIT = 200;
 
 export interface IncomingMessage {
   readonly uid: number;
@@ -86,6 +88,13 @@ export interface WatcherOptions {
   readonly gate?: Gate;
   readonly cursors: CursorStore;
   readonly onMessage: (accountId: string, message: IncomingMessage) => void;
+  /**
+   * Sees every new mail of a drain before anything is announced, and returns the mail left to announce. Throwing keeps the cursor,
+   * so the batch is looked at again on the next connection.
+   */
+  readonly screen?: (fresh: readonly IncomingMessage[]) => Promise<readonly IncomingMessage[]>;
+  /** New mail went past the cursor unseen: more at once than FETCH_LIMIT, stepped over with an unreadable mail, or a renumbered mailbox. */
+  readonly onGap?: (accountId: string, reason: "burst" | "unreadable" | "renumbered") => void;
   /** More new messages than `maxPerDrain`: the older `skipped` ones were not announced. */
   readonly onOverflow?: (accountId: string, skipped: number) => void;
   /** A mail too large to read was stepped past, with whatever came in beside it; `skipped` counts UIDs, an upper bound. */
@@ -338,6 +347,7 @@ export class AccountWatcher {
       // First run, or the server renumbered the mailbox: mail already there is not "new".
       cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: session.uidNext - 1 });
       this.skipUnreadable = false;
+      if (cursor !== undefined) this.options.onGap?.(accountId, "renumbered");
       return;
     }
     if (this.skipUnreadable) {
@@ -347,21 +357,28 @@ export class AccountWatcher {
       if (lastUid > cursor.lastUid) {
         cursors.set(accountId, { uidValidity: session.uidValidity, lastUid });
         this.options.onUnreadable?.(accountId, lastUid - cursor.lastUid);
+        this.options.onGap?.(accountId, "unreadable");
         return;
       }
     }
     // Nothing past the cursor, and `n:*` would still hand back the newest mail. That one may be the mail that cannot be read, so
     // asking again at every connect would end this connection the same way.
     if (opening && session.uidNext - 1 <= cursor.lastUid) return;
+    const wide = opening && session.uidNext - 1 - cursor.lastUid > FETCH_LIMIT;
 
     const fresh = (await session.fetchSince(cursor.lastUid))
       .filter((m) => m.uid > cursor.lastUid)
       .sort((a, b) => a.uid - b.uid);
+    // A burst past the limit on a live session shows only here: `uidNext` is frozen at open.
+    if (wide || fresh.length >= FETCH_LIMIT) this.options.onGap?.(accountId, "burst");
     // The watcher was stopped or replaced while the fetch ran: its result belongs to nobody.
     if (epoch !== this.epoch || fresh.length === 0) return;
 
-    const skipped = Math.max(0, fresh.length - this.maxPerDrain);
-    for (const [index, message] of fresh.entries()) {
+    const left = this.options.screen === undefined ? fresh : await this.options.screen(fresh);
+    if (epoch !== this.epoch) return;
+
+    const skipped = Math.max(0, left.length - this.maxPerDrain);
+    for (const [index, message] of left.entries()) {
       if (index < skipped) continue;
       try {
         this.options.onMessage(accountId, message);

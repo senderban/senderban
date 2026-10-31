@@ -187,6 +187,7 @@ describe("manage:mxroute-remove and manage:mxroute-list", () => {
       "accounts",
       "addLimits",
       "addServers",
+      "cleanLimits",
       "keys",
       "keysUnreadable",
       "limits",

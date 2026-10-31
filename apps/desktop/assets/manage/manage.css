@@ -413,6 +413,7 @@ input[type="checkbox"][role="switch"]:checked::before {
 
 .panel,
 #account-form,
+#clean-form,
 #mxroute-new form,
 #google-client-form {
   display: flex;
