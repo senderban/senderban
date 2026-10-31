@@ -13,7 +13,6 @@ const acEls = {
   port: document.getElementById("account-port"),
   hostField: document.getElementById("account-host-field"),
   hostHint: document.getElementById("account-host-hint"),
-  portField: document.getElementById("account-port-field"),
   server: document.getElementById("account-server"),
   save: document.getElementById("account-save"),
   providerMx: document.getElementById("provider-mx"),
@@ -267,7 +266,7 @@ async function acAdd() {
   const provider = acEls.provider.value;
   const input = { provider, address: acEls.address.value, password: acEls.password.value };
   if (provider === "mxroute" || provider === "other") input.host = acEls.host.value;
-  if (provider === "other") input.port = Number(acEls.port.value);
+  input.port = Number(acEls.port.value);
   // The password leaves the page as soon as it is sent, whatever the answer.
   acEls.password.value = "";
   let saved = false;
@@ -379,8 +378,6 @@ function acShowServer() {
   const typed = provider === "mxroute" || provider === "other";
   acEls.hostField.hidden = !typed;
   acEls.host.disabled = !typed;
-  acEls.portField.hidden = provider !== "other";
-  acEls.port.disabled = provider !== "other";
   acEls.hostHint.textContent =
     provider === "other"
       ? "The server must take IMAP over TLS on port 993 and ManageSieve with STARTTLS, under a certificate that verifies."
@@ -390,7 +387,7 @@ function acShowServer() {
   acEls.server.hidden = preset === undefined;
   if (preset === undefined) return;
   acEls.server.textContent = [
-    `Senderban signs in at ${preset.imapHost} and writes filters at ${preset.sieveHost}, port ${String(acServers.port)}.`,
+    `Senderban signs in at ${preset.imapHost} and writes filters at ${preset.sieveHost}.`,
     preset.note,
     `Not yet tried on a real ${preset.name} mailbox.`,
   ]
@@ -398,7 +395,11 @@ function acShowServer() {
     .join(" ");
 }
 
-acEls.provider.addEventListener("change", acShowServer);
+acEls.provider.addEventListener("change", () => {
+  // A port typed for one server means nothing on another, and the password would follow it.
+  acEls.port.value = String(acServers.port);
+  acShowServer();
+});
 
 acEls.cleanForm.addEventListener("submit", (event) => {
   event.preventDefault();

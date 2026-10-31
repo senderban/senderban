@@ -420,14 +420,16 @@ const FormHost = Host.refine(
 ).transform((value) => value.toLowerCase());
 
 /**
- * The add form. A preset names its server here, in the main process: the page never says where a password goes for those.
- * "other" alone has a port, because a host running ManageSieve elsewhere than 4190 is its own choice; IMAP stays 993 over TLS.
+ * The add form. A preset names its server here, in the main process: the page never says where a password goes for those. The port
+ * is the page's on every provider, 4190 unless changed: a host running ManageSieve elsewhere is its own choice, and STARTTLS is
+ * required on any port. IMAP stays 993 over TLS.
  */
 export const AccountAddSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.literal("mxroute"),
     address: FormAddress,
     host: FormHost,
+    port: Port.optional(),
     password: Password,
   }),
   z.strictObject({
@@ -440,6 +442,7 @@ export const AccountAddSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.enum(PRESET_SERVERS),
     address: FormAddress,
+    port: Port.optional(),
     password: Password,
   }),
 ]);
@@ -459,7 +462,7 @@ export function formServer(input: AccountAddInput): FormServer {
     return {
       imapHost: input.host,
       sieveHost: input.host,
-      sievePort: input.provider === "other" ? input.port : MANAGESIEVE_PORT,
+      sievePort: input.port ?? MANAGESIEVE_PORT,
       presetName: null,
     };
   }
@@ -467,7 +470,7 @@ export function formServer(input: AccountAddInput): FormServer {
   return {
     imapHost: preset.imapHost,
     sieveHost: preset.sieveHost,
-    sievePort: MANAGESIEVE_PORT,
+    sievePort: input.port ?? MANAGESIEVE_PORT,
     presetName: preset.name,
   };
 }

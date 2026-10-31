@@ -238,7 +238,18 @@ describe("MXroute key (advanced)", () => {
       for (const provider of PRESET_SERVERS) {
         expect(ok({ ...base, provider })).toBe(true);
         expect(ok({ ...base, provider, host: "evil.example.com" })).toBe(false);
-        expect(ok({ ...base, provider, port: 4190 })).toBe(false);
+      }
+    });
+
+    it("takes a port for every provider, 4190 when the page sends none, and bounds it", () => {
+      const parse = (input: unknown) => formServer(AccountAddSchema.parse(input));
+      expect(parse({ ...base, provider: "migadu", port: 4191 }).sievePort).toBe(4191);
+      const host = "mail.example.com";
+      expect(parse({ ...base, provider: "mxroute", host, port: 4191 }).sievePort).toBe(4191);
+      expect(parse({ ...base, provider: "mxroute", host }).sievePort).toBe(4190);
+      for (const port of [0, 65_536, 41.9, "4190"]) {
+        expect(ok({ ...base, provider: "migadu", port })).toBe(false);
+        expect(ok({ ...base, provider: "mxroute", host, port })).toBe(false);
       }
     });
 
@@ -252,10 +263,9 @@ describe("MXroute key (advanced)", () => {
       });
     });
 
-    it("gives MXroute a server and no port", () => {
+    it("needs a server for MXroute", () => {
       const provider = "mxroute";
       expect(ok({ ...base, provider })).toBe(false);
-      expect(ok({ ...base, provider, host: "mail.example.com", port: 4190 })).toBe(false);
     });
 
     it("bounds another server's port in port numbers", () => {
@@ -494,7 +504,7 @@ describe("AccountAddSchema", () => {
     ["a character an account id cannot hold", { ...form, address: "a+b@example.com" }],
     ["two addresses", { ...form, address: "a@example.com b@example.com" }],
     ["a line break", { ...form, address: "you@example.com\r\nA" }],
-    ["an unknown key", { ...form, port: 993 }],
+    ["an unknown key", { ...form, extra: 1 }],
     ["a host with a scheme", { ...form, host: "https://mail.example.com" }],
     ["an IP address as the host", { ...form, host: "192.0.2.1" }],
     ["a name without a dot", { ...form, host: "mailserver" }],

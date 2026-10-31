@@ -106,7 +106,7 @@ the rules cannot be deleted it says so and asks you first. Senders on the MXrout
 there until you delete them in your MXroute panel. Your MXroute API key stays too: it has its own
 **Remove key** under **Accounts**.
 
-The form uses IMAP over TLS on port 993 and ManageSieve on port 4190, with the mail address as user
+The form uses IMAP over TLS on port 993 and ManageSieve on port 4190 unless you change it, with the mail address as user
 name. For any other setup, quit Senderban from the tray and save this as `account.json` with your
 own values, directly in your user folder (`%USERPROFILE%`). Not on the Desktop or in Documents: they
 may sync to OneDrive. Not in a new folder under `C:\`: other users of the PC can read it. Then run

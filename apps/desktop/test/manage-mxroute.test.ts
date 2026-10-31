@@ -259,7 +259,7 @@ describe("manage:account-add", () => {
   it.each([
     ["no payload", undefined],
     ["an IP address as the server", { ...form, host: "192.0.2.1" }],
-    ["an unknown key", { ...form, port: 993 }],
+    ["an unknown key", { ...form, extra: 1 }],
     ["a missing password", { provider: "mxroute", address: form.address, host: form.host }],
     ["no provider", { address: form.address, host: form.host, password: PASSWORD }],
     ["a server named for a preset", { ...form, provider: "migadu" }],
@@ -301,6 +301,17 @@ describe("manage:account-add", () => {
     expect(options?.detail).toContain("you@example.com");
     expect(options?.detail).not.toContain(PASSWORD);
     expect(options).toMatchObject({ defaultId: 0, cancelId: 0 });
+  });
+
+  it("names a changed port in the question, for a preset too", async () => {
+    accountAdd.mockImplementationOnce(async (_input, request) => {
+      await request.confirm();
+      return "cancelled";
+    });
+    showMessageBox.mockResolvedValueOnce({ response: 0 });
+    const preset = { provider: "migadu", address: form.address, port: 4191, password: PASSWORD };
+    expect(await call("manage:account-add", trusted, preset)).toBe("cancelled");
+    expect(showMessageBox.mock.calls[0]?.[1]?.detail).toContain("4191");
   });
 
   it("answers yes only for the second button", async () => {

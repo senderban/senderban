@@ -23,8 +23,8 @@ outright.
    the form made MXroute accounts only, and counts as MXroute. Consequence: 0.1.x refuses unknown fields in `accounts.json`, so going
    back to 0.1.x with such a file needs the field removed by hand.
 2. **A preset's servers are chosen in the main process.** For Migadu, mailbox.org and Purelymail the form sends no host, and the schema
-   refuses one: the page never says where a password goes. MXroute and "Other mail server" keep a typed host, and only "Other" has a
-   port. IMAP stays TLS on 993 and the login stays the address; any other setup uses `--add-account`.
+   refuses one: the page never says where a password goes. MXroute and "Other mail server" keep a typed host. Every provider has a port field, 4190
+   unless changed, and STARTTLS is required on any port. IMAP stays TLS on 993 and the login stays the address; any other setup uses `--add-account`.
 3. **What belongs to MXroute stays with MXroute.** The key card appears only with an MXroute mailbox or a stored key. A key is offered no
    domain from elsewhere, no blacklist lane runs for one, and a mail domain hosted elsewhere is not told it needs a key.
 4. **The first step of the check sends nothing of the person's.** `probeManageSieve` runs STARTTLS, verifies the certificate and reads
