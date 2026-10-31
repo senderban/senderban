@@ -8,10 +8,11 @@ import type { SieveScriptInfo, SieveSession } from "./session.js";
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
- * Unit: bytes. A greeting or a capability list ran to about 500 on the five servers read on 2026-11-01. Before TLS nobody is known,
- * and a probe may meet a host DNS chose: neither has a reason to send a script's worth, and a parse of it runs on the main thread.
+ * Unit: bytes. A `SIEVE` line naming all 48 registered extensions is 502 (counted 2026-11-01) and a quoted value is at most 1,024 (RFC
+ * 5804 §4). Before TLS nobody is known, and a probe may meet a host DNS chose: parsing costs the square of what they send, on the main
+ * thread (16 KiB kept it busy for seconds, 2026-11-01).
  */
-const CAPABILITIES_MAX_BYTES = 64 * 1024;
+const CAPABILITIES_MAX_BYTES = 8 * 1024;
 
 /** Replies after TLS from a server that spoke in clear: its own capabilities, if it repeats them, CAPABILITY's and NOOP's. */
 const CLEAR_REPLIES_MAX = 3;

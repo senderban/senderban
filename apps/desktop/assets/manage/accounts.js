@@ -386,11 +386,10 @@ function acApplyDetection(address, found) {
     acEls.port.value = String(found.service === "sieve" ? found.port : acServers.port);
     acEls.cleanPort.value = String(found.service === "imap" ? found.port : 993);
     acShowServer();
-    (found.service === "sieve" ? acEls.host : acEls.cleanHost).focus();
     const domain = address.slice(address.lastIndexOf("@") + 1);
     return [
       "warn",
-      `Your domain's records point to ${found.host}, which is outside ${domain}. That is normal for a hosted mailbox, but anyone on this network can forge those records. If your provider's own page names this server, type it below.`,
+      `Your domain's records name a server outside ${domain}, and anyone on this network can forge them. Find the server name in your provider's welcome mail or account page and type that. The records say: ${found.host}`,
     ];
   }
   if (found.kind === "unsupported") {

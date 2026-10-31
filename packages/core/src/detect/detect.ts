@@ -4,7 +4,7 @@ import {
   answerForMailHost,
   DOMAIN_ANSWERS,
   IMAPS_PORT,
-  inZone,
+  insideMailDomain,
   type Detection,
 } from "./providers.js";
 
@@ -94,7 +94,10 @@ function agreedProvider(hosts: readonly string[]): Detection | null {
 const bySrvOrder = (records: readonly SrvRecord[]): readonly SrvRecord[] =>
   records.filter((record) => isWord(record.priority)).toSorted((a, b) => a.priority - b.priority);
 
-/** RFC 5804 §1.8: the SRV record, then the name itself on 4190. The primary mail host stands between them: most servers run both. */
+/**
+ * RFC 5804 §1.8: the SRV record, then the name itself on 4190. The primary mail host stands between them: most servers run both.
+ * Names inside the domain go first, so that a forged record cannot stand in front of the real server.
+ */
 function sieveCandidates(
   srv: readonly SrvRecord[],
   primary: readonly string[],
@@ -111,20 +114,23 @@ function sieveCandidates(
     ...listed.slice(0, 1),
     ...primary.slice(0, 1).map((host) => ({ host, port: MANAGESIEVE_PORT })),
     { host: domain, port: MANAGESIEVE_PORT },
-  ].filter(({ host, port }) => {
-    const key = `${host}:${String(port)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  ]
+    .filter(({ host, port }) => {
+      const key = `${host}:${String(port)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .toSorted(
+      (a, b) => Number(insideMailDomain(b.host, domain)) - Number(insideMailDomain(a.host, domain)),
+    );
 }
 
 /**
- * What may be put in front of a password. An attacker can forge a DNS answer but cannot get a public certificate for a name inside
- * the person's domain, so inside is evidence and outside is none (RFC 6186 §6): an outside name is told, and typed by the person.
+ * What may be put in front of a password: an outside name is told, and typed by the person (RFC 6186 §6).
  */
 const sieveAnswer = (domain: string, host: string, port: number): Detection =>
-  inZone(host, domain)
+  insideMailDomain(host, domain)
     ? { kind: "server", provider: "other", host, port }
     : { kind: "named", service: "sieve", host, port };
 
@@ -132,7 +138,7 @@ function imapFromSrv(srv: readonly SrvRecord[], domain: string): Detection | nul
   for (const record of bySrvOrder(srv)) {
     const host = usableHost(record.name);
     if (host !== null && record.port === IMAPS_PORT) {
-      return inZone(host, domain)
+      return insideMailDomain(host, domain)
         ? { kind: "clean", name: null, host, port: IMAPS_PORT, switchOn: false }
         : { kind: "named", service: "imap", host, port: IMAPS_PORT };
     }

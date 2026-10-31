@@ -156,7 +156,7 @@ describe.skipIf(!hasOpenssl)("a server that answers STARTTLS with capabilities i
   });
 
   it("stops a probe at what a capability list can be, past TLS too", async () => {
-    const { port } = await serve({ clear: "", unasked: `"${"a".repeat(70_000)}` });
+    const { port } = await serve({ clear: "", unasked: `"${"a".repeat(9_000)}` });
     await expect(probeManageSieve(endpoint(port))).rejects.toMatchObject({
       message: expect.stringContaining("too large") as string,
     });

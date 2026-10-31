@@ -314,12 +314,22 @@ describe("manage:account-add", () => {
       return showMessageBox.mock.lastCall?.[1]?.detail as string | undefined;
     };
     const preset = { provider: "migadu", address: form.address, password: PASSWORD };
+    const zone = "mxrouting.net";
     expect(await ask(form)).not.toContain("not part of");
     expect(await ask({ ...form, host: "mail.example.net" })).toContain(
       "This server is not part of example.com.",
     );
     expect(await ask({ ...form, host: "notexample.com" })).toContain("not part of");
     expect(await ask(preset)).not.toContain("not part of");
+    expect(await ask({ ...form, provider: "mxroute", host: `server.${zone}` })).not.toContain(
+      "not part of",
+    );
+    const suffix = "co.uk";
+    expect(
+      await ask({ ...form, address: `you@${suffix}`, host: `mail.attacker.${suffix}` }),
+    ).toContain("not part of");
+    const outside = await ask({ ...form, host: "mail.example.net" });
+    expect(outside).not.toContain("Compare the name");
   });
 
   it("names a changed port in the question, for a preset too", async () => {

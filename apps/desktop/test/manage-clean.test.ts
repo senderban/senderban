@@ -118,6 +118,14 @@ describe("manage:clean-add", () => {
     expect(asked[1]?.detail).toContain("This server is not part of example.com.");
   });
 
+  it("says nothing of Senderban's own server for that domain, and speaks up for any other", async () => {
+    const icloud = { ...form, address: "you@icloud.com" };
+    await call("manage:clean-add", trusted, { ...icloud, host: "imap.mail.me.com" });
+    expect(asked[0]?.detail).not.toContain("not part of");
+    await call("manage:clean-add", trusted, { ...icloud, host: "imap.example.net" });
+    expect(asked[1]?.detail).toContain("not part of icloud.com");
+  });
+
   it("offers a restart once saved", async () => {
     await call("manage:clean-add", trusted, form);
     const page = (await call("manage:mxroute-list", trusted)) as Record<string, unknown>;

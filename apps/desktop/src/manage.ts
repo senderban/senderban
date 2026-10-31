@@ -19,7 +19,7 @@ import {
   MxrouteKeyRefSchema,
   SERVER_PRESETS,
   QuietEntrySchema,
-  inZone,
+  isVouchedServer,
   SettingsSchema,
   WatchPausedSchema,
   formServer,
@@ -67,20 +67,20 @@ const LIST_PUSH_GAP_MS = 5_000;
 
 /**
  * Unit: lookups per minute. A person presses this a handful of times in the life of an install, and it is the one way from the page to
- * the network with no dialog in front: a compromised page must not get a channel out of it.
+ * the network with no dialog in front, which bounds what a compromised page could send out through it.
  */
 const DETECTS_PER_MINUTE = 6;
 const DETECT_WINDOW_MS = 60_000;
 
 /**
- * Compared here, by the process that asks: the page has no say in it. A name outside the address's domain may be the right one, for a
- * hosted mailbox, but nothing about it says so (RFC 6186 §6).
+ * Compared here, where the question is asked, so that no DNS answer and no text on the page bears on it. A name outside the address's
+ * domain may be the right one, for a hosted mailbox, but nothing about it says so (RFC 6186 §6).
  */
 function outsideDomainNote(host: string, address: string): string {
   const domain = address.slice(address.lastIndexOf("@") + 1);
-  return inZone(host, domain)
+  return isVouchedServer(host, domain)
     ? ""
-    : `This server is not part of ${domain}. That is normal for a hosted mailbox, but use it only if your provider names it.\n\n`;
+    : `This server is not part of ${domain}. Use it only if your provider's welcome mail or account page names it.\n\n`;
 }
 
 /** What the page shows after an unblock; the same line the person reads in the window. */
@@ -569,11 +569,13 @@ export class ManageWindow {
     if (!parsed.success) return "invalid";
     const { address } = parsed.data;
     const server = formServer(parsed.data);
-    const where =
-      server.presetName === null
-        ? "Compare the name with what your mail provider gave you, letter by letter."
-        : `This is ${server.presetName}'s server.`;
     const outside = server.presetName === null ? outsideDomainNote(server.imapHost, address) : "";
+    const where =
+      server.presetName !== null
+        ? `This is ${server.presetName}'s server.`
+        : outside === ""
+          ? "Compare the name with what your mail provider gave you, letter by letter."
+          : "";
     return this.#adds(
       "manage:account-add",
       `${outside}Server: ${server.imapHost}\nFilters: ${server.sieveHost}, port ${String(server.sievePort)}\nAddress: ${address}\n\nWhoever runs that server receives the password, now and at every start. ${where} The address's mail domain then counts as your own, which can take rules for that domain off your other accounts.`,

@@ -21,20 +21,25 @@ them to compare names protects nobody.
    provider at worst. MXroute is the one exception: its mailbox server is the MX host, so the name stays, but only one label inside
    `mxrouting.net`. Hosts of one preference that disagree are nobody's.
 4. **An unknown mail host is asked.** In the order of RFC 5804 §1.8, with the primary MX in between because most servers run both: the
-   first `_sieve._tcp` target, the primary MX, the domain. At most three, side by side, 5 seconds each, read in that order, so one that
-   answers stops those behind it. A probe is `probeManageSieve`, so nothing of the person's is sent and the answer comes from behind
+   first `_sieve._tcp` target, the primary MX, the domain, with names inside the domain moved to the front so that a forged record cannot
+   stand before the real server. At most three, side by side, 5 seconds each, read in that order, so one that answers stops those
+   behind it. A probe is `probeManageSieve`, so nothing of the person's is sent and the answer comes from behind
    verified TLS. Next comes the `_imaps._tcp` target of RFC 6186, on 993 only, as a cleaning account. Then "unknown".
-5. **Inside the mail domain is evidence, outside is none (RFC 6186 §6).** An attacker can forge a DNS answer, but cannot get a public
-   certificate for a name inside the person's domain. So a name from DNS fills the form only when it is the domain or below it. A name
-   outside comes back as `named`: the page shows it as text, says that such records can be forged, and leaves the field empty for the
-   person to type if their provider's own page names it. A hosted domain pays one paste for this.
-6. **The process that asks compares for itself.** The main process checks the server against the address's domain, whatever the page
-   says, and for an outside name the dialog in front of the password opens with "This server is not part of example.com." Presets are
-   exempt: the server is Senderban's own table.
+5. **Inside the mail domain is evidence, outside is none (RFC 6186 §6).** Someone who can forge a DNS answer still needs a public
+   certificate for the name, and that takes hold of the person's domain. So a name from DNS fills the form only when it is the domain
+   or below it, MXroute's servers apart (decision 3). Not on a public suffix, where strangers register the names below it: such a
+   domain has no inside. A name outside comes back as `named`: the page says records can be forged, sends the person to their
+   provider's welcome mail or account page, gives the name last, as data, and leaves the field empty without moving the cursor there.
+   A hosted domain pays one paste for this. A subdomain the domain has given away is out of sight here.
+6. **The process that asks compares for itself.** The main process checks the server against the address's domain, and for an outside
+   name the dialog in front of the password opens with "This server is not part of example.com." A preset, a server this table names
+   for that very domain and an MXroute server get no note: a note that is false on `icloud.com` teaches people to pass it. This guards
+   against forged DNS and a mistyped name, not against a taken-over page, which sends the address too; the dialog's `Address:` line is
+   what is left for that.
 7. **A name from DNS is held to the rule of a typed one, and more.** `isPublicHostName` is the same check the form uses. SRV ports are
    limited to 4190, 2000 and 993. The probe's socket takes its address from `publicAddressLookup`, which drops private, loopback and
    link-local answers and the IPv6 forms that carry an IPv4 address, inside the socket's one lookup. A name cannot answer one thing to a
-   check and another to the connection. A greeting, and a probe's capabilities, stop at 64 KiB.
+   check and another to the connection. A greeting, and a probe's capabilities, stop at 8 KiB.
 8. **A suggestion fills the form and nothing else.** The password, Add and the dialog stay as they were. Anything typed for an address
    before, a password above all, is cleared.
 9. **The system's resolver only.** No DNS over HTTPS and no list of ours: plain DNS to the servers the system lists. These are not
@@ -91,8 +96,10 @@ On 2026-11-01, in Electron 45.1:
 - **A gateway hides the host.** A domain behind Proofpoint or Mimecast shows the gateway in its MX record, so it reads as unknown even
   on Microsoft 365. The person picks the provider by hand, as before.
 - **`verizon.net` reads as AOL**, which runs its mail. AOL's help pages give it the same IMAP server.
-- **A person told by an attacker to type the attacker's own domain** gets a fillable name: the name is then inside that domain. Nothing
-  here can tell. The dialog still names the server and the address.
+- **An address at the wrong domain** gets a fillable name, with no note: the name is inside that domain. A typo in the domain or a
+  person told what to type lands here, with no forged DNS. Nothing here can tell. The dialog still names the server and the address.
+- **The `named` text is attacker-written on a forged answer.** It is printed last, as data, and the person is sent elsewhere for the
+  name, but no test with people exists.
 - **A name lookup cannot be cancelled.** `publicAddressLookup` runs on libuv's threadpool, so a stuck system resolver holds up to 3 of its
   4 threads past the deadline. The click is freed either way. How long Windows holds one was not measured.
 
@@ -104,3 +111,5 @@ On 2026-11-01, in Electron 45.1:
   c-ares finds the real server. A person's machine where Electron does the same gets "Could not read this domain's mail records", and the
   form still works.
 - The DNS server of an IPv6-only network, and a Windows system set to encrypted DNS.
+- A DNS64 network: every IPv4-only mail host arrives under `64:ff9b::/96`, which is refused, so a probe finds nothing there and
+  detection falls through to `_imaps` or unknown. It fails closed; the form still works.

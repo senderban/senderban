@@ -285,6 +285,7 @@ summary:focus-visible {
 }
 .status {
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .status:empty {
   display: none;

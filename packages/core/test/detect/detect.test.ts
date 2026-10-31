@@ -155,9 +155,9 @@ describe("a server the table does not know", () => {
     });
     await detectProvider("example.com", net);
     expect(probed(net)).toEqual([
+      ["example.com", 4190],
       ["sieve.example.net", 4190],
       ["mail.example.net", 4190],
-      ["example.com", 4190],
     ]);
   });
 
@@ -220,7 +220,7 @@ describe("a server the table does not know", () => {
     const net = tools({
       findMx: vi.fn(() => Promise.reject(Object.assign(new Error("x"), { code: "ETIMEOUT" }))),
       findSrv: srv("_sieve", "sieve.example.net", 4190),
-      probe: vi.fn(() => Promise.resolve(true)),
+      probe: vi.fn((host: string) => Promise.resolve(host === "sieve.example.net")),
     });
     expect(await detectProvider("example.com", net)).toMatchObject({
       host: "sieve.example.net",
@@ -277,6 +277,32 @@ describe("a name outside the mail domain (RFC 6186 §6)", () => {
     expect(await detectProvider("example.com", net)).toMatchObject({
       kind: "server",
       host: "mail.eu.example.com",
+    });
+  });
+});
+
+describe("a mail domain with no inside", () => {
+  const SUFFIX = "co.uk";
+
+  it("takes a name below a public suffix for an outside one", async () => {
+    const host = `mail.attacker.${SUFFIX}`;
+    const net = tools({ findMx: mx([host, 10]), probe: vi.fn(() => Promise.resolve(true)) });
+    expect(await detectProvider(SUFFIX, net)).toMatchObject({ kind: "named", service: "sieve" });
+    const imap = tools({ findSrv: srv("_imaps", `imap.attacker.${SUFFIX}`, 993) });
+    expect(await detectProvider(SUFFIX, imap)).toMatchObject({ kind: "named", service: "imap" });
+  });
+});
+
+describe("a forged record in front of the real server", () => {
+  it("does not stand before a name inside the domain", async () => {
+    const net = tools({
+      findMx: mx(["mail.example.com", 10]),
+      findSrv: srv("_sieve", "sieve.attacker.example.net", 4190),
+      probe: vi.fn(() => Promise.resolve(true)),
+    });
+    expect(await detectProvider("example.com", net)).toMatchObject({
+      kind: "server",
+      host: "mail.example.com",
     });
   });
 });

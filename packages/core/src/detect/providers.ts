@@ -1,3 +1,4 @@
+import { isPublicSuffix } from "../freemail.js";
 import { MANAGESIEVE_PORT, type PresetServer } from "../mail-server.js";
 
 /** Implicit TLS (RFC 8314 §5.1): the only IMAP port a suggestion carries. */
@@ -109,8 +110,7 @@ const MX_ZONES: readonly (readonly [zone: string, answer: Detection])[] = [
 
 const MXROUTE_ZONE = "mxrouting.net";
 
-export const inZone = (host: string, zone: string): boolean =>
-  host === zone || host.endsWith(`.${zone}`);
+const inZone = (host: string, zone: string): boolean => host === zone || host.endsWith(`.${zone}`);
 
 /** MXroute's mail host is the mailbox's server too (measured 2026-10-24); the relay behind it is not. */
 function isMxrouteServer(host: string): boolean {
@@ -125,4 +125,21 @@ export function answerForMailHost(host: string): Detection | null {
   return isMxrouteServer(host)
     ? { kind: "server", provider: "mxroute", host, port: MANAGESIEVE_PORT }
     : null;
+}
+
+/**
+ * Whether a host lies in the mail domain, the only evidence DNS can give (RFC 6186 §6): a certificate for such a name takes hold of
+ * the domain. Not on a public suffix, where strangers register the names below it. A subdomain given away is out of sight here.
+ */
+export const insideMailDomain = (host: string, domain: string): boolean =>
+  inZone(host, domain) && !isPublicSuffix(domain);
+
+/** A server that needs no word for this domain: inside it, or named by this file and not by DNS. */
+export function isVouchedServer(host: string, domain: string): boolean {
+  const known = DOMAIN_ANSWERS.get(domain);
+  return (
+    insideMailDomain(host, domain) ||
+    (known?.kind === "clean" && known.host === host) ||
+    isMxrouteServer(host)
+  );
 }
