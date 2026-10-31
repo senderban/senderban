@@ -7,7 +7,7 @@ import { ACCOUNT_ID } from "./sync/engine.js";
 // a sender on the block list.
 
 /**
- * The limits a person picks from: SpamAssassin points, whole numbers because a Sieve numeric comparison stops at the decimal point.
+ * The limits a person picks from: SpamAssassin points, whole numbers because the rule is a list of patterns (`sieve/rules.ts`).
  * 5 is its default `required_score`, which its docs call quite aggressive; 8-10 is what they give an ISP; 15 is their floor for
  * deleting mail unseen. Below 5 is not offered: the server itself does not call that spam.
  */
