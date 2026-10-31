@@ -13,7 +13,7 @@ export class FakeSieveServer {
   /** Hooks for failure injection. */
   beforeGet: ((name: string, nth: number) => void) | null = null;
   failSetActiveOnce = false;
-  beforePut?: (name: string) => void;
+  beforePut: ((name: string) => void) | null = null;
   failDelete = false;
   /** Run around commands: a person acting between two commands of a round. `nth` counts from 1. */
   afterPut: (() => void) | null = null;

@@ -388,6 +388,34 @@ describe("SieveAdapter failure handling", () => {
     expect(await failure(sync(adapter, list, initialSieveState()))).toBe("REJECTED");
   });
 
+  it("remembers the newest lost writes, a list sent again among them", async () => {
+    const { server, adapter } = setup();
+    const start = initialSieveState();
+    const lists = Array.from({ length: 10 }, (_, n) => [
+      entry(n + 1, "exactAddress", `a${String(n + 1)}@example.com`),
+    ]);
+    const listAt = (at: number) => lists[at] ?? [];
+    let writes = 0;
+    server.afterPut = () => {
+      writes += 1;
+      // The empty rules and the main script go through; every real write is taken, and its reply lost.
+      if (writes >= 3) throw new AdapterError("TRANSIENT", "connection lost");
+    };
+    for (const at of [0, 1, 2, 3, 4, 5, 6, 7, 0]) {
+      expect(await failure(sync(adapter, listAt(at), start))).toBe("TRANSIENT");
+    }
+    // This one the server refuses, so it still holds the first list.
+    server.afterPut = null;
+    server.beforePut = () => {
+      throw new AdapterError("TRANSIENT", "refused");
+    };
+    expect(await failure(sync(adapter, listAt(8), start))).toBe("TRANSIENT");
+
+    server.beforePut = null;
+    const { result } = await sync(adapter, listAt(9), start);
+    expect((await adapter.verify(result.state)).drifted).toBe(false);
+  });
+
   it("counts a saved copy of a person's script as rules to take out", () => {
     const start = initialSieveState();
     const includeBackup = { scriptName: "mine", sha256: "0".repeat(64), content: "keep;" };

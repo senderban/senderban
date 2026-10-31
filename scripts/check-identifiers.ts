@@ -408,20 +408,20 @@ function scanRange(
       ...HISTORY_SKIPPED.map((type) => `:(exclude,glob,icase)**/*.${type}`),
     ]),
   ).replaceAll("\0", "");
-  const unread = String(git(root, ["log", ...range, "--name-only", "--format="]))
+  const names = String(git(root, ["log", ...range, "--name-only", "--format="]))
     .split("\n")
-    .filter((file) => HISTORY_SKIPPED.some((type) => file.toLowerCase().endsWith(`.${type}`)));
+    .filter((file) => file !== "");
+  const notRead = (file: string) =>
+    HISTORY_SKIPPED.some((type) => file.toLowerCase().endsWith(`.${type}`));
+  const unread = names.filter(notRead);
   const skipped = [...new Set(unread)].map((file): Finding => ({
     file,
     line: 0,
     kind: "unscannable",
     what: "in history, type not read",
   }));
-  // Commits and no diff at all: a setting changed what `git log` prints, and silence must not read as clean.
-  if (
-    !patch.includes("diff --git ") &&
-    String(git(root, ["rev-list", ...range, "--count"])).trim() !== "0"
-  ) {
+  // Files changed and no diff at all: a setting changed what `git log` prints, and silence must not read as clean. An empty commit has neither.
+  if (!patch.includes("diff --git ") && names.some((file) => !notRead(file))) {
     skipped.push({
       file: "history",
       line: 0,

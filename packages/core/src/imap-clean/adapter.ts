@@ -199,6 +199,7 @@ export class ImapCleanAdapter implements BlockAdapter {
   /** The saved state says a sweep is owed: a flood of gaps writes it once. */
   #sweepOwed = false;
   #saveTriedAt = Number.NEGATIVE_INFINITY;
+  #saveFailed = false;
   /** Entries still queued, as of the last saved state. */
   #queued = 0;
   /** The server turned the last move down: rules are held, but mail is not moving, and `verify` must say so. */
@@ -260,15 +261,22 @@ export class ImapCleanAdapter implements BlockAdapter {
     this.#saveSweepOwed();
   }
 
-  /** Throws what the save threw. A try inside SAVE_RETRY_MS of a failed one waits: the request is in memory, and a later round tries. */
+  /**
+   * Throws what the save threw. One failure is tried again at once, by the round the gap asks for: nothing else would save the request
+   * inside the hour. After that a try waits SAVE_RETRY_MS, and the request stays in memory.
+   */
   #saveSweepOwed(): void {
-    if (this.#sweepOwed || this.#now() - this.#saveTriedAt < SAVE_RETRY_MS) return;
-    this.#saveTriedAt = this.#now();
+    if (this.#sweepOwed) return;
+    const since = this.#now() - this.#saveTriedAt;
+    if (since >= 0 && since < SAVE_RETRY_MS) return;
+    if (this.#saveFailed) this.#saveTriedAt = this.#now();
+    this.#saveFailed = true;
     this.#options.updateState((state) => ({
       adapterId: IMAP_CLEAN_ADAPTER_ID,
       data: { ...parseState(state), sweepOwed: true },
     }));
     this.#sweepOwed = true;
+    this.#saveFailed = false;
     this.#saveTriedAt = Number.NEGATIVE_INFINITY;
   }
 
@@ -403,6 +411,7 @@ export class ImapCleanAdapter implements BlockAdapter {
     // What this round took is in `left` now, and only a request made since is still owed.
     const sweepOwed = this.#owesSweep();
     this.#sweepOwed = sweepOwed;
+    if (!sweepOwed) this.#saveFailed = false;
     return {
       applied: plan.changes.length,
       failed: [],

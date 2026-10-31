@@ -240,12 +240,14 @@ describe("scanHistory", () => {
     git("update-ref", "refs/remotes/origin/main", "HEAD");
     expect(scanHistory(dir, ["somelogin"], true)).toEqual([]);
     expect(scanHistory(dir, ["somelogin"])).not.toEqual([]);
+    git("commit", "-q", "--allow-empty", "-m", "empty");
+    expect(scanHistory(dir, ["somelogin"], true)).toEqual([]);
     writeFileSync(join(dir, "plus.txt"), "fourthlogin\n");
     git("add", ".");
     git("commit", "-q", "-m", "new");
     expect(scanHistory(dir, ["somelogin", "fourthlogin"], true).map((f) => f.what)).toEqual(["#2"]);
     git("update-ref", "-d", "refs/remotes/origin/main");
-  });
+  }, 30_000);
 
   it("reads a colour-forcing git setting away, and reports a type it does not read", () => {
     writeFileSync(join(dir, "notes.db"), Buffer.from("\0\0user thirdlogin\0\0", "latin1"));

@@ -767,16 +767,17 @@ describe("clearing past mail", () => {
       first.sweepAll();
     }).toThrow("no");
     expect(dataOf(saved).sweepOwed).toBe(false);
-    // A flood of gaps inside the pace costs no more writes than one.
+    // The round the gap asked for tries once more, and a flood after that costs no more writes than one.
     tries = 0;
+    await first.plan([a], saved);
+    expect(tries).toBe(1);
     first.sweepAll();
     await first.plan([a], saved);
-    await first.plan([a], saved);
-    expect(tries).toBe(0);
+    expect(tries).toBe(1);
 
     clock.now += SAVE_RETRY_MS;
     await first.plan([a], saved); // still failing: the plan does not throw
-    expect(tries).toBe(1);
+    expect(tries).toBe(2);
     expect(dataOf(saved).sweepOwed).toBe(false);
 
     refuse = false;
@@ -875,8 +876,40 @@ describe("clearing past mail", () => {
     adapter.retire();
   });
 
+  it("saves at the next try after one failed save, with no wait", async () => {
+    const a = entry(1, "a@blocked.example");
+    let saved: OpaqueState = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
+    let refuse = false;
+    const clock = { now: 1_000 };
+    const link = new CleanLink();
+    link.attach(new FakeBox().fill([[1, "a@blocked.example"]]));
+    const adapter = new ImapCleanAdapter({
+      accountId: "x",
+      link,
+      initialState: saved,
+      updateState: (change) => {
+        if (refuse) throw new Error("no");
+        saved = change(saved);
+      },
+      now: () => clock.now,
+    });
+    adapter.sweepAll();
+    saved = (await round(adapter, [a], saved)).state;
+    refuse = true;
+    expect(() => {
+      adapter.sweepAll();
+    }).toThrow("no");
+    refuse = false;
+    await adapter.plan([a], saved);
+    expect(dataOf(saved).sweepOwed).toBe(true);
+    adapter.retire();
+  });
+
   it("asks again at a gap after the pace when the state could not be saved, and keeps the request", () => {
     const updateState = vi.fn<(change: (state: OpaqueState) => OpaqueState) => void>();
+    updateState.mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
     updateState.mockImplementationOnce(() => {
       throw new Error("disk full");
     });
@@ -894,11 +927,14 @@ describe("clearing past mail", () => {
       adapter.sweepAll();
     }).toThrow("disk full");
     expect(adapter.hasWork).toBe(true);
-    adapter.sweepAll();
-    expect(updateState).toHaveBeenCalledTimes(1);
-    clock.now += SAVE_RETRY_MS;
+    expect(() => {
+      adapter.sweepAll();
+    }).toThrow("disk full");
     adapter.sweepAll();
     expect(updateState).toHaveBeenCalledTimes(2);
+    clock.now -= 5_000; // a clock set back does not hold the save
+    adapter.sweepAll();
+    expect(updateState).toHaveBeenCalledTimes(3);
     adapter.retire();
   });
 

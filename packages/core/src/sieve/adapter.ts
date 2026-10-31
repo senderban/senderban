@@ -462,6 +462,8 @@ export class SieveAdapter implements BlockAdapter {
         if (remote === null) await session.putScript(state.rulesName, empty);
         const backup = await ensureRulesRun(session, state, listed, remote === null);
         if (needsWrite && (remote !== null || rules !== empty)) {
+          // Sent again counts as the newest: the oldest is what leaves.
+          this.#sent.delete(sha);
           this.#sent.add(sha);
           for (const old of this.#sent) {
             if (this.#sent.size <= SENT_MAX) break;
