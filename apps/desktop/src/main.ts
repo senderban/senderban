@@ -808,10 +808,11 @@ async function start(): Promise<Runtime> {
           // Renumbering voids the saved pass. A burst or an unreadable mail repeats at a sender's wish, so those keep the hourly limit.
           try {
             adapter.sweepAll(reason === "renumbered");
-          } finally {
+          } catch {
             // A state that could not be saved leaves the request in memory, and this session can still run it.
-            engine.requestSync(account.id);
+            log("sweep-save-failed", { account: accountTag(account.id), reason });
           }
+          engine.requestSync(account.id);
         },
         ...announce,
       }),

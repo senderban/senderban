@@ -584,6 +584,39 @@ describe("clearing past mail", () => {
     expect((await adapter.plan(entries, after)).changes.length).toBeGreaterThan(0);
   });
 
+  it("rests when the engine gives up on a stalled round, though the abort itself takes the connection away", async () => {
+    const entries = Array.from({ length: 16 }, (_, at) =>
+      entry(at + 1, `a${String(at)}@blocked.example`),
+    );
+    const box = new FakeBox().fill([[1, "someone@other.example"]]);
+    const state = {
+      adapterId: "imap-clean",
+      data: { applied: entries, retro: entries.map((e) => e.id) },
+    };
+    const { adapter, link } = rig(null, state);
+    box.destroy = () => {
+      link.detach(box);
+    };
+    let controller = new AbortController();
+    let searches = 0;
+    box.onSearch = () => {
+      searches += 1;
+      // The first batch ends; the engine gives up on the second, and that is what drops the link here.
+      if (searches % 2 === 0) {
+        controller.abort(new AdapterError("TRANSIENT", "late"));
+        throw new Error("socket closed");
+      }
+    };
+    for (let i = 0; i < RETRO_ABORTS_MAX; i += 1) {
+      link.attach(box);
+      controller = new AbortController();
+      const plan = await adapter.plan(entries, state);
+      await expect(adapter.apply(plan, controller.signal)).rejects.toThrow();
+    }
+    link.attach(box);
+    expect((await adapter.plan(entries, state)).changes).toEqual([]);
+  });
+
   it("rests twice as long each time, up to the ceiling, until a read gets somewhere", async () => {
     vi.useFakeTimers();
     try {

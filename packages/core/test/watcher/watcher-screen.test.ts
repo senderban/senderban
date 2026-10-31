@@ -130,6 +130,37 @@ describe("screen", () => {
 });
 
 describe("onGap", () => {
+  it("screens and moves on when the listener throws at a burst, on the same connection", async () => {
+    const onGap = vi.fn(() => {
+      throw new Error("the state could not be saved");
+    });
+    const top = FETCH_LIMIT + 5;
+    let opens = 0;
+    let screened = 0;
+    const { instance, cursors } = watcher(
+      () => {
+        opens += 1;
+        return Promise.resolve(session([msg(top)], top + 1));
+      },
+      { uidValidity: "1", lastUid: 2 },
+      {
+        onGap,
+        screen: (fresh) => {
+          screened += fresh.length;
+          return Promise.resolve(fresh);
+        },
+        backoff: { baseMs: 1, maxMs: 1, stableMs: 100_000 },
+      },
+    );
+    instance.start();
+    await vi.waitFor(() => {
+      expect(cursors.get("a")?.lastUid).toBe(top);
+    });
+    expect(screened).toBe(1);
+    expect(opens).toBe(1);
+    await instance.stop();
+  });
+
   it("fires at opening when more came in than one fetch takes", async () => {
     const onGap = vi.fn();
     const top = FETCH_LIMIT + 5;

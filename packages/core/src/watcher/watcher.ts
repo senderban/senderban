@@ -347,7 +347,7 @@ export class AccountWatcher {
       // First run, or the server renumbered the mailbox: mail already there is not "new".
       cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: session.uidNext - 1 });
       this.skipUnreadable = false;
-      if (cursor !== undefined) this.options.onGap?.(accountId, "renumbered");
+      if (cursor !== undefined) this.gap("renumbered");
       return;
     }
     if (this.skipUnreadable) {
@@ -357,7 +357,7 @@ export class AccountWatcher {
       if (lastUid > cursor.lastUid) {
         cursors.set(accountId, { uidValidity: session.uidValidity, lastUid });
         this.options.onUnreadable?.(accountId, lastUid - cursor.lastUid);
-        this.options.onGap?.(accountId, "unreadable");
+        this.gap("unreadable");
         return;
       }
     }
@@ -370,7 +370,7 @@ export class AccountWatcher {
       .filter((m) => m.uid > cursor.lastUid)
       .sort((a, b) => a.uid - b.uid);
     // A burst past the limit on a live session shows only here: `uidNext` is frozen at open.
-    if (wide || fresh.length >= FETCH_LIMIT) this.options.onGap?.(accountId, "burst");
+    if (wide || fresh.length >= FETCH_LIMIT) this.gap("burst");
     // The watcher was stopped or replaced while the fetch ran: its result belongs to nobody.
     if (epoch !== this.epoch || fresh.length === 0) return;
 
@@ -392,6 +392,14 @@ export class AccountWatcher {
     if (last !== undefined)
       cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: last.uid });
     if (skipped > 0) this.options.onOverflow?.(accountId, skipped);
+  }
+
+  private gap(reason: "burst" | "unreadable" | "renumbered"): void {
+    try {
+      this.options.onGap?.(this.options.accountId, reason);
+    } catch {
+      // A listener must not end the drain: on a burst that stops the screen and the cursor, at every connect.
+    }
   }
 
   private fail(epoch: number, error: unknown): void {
