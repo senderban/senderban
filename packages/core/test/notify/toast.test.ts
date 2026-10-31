@@ -267,6 +267,24 @@ describe("buildMailToastXml", () => {
     expect(buildMailToastXml(toast({ rejectsAtServer: true }))).toContain('defaultInput="junk"');
   });
 
+  it("starts on Block at server for mail over the person's limit, and says why", () => {
+    const xml = buildMailToastXml(toast({ rejectsAtServer: true, overSpamLimit: true }));
+    expect(xml).toContain('defaultInput="reject"');
+    expect(xml).toContain("Over your spam limit");
+  });
+
+  it("stays on the default action over the limit where this mail cannot be refused", () => {
+    const xml = buildMailToastXml(toast({ rejectsAtServer: false, overSpamLimit: true }), {
+      defaultAction: "trash",
+    });
+    expect(xml).toContain('defaultInput="trash"');
+    expect(xml).toContain("Over your spam limit. This mailbox has no block-at-server option");
+  });
+
+  it("says nothing of a limit for other mail", () => {
+    expect(buildMailToastXml(toast({ rejectsAtServer: true }))).not.toContain("spam limit");
+  });
+
   it("leaves the Gmail toast as one button whatever the settings say", () => {
     const xml = buildMailToastXml(toast({ trashOnly: true, domain: null }), {
       defaultAction: "junk",

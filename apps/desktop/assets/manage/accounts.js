@@ -1,4 +1,4 @@
-/* global setNotice, leaveAddView, stateBadge, offerRestart, mxDraw, mxLoadFailed, mxSwitches */
+/* global setNotice, leaveAddView, stateBadge, offerRestart, mxDraw, mxLoadFailed, mxSwitches, spamFilterRow */
 /* exported acLoad, acLoaded */
 // Mailboxes on mail servers of the sandboxed manage page, grouped by mail domain, and the add form. The password is typed here, sent once to the main process and then
 // forgotten: nothing here ever receives it back, and every value shown came from main as plain text (textContent only).
@@ -145,6 +145,8 @@ function acRow(account) {
     if (!acBusy) void acRemove(account);
   });
   li.append(title, stateBadge(account.accountId), remove);
+  // A mailbox with no server rules has no field here: "Other (IMAP)" and Gmail get no filter.
+  if ("spamFilter" in account) li.append(spamFilterRow(account));
   return li;
 }
 

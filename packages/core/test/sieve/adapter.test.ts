@@ -8,6 +8,7 @@ import {
   sieveStateForReinstall,
   sieveStateHoldsRules,
 } from "../../src/sieve/adapter.js";
+import type { SpamRule } from "../../src/spam-filter.js";
 import { hasInclude, isOurMain } from "../../src/sieve/rules.js";
 import { DEFAULT_RENDER_OPTIONS, renderRules } from "../../src/sieve/rules.js";
 import { FakeSieveServer } from "./fake-server.js";
@@ -940,5 +941,127 @@ describe("SieveAdapter.uninstall", () => {
     server.scripts.set("senderban-main", "keep;\n");
     expect(await failure(adapter.uninstall(result.state))).toBe("REMOTE_CHANGED");
     expect(server.scripts.has("senderban-rules")).toBe(true);
+  });
+});
+
+describe("the spam rule", () => {
+  function withRule(start: SpamRule | null) {
+    const server = new FakeSieveServer();
+    let rule = start;
+    const adapter = new SieveAdapter({
+      accountId: "acct-1",
+      connect: () => Promise.resolve(server.session()),
+      spamRule: () => rule,
+    });
+    return {
+      server,
+      adapter,
+      set: (next: SpamRule | null) => {
+        rule = next;
+      },
+    };
+  }
+  const junk = { limit: 5, action: "junk" } as const;
+  const rulesOf = (server: FakeSieveServer) => server.scripts.get("senderban-rules") ?? "";
+
+  it("is written to a mailbox with an empty list", async () => {
+    const { server, adapter } = withRule(junk);
+    const { plan } = await sync(adapter, [], initialSieveState());
+    expect(plan.settingsChanged).toBe(true);
+    expect(plan.changes).toEqual([]);
+    expect(rulesOf(server)).toContain("X-Spam-Score");
+    expect(server.active).toBe("senderban-main");
+  });
+
+  it("costs nothing while nothing changes", async () => {
+    const { server, adapter } = withRule(junk);
+    const state = await live(adapter, [], initialSieveState());
+    const puts = server.puts.length;
+    const plan = await adapter.plan([], state);
+    expect(plan.changes).toEqual([]);
+    expect(plan.settingsChanged).toBeUndefined();
+    expect(server.puts.length).toBe(puts);
+  });
+
+  it("keeps the plan of a mailbox with no filter as it was", async () => {
+    const { adapter } = setup();
+    const plan = await adapter.plan([], initialSieveState());
+    expect(plan).toEqual({ accountId: "acct-1", changes: [], basedOn: initialSieveState() });
+  });
+
+  it("follows a changed limit and a changed action, and goes when turned off", async () => {
+    const { server, adapter, set } = withRule(junk);
+    let state = await live(adapter, [e("a@example.com")], initialSieveState());
+
+    set({ limit: 15, action: "trash" });
+    state = await live(adapter, [e("a@example.com")], state);
+    expect(rulesOf(server)).toContain('"15*"');
+    expect(rulesOf(server)).not.toContain('"5 *"');
+    expect(rulesOf(server)).toContain('fileinto :create "Trash";');
+
+    set(null);
+    state = await live(adapter, [e("a@example.com")], state);
+    expect(rulesOf(server)).not.toContain("X-Spam-Score");
+    expect(rulesOf(server)).toContain("a@example.com");
+    expect((await adapter.verify(state)).drifted).toBe(false);
+  });
+
+  it("does not take the rule for someone else's edit on the next round", async () => {
+    const { adapter } = withRule(junk);
+    const state = await live(adapter, [], initialSieveState());
+    await expect(live(adapter, [e("a@example.com")], state)).resolves.toBeDefined();
+  });
+
+  it("comes back after an interrupted removal, with an empty list", async () => {
+    const { server, adapter } = withRule(junk);
+    const state = await live(adapter, [], initialSieveState());
+    server.scripts.delete("senderban-rules");
+    const plan = await adapter.plan([], sieveStateForReinstall(state));
+    expect(plan.settingsChanged).toBe(true);
+    await adapter.apply(plan);
+    expect(rulesOf(server)).toContain("X-Spam-Score");
+  });
+
+  it("needs nothing a mailbox with blocks does not", async () => {
+    const { server, adapter } = withRule(junk);
+    server.extensions.delete("relational");
+    await sync(adapter, [e("a@example.com")], initialSieveState());
+    expect(rulesOf(server)).toContain("X-Spam-Score");
+  });
+
+  it("goes again when a rule with no entry could not be written after a person's script took our line", async () => {
+    const { server, adapter } = withRule(junk);
+    server.scripts.set("mine", 'require ["fileinto"];\nkeep;\n');
+    server.active = "mine";
+    let rulesPuts = 0;
+    server.beforePut = (name) => {
+      // The first is the empty script an include needs to exist; the second is the rule.
+      if (name === "senderban-rules" && (rulesPuts += 1) === 2) {
+        throw new AdapterError("TRANSIENT", "connection lost");
+      }
+    };
+    const { result } = await sync(adapter, [], initialSieveState());
+    expect(result.deferred).toBe(1);
+    expect(hasInclude(server.scripts.get("mine") ?? "", "senderban-rules")).toBe(true);
+
+    server.beforePut = null;
+    const plan = await adapter.plan([], result.state);
+    expect(plan.settingsChanged).toBe(true);
+    await adapter.apply(plan);
+    expect(rulesOf(server)).toContain("X-Spam-Score");
+  });
+
+  it("keeps the state of a mailbox with no filter as an older version wrote it", async () => {
+    const { adapter } = setup();
+    const state = await live(adapter, [e("a@example.com")], initialSieveState());
+    expect(Object.keys(state.data as object)).not.toContain("spam");
+  });
+
+  it("reads a state saved before the rule existed", async () => {
+    const { adapter } = withRule(null);
+    const before = initialSieveState();
+    const plan = await adapter.plan([], before);
+    expect(plan.changes).toEqual([]);
+    expect(plan.settingsChanged).toBeUndefined();
   });
 });

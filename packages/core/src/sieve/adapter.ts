@@ -28,6 +28,7 @@ import {
   scriptSha256,
   type RenderOptions,
 } from "./rules.js";
+import { SpamRuleSchema, type SpamRule } from "../spam-filter.js";
 import type { SieveScriptInfo, SieveSession } from "./session.js";
 
 export const SIEVE_ADAPTER_ID = "sieve";
@@ -60,6 +61,8 @@ const StateSchema = z.strictObject({
   mainName: z.string().regex(SCRIPT_NAME),
   /** What the remote rules script contains, as of our last successful write. */
   applied: BlocklistSchema,
+  /** The spam rule in that script. Absent with none, so that a mailbox with no filter keeps the state an older version can read. */
+  spam: SpamRuleSchema.optional(),
   rulesSha256: Sha256.nullable(),
   /**
    * What is on the server is in doubt (an `uninstall` began and did not finish): the next round writes every wanted entry,
@@ -108,6 +111,8 @@ export interface SieveAdapterOptions {
   /** Opens an authenticated ManageSieve session; called once per plan-free operation. */
   readonly connect: () => Promise<SieveSession>;
   readonly render?: RenderOptions;
+  /** The mailbox's spam rule now. Read each round, so that a change needs no restart. */
+  readonly spamRule?: () => SpamRule | null;
 }
 
 const CAPABILITIES: Capabilities = {
@@ -122,6 +127,15 @@ const CAPABILITIES: Capabilities = {
 };
 
 const entryKey = (e: BlockEntry): string => JSON.stringify([e.id, e.match, e.value, e.action]);
+const sameRule = (a: SpamRule | null, b: SpamRule | undefined): boolean =>
+  a?.limit === b?.limit && a?.action === b?.action;
+
+/** The state with the rule the script now holds. */
+function withSpam(state: SieveState, spam: SpamRule | null): SieveState {
+  const next = { ...state };
+  delete next.spam;
+  return spam === null ? next : { ...next, spam };
+}
 
 /** The session, but every command refuses to start once `signal` has aborted (red-team KC-2). */
 function cancellable(session: SieveSession, signal: AbortSignal): SieveSession {
@@ -386,7 +400,19 @@ export class SieveAdapter implements BlockAdapter {
         changes.push({ kind: "create", entry, match: entry.match });
       }
     }
-    return { accountId: this.#options.accountId, changes, basedOn: state };
+    const spam = this.#spamRule();
+    // `rewrite`: the script may be gone, and a mailbox with an empty list has no entry to bring the rule back.
+    const settingsChanged = !sameRule(spam, current.spam) || (current.rewrite && spam !== null);
+    return {
+      accountId: this.#options.accountId,
+      changes,
+      basedOn: state,
+      ...(settingsChanged ? { settingsChanged } : {}),
+    };
+  }
+
+  #spamRule(): SpamRule | null {
+    return this.#options.spamRule?.() ?? null;
   }
 
   /**
@@ -416,7 +442,8 @@ export class SieveAdapter implements BlockAdapter {
       ...state.applied.filter((e) => !removed.has(e.id) && !fresh.has(e.id)),
       ...created,
     ]);
-    const rules = renderRules(applied, this.#render);
+    const spam = this.#spamRule();
+    const rules = renderRules(applied, { ...this.#render, spam });
     const sha = scriptSha256(rules);
     const empty = renderRules([], this.#render);
 
@@ -477,7 +504,7 @@ export class SieveAdapter implements BlockAdapter {
             // what the server holds, and report every change as failed: the click must not say blocked, and the retry goes on.
             const held = remote === null ? { applied: [], rulesSha256: scriptSha256(empty) } : {};
             const data: SieveState = {
-              ...state,
+              ...(remote === null ? withSpam(state, null) : state),
               ...held,
               rewrite: remote === null ? false : state.rewrite,
               includeBackup: backup,
@@ -489,6 +516,8 @@ export class SieveAdapter implements BlockAdapter {
             return {
               applied: 0,
               failed: plan.changes.map((c) => ({ entryId: c.entry.id, error: reason })),
+              // With no entry there is nothing to report as failed, and the rule still has to get there: the engine goes again.
+              ...(plan.changes.length === 0 ? { deferred: 1 } : {}),
               state: { adapterId: SIEVE_ADAPTER_ID, data },
             };
           }
@@ -496,7 +525,7 @@ export class SieveAdapter implements BlockAdapter {
 
         this.#sent.clear();
         const next: SieveState = {
-          ...state,
+          ...withSpam(state, spam),
           applied,
           rulesSha256: sha,
           rewrite: false,
@@ -575,7 +604,7 @@ export class SieveAdapter implements BlockAdapter {
         await session.deleteScript(current.rulesName);
       }
       const next: SieveState = {
-        ...current,
+        ...withSpam(current, null),
         applied: [],
         rulesSha256: null,
         rewrite: false,

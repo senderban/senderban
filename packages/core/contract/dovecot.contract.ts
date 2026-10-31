@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdapterError, type OpaqueState } from "../src/adapter.js";
 import type { BlockEntry, Blocklist } from "../src/blocklist.js";
 import { SieveAdapter, initialSieveState } from "../src/sieve/adapter.js";
+import type { SpamRule } from "../src/spam-filter.js";
 import { hasInclude } from "../src/sieve/rules.js";
 import { startDovecot, type Dovecot } from "./dovecot.js";
 
@@ -33,6 +34,88 @@ const mail = (from: string, envelopeFrom = from, subject = "hello") => ({
   from,
   envelopeFrom,
   subject,
+});
+
+describe("the spam rule on a real Sieve server", () => {
+  const score = (...values: string[]) => values.map((value) => `X-Spam-Score: ${value}`);
+  const scored = (subject: string, headers: string[]) => ({
+    from: "bulk@example.org",
+    envelopeFrom: "bulk@example.org",
+    subject,
+    headers,
+  });
+
+  it.each<[string, string[], "INBOX" | "Junk"]>([
+    ["under the limit", score("4.9 (++++)"), "INBOX"],
+    ["at the limit", score("5.0 (+++++)"), "Junk"],
+    ["over the limit", score("9.1 (+++++++++)"), "Junk"],
+    ["two digits", score("12.3 (++++++++++++)"), "Junk"],
+    ["negative, as most clean mail is", score("-1.2 (-)"), "INBOX"],
+    ["no score", [], "INBOX"],
+    ["a word", score("high"), "INBOX"],
+    ["a sender's own -1 beside a high score", score("-1.0", "9.1 (+++++++++)"), "Junk"],
+    ["a sender's own -1 beside a low score", score("-1.2", "0.0"), "INBOX"],
+    ["a blacklisted sender", score("100.0 (+)"), "Junk"],
+    ["a decimal that looks like a hundred", score("1.6 (+)"), "INBOX"],
+    ["a sender's own 99 beside a low score", score("99", "1.0 (+)"), "Junk"],
+  ])("%s lands in the right place", async (name, headers, folder) => {
+    const user = `spam-${name.replace(/[^a-z0-9]/gu, "")}@example.test`;
+    const rule: SpamRule = { limit: 5, action: "junk" };
+    const adapter = new SieveAdapter({
+      accountId: user,
+      connect: () => dovecot.connect(user),
+      spamRule: () => rule,
+    });
+    await sync(adapter, [], initialSieveState());
+
+    await dovecot.deliver(user, scored(name, headers));
+
+    expect(dovecot.count(user, folder)).toBe(1);
+  });
+
+  it.each<[5 | 10 | 15, string, "INBOX" | "Junk"]>([
+    [10, "5.0 (+)", "INBOX"],
+    [10, "9.9 (+)", "INBOX"],
+    [10, "10.0 (+)", "Junk"],
+    [10, "23", "Junk"],
+    [15, "9.0 (+)", "INBOX"],
+    [15, "10.5 (+)", "INBOX"],
+    [15, "14.9 (+)", "INBOX"],
+    [15, "15.0 (+)", "Junk"],
+    [15, "100.0 (+)", "Junk"],
+    [15, "1.5 (+)", "INBOX"],
+  ])("with limit %i, a score of %s lands in the right place", async (limit, value, folder) => {
+    const user = `spam-${String(limit)}-${value.replace(/[^0-9]/gu, "")}@example.test`;
+    const adapter = new SieveAdapter({
+      accountId: user,
+      connect: () => dovecot.connect(user),
+      spamRule: () => ({ limit, action: "junk" }),
+    });
+    await sync(adapter, [], initialSieveState());
+
+    await dovecot.deliver(user, scored(value, score(value)));
+
+    expect(dovecot.count(user, folder)).toBe(1);
+  });
+
+  it("takes the rule out again with an empty list", async () => {
+    const user = "spam-off@example.test";
+    let rule: SpamRule | null = { limit: 5, action: "trash" };
+    const adapter = new SieveAdapter({
+      accountId: user,
+      connect: () => dovecot.connect(user),
+      spamRule: () => rule,
+    });
+    const state = await sync(adapter, [], initialSieveState());
+    await dovecot.deliver(user, scored("on", score("9.1 (+)")));
+    expect(dovecot.count(user, "Trash")).toBe(1);
+
+    rule = null;
+    await sync(adapter, [], state);
+    await dovecot.deliver(user, scored("off", score("9.1 (+)")));
+    expect(dovecot.count(user, "Trash")).toBe(1);
+    expect(dovecot.count(user, "INBOX")).toBe(1);
+  });
 });
 
 describe("ManageSieve client against Dovecot", () => {

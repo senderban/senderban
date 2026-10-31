@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("senderban", {
   restart: () => ipcRenderer.invoke("manage:restart"),
   status: () => ipcRenderer.invoke("manage:status"),
   pause: (value) => ipcRenderer.invoke("manage:pause", value),
+  saveSpamFilter: (request) => ipcRenderer.invoke("manage:spam-filter", request),
   quiet: () => ipcRenderer.invoke("manage:quiet"),
   quietRemove: (value) => ipcRenderer.invoke("manage:quiet-remove", value),
   settings: () => ipcRenderer.invoke("manage:settings"),

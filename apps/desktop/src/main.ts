@@ -37,7 +37,10 @@ import {
   isOwnEntry,
   isOwnMailbox,
   isQuiet,
+  overSpamLimit,
   quietTarget,
+  spamRule,
+  withSpamFilter,
   initialGmailState,
   gmailLaneId,
 } from "@senderban/core";
@@ -46,6 +49,7 @@ import type {
   BlockEntry,
   BlockResult,
   CleanEvent,
+  SpamFilter,
   GmailWatcherState,
   ImapAccountConfig,
   IncomingMessage,
@@ -77,7 +81,7 @@ import {
   addAccountFromForm,
   addCleanFromForm,
 } from "./add-account.js";
-import { decryptPassword, loadAccounts } from "./accounts-file.js";
+import { decryptPassword, loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
 import {
   cancelGoogleSignIn,
   googleState,
@@ -163,6 +167,8 @@ app.setName("Senderban");
 const log = createLog(join(app.getPath("userData"), "logs"));
 const settings = new SettingsStore(join(app.getPath("userData"), "settings.json"));
 const quiet = new QuietStore(join(app.getPath("userData"), "quiet.json"));
+/** The mailboxes with a spam filter: read per announced mail and per sync round, so no disk read there. */
+const spamFilters = new Map<string, SpamFilter>();
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : "unknown error";
 /** A handler threw: the channel and a message the log sanitises, never the payload. */
@@ -645,6 +651,7 @@ async function start(): Promise<Runtime> {
         subject: message.subject,
         account: labels.get(accountId) ?? accountId,
         spamScore: message.spamScore,
+        overSpamLimit: overSpamLimit(spamFilters.get(accountId) ?? null, message.spamScore),
         domain: blockableDomain(message.from, own.get()),
         // A wildcard address is never written to the blacklist (it would refuse a whole provider).
         rejectsAtServer:
@@ -682,8 +689,10 @@ async function start(): Promise<Runtime> {
   };
 
   for (const account of accounts) {
+    if (account.spamFilter !== undefined) spamFilters.set(account.id, account.spamFilter);
     const sieveAdapter = new SieveAdapter({
       accountId: account.id,
+      spamRule: () => spamRule(spamFilters.get(account.id) ?? null),
       connect: async () =>
         connectManageSieve({
           host: account.sieve.host,
@@ -1473,10 +1482,19 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       mxrouteList: async () => {
         const page = await listMxroute(keysPath, accountsPath);
         if (page.keysUnreadable) log("mxroute-keys-failed", {});
-        const clean = (await loadAccounts(accountsPath))
+        const stored = await loadAccounts(accountsPath);
+        const clean = stored
           .filter(isCleanAccount)
           .map((a) => ({ accountId: a.id, label: a.clean.address }));
-        return { ...page, clean };
+        // From the file, not the running set: start-up may not have got this far.
+        const filters = new Map(
+          stored.filter(isImapAccount).map((a) => [a.id, a.spamFilter ?? null]),
+        );
+        const accounts = page.accounts.map((a) => ({
+          ...a,
+          spamFilter: filters.get(a.accountId) ?? null,
+        }));
+        return { ...page, accounts, clean };
       },
       mxrouteSave: async (input) => {
         const onCall = (call: MxrouteCall) => {
@@ -1571,6 +1589,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       accountRemove: async (accountId, request) => {
         const started = Date.now();
         const onRemoved = async (): Promise<void> => {
+          spamFilters.delete(accountId);
           await googleDeps.onAccountsChanged?.();
           manage?.notifyChanged();
         };
@@ -1638,6 +1657,22 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       quiet: () => [...quiet.entries],
       quietRemove: async (value) => {
         await quiet.remove(value);
+      },
+      saveSpamFilter: async (accountId, filter) => {
+        // Start-up fills the running set from the file it read: a save before that would be written over.
+        await ready.promise.catch(() => undefined);
+        const saved = await serialized(async () => {
+          const accounts = await loadAccounts(accountsPath);
+          if (!accounts.some((a) => a.id === accountId && isImapAccount(a))) return false;
+          await saveAccounts(accountsPath, withSpamFilter(accounts, accountId, filter));
+          return true;
+        });
+        if (!saved) return "unknown";
+        if (filter === null) spamFilters.delete(accountId);
+        else spamFilters.set(accountId, filter);
+        log("spam-filter", { account: accountTag(accountId), ...(filter ?? { limit: null }) });
+        runtime?.engine.requestSync(accountId);
+        return "saved";
       },
       settings: () => settings.current,
       saveSettings: async (next) => {

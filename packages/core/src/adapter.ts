@@ -55,6 +55,8 @@ export interface Plan {
    * they go in later rounds, which the engine schedules by itself. Absent or 0 when the plan is complete.
    */
   readonly deferred?: number;
+  /** A round has work with no entry changed: a setting of the mailbox that lives in the same write. */
+  readonly settingsChanged?: boolean;
 }
 
 export interface ApplyResult {

@@ -27,7 +27,7 @@ gets **Don't ask again**, and a list keeps those senders in `quiet.json` beside 
 - **Contacts:** not readable with the permissions Senderban has. Asking for them is a new scope and a new review.
 - **"I replied to this sender":** Senderban does not read it today. It would mean reading the Sent folder of every mailbox, not measured.
 - **A spam score threshold:** Gmail gives no score, and unwanted newsletters may score low, so a threshold hides what the person wants to
-  block. It can come later as an extra, with "all mail" as the default.
+  block. A mailbox can now have one as an extra (ADR 0017); it moves mail, it does not hide a notification.
 
 ## Scale
 

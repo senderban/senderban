@@ -28,7 +28,7 @@ export interface Dovecot {
   /** Delivers over LMTPS, the path a real MX uses, so the user's active Sieve script runs. */
   deliver(
     user: string,
-    mail: { from: string; envelopeFrom: string; subject: string },
+    mail: { from: string; envelopeFrom: string; subject: string; headers?: readonly string[] },
   ): Promise<void>;
   count(user: string, mailbox: string): number;
   stop(): void;
@@ -121,7 +121,8 @@ export async function startDovecot(options: DovecotOptions = {}): Promise<Doveco
       imap: { host: "127.0.0.1", port: imapPort, ca },
       connect,
       deliver(user, mail) {
-        const raw = `From: ${mail.from}\r\nTo: ${user}\r\nSubject: ${mail.subject}\r\n\r\nbody\r\n`;
+        const extra = (mail.headers ?? []).map((line) => `${line}\r\n`).join("");
+        const raw = `From: ${mail.from}\r\nTo: ${user}\r\nSubject: ${mail.subject}\r\n${extra}\r\nbody\r\n`;
         return lmtpDeliver(lmtpPort, ca, user, mail.envelopeFrom, raw);
       },
       count(user, mailbox) {

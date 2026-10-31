@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { AdapterError } from "../adapter.js";
 import { checkEntry, folderAction, type Blocklist } from "../blocklist.js";
+import { SPAM_LIMITS, type SpamRule } from "../spam-filter.js";
 import { parseRequireBlock, quote, stripComments } from "./syntax.js";
 
 export const RULES_MARKER = "# senderban-managed v1";
@@ -13,7 +14,12 @@ const FOLDER_NAME = /^[\p{L}\p{N} ._-]{1,64}$/u;
 export interface RenderOptions {
   readonly junkFolder: string;
   readonly trashFolder: string;
+  /** The mailbox's spam filter. It goes last, so that a blocked sender keeps the action of its entry. */
+  readonly spam?: SpamRule | null;
 }
+
+/** Where the server states its score (`watcher.ts` reads the same line). */
+const SPAM_HEADER = "X-Spam-Score";
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = { junkFolder: "Junk", trashFolder: "Trash" };
 
@@ -40,6 +46,7 @@ export function renderRules(list: Blocklist, options: RenderOptions): string {
   }
   const folders = { junk: options.junkFolder, trash: options.trashFolder } as const;
 
+  const spam = options.spam ?? null;
   const out = ['require ["fileinto", "mailbox", "envelope"];', RULES_MARKER];
   // Junk first, then Trash (each rule stops). A `reject` entry is filed like Junk: the server refusal is the
   // MXroute lane's job and this rule is only the backup for a message that still gets through.
@@ -84,7 +91,42 @@ export function renderRules(list: Blocklist, options: RenderOptions): string {
       "}",
     );
   }
+  if (spam !== null) out.push(...spamRuleLines(spam, folders[spam.action]));
   return `${out.join("\n")}\n`;
+}
+
+/**
+ * The scores at or over `limit`, as Sieve `:matches` patterns: digits, then at most one `*` at the end. Two digits in a row cannot be a
+ * score under 10, so `12*` takes 12, 12.3 and 120. Never `?`: Pigeonhole 2.4.5 matched `1? *` on `1.6 (+)` and `?.6 *` on `4.9 (++++)`, so
+ * a `?` before a `*` does not hold one character there (measured 2026-10-31).
+ */
+function scorePatterns(limit: number): string[] {
+  const out: string[] = [];
+  for (let n = limit; n < 10; n += 1) out.push(String(n), `${String(n)}.*`, `${String(n)} *`);
+  for (let n = Math.max(limit, 10); n < 100; n += 1) out.push(`${String(n)}*`);
+  // The hundreds of the pairs left out above: 100 is what SpamAssassin adds for a sender on a person's own blacklist.
+  for (let n = 10; n < limit; n += 1) {
+    for (let digit = 0; digit < 10; digit += 1) out.push(`${String(n)}${String(digit)}*`);
+  }
+  return out;
+}
+
+/**
+ * One test on one list, so that one line of the header has to hold all of it. Not `:value "ge"` with `i;ascii-numeric`: that comparator
+ * reads a value with no leading digit as positive infinity (RFC 4790 9.1.1), so a clean mail's `-1.2` is over every limit, and a second
+ * test to rule that out can be met by another line of the same header. Lists need no extension either, so no server is refused for it.
+ * A sender's own `X-Spam-Score: 99` moves its own mail, and a higher score an earlier server left on forwarded mail moves that mail.
+ */
+function spamRuleLines(spam: SpamRule, folder: string): string[] {
+  if (!SPAM_LIMITS.includes(spam.limit)) {
+    throw new AdapterError("REJECTED", "spam limit not allowed");
+  }
+  return [
+    `if header :matches ${quote(SPAM_HEADER)} ${stringList(scorePatterns(spam.limit))} {`,
+    `  fileinto :create ${quote(folder)};`,
+    "  stop;",
+    "}",
+  ];
 }
 
 /** The active script we create when the user has none: it only includes the rules script. */

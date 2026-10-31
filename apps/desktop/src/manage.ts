@@ -22,6 +22,7 @@ import {
   WatchPausedSchema,
   formServer,
   isEntryId,
+  SpamFilterRequestSchema,
 } from "@senderban/core";
 import type {
   AccountAddInput,
@@ -32,6 +33,7 @@ import type {
   MxrouteInput,
   MxrouteKeyRef,
   Settings,
+  SpamFilter,
 } from "@senderban/core";
 import { BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
@@ -169,6 +171,11 @@ export interface ManageHandlers {
   readonly quiet: () => readonly string[];
   /** Takes one entry off that list. The input has already passed the core schema. */
   readonly quietRemove: (value: string) => Promise<void>;
+  /** Sets one mailbox's spam filter. "unknown": no mailbox with this id can hold one. The input has already passed the core schema. */
+  readonly saveSpamFilter: (
+    accountId: string,
+    filter: SpamFilter | null,
+  ) => Promise<"saved" | "unknown">;
   /** What the Settings page shows. */
   readonly settings: () => Settings;
   /** Writes the choices to disk; they apply from then on. The input has already passed the core schema. */
@@ -244,6 +251,9 @@ export class ManageWindow {
     ipcMain.handle("manage:quiet", (event) => this.#quiet(event));
     ipcMain.handle("manage:quiet-remove", (event, value: unknown) =>
       this.#quietRemove(event, value),
+    );
+    ipcMain.handle("manage:spam-filter", (event, value: unknown) =>
+      this.#saveSpamFilter(event, value),
     );
     ipcMain.handle("manage:settings", (event) => this.#settings(event));
     ipcMain.handle("manage:settings-save", (event, value: unknown) =>
@@ -401,6 +411,21 @@ export class ManageWindow {
       return "saved";
     } catch (error) {
       this.#handlers.onError("manage:settings-save", error);
+      return "failed";
+    }
+  }
+
+  async #saveSpamFilter(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<"saved" | "unknown" | "denied" | "invalid" | "failed"> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = SpamFilterRequestSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      return await this.#handlers.saveSpamFilter(parsed.data.accountId, parsed.data.filter);
+    } catch (error) {
+      this.#handlers.onError("manage:spam-filter", error);
       return "failed";
     }
   }

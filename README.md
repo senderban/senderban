@@ -35,6 +35,8 @@ warning or a failure shows as a notification, and every block can be undone in t
 window. **Settings** picks the default action, whether a block that worked is confirmed, and how long
 new-mail notifications stay on screen. **Don't ask again** on a notification stops the questions about a
 sender without blocking it; its own page lists those senders, filters them and can take them back.
+Each mailbox on a mail server can also have a **spam filter** in **Accounts**: the server moves mail at or
+over the score you pick, or the notification asks. It needs a mail server that adds a spam score.
 
 | On                | Choices                                                            | Whole domain |
 | ----------------- | ------------------------------------------------------------------ | ------------ |

@@ -471,7 +471,9 @@ export class SyncEngine {
         () => account.adapter.plan(this.#wanted(), state),
         this.#timeoutMs,
       );
-      if (plan.changes.length === 0) return { accountId, status: "unchanged" };
+      if (plan.changes.length === 0 && plan.settingsChanged !== true) {
+        return { accountId, status: "unchanged" };
+      }
 
       seq = this.#store.beginSync(plan);
       const result = await withTimeout(

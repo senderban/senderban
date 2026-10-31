@@ -229,3 +229,60 @@ describe("removeInclude", () => {
     ).toThrow(AdapterError);
   });
 });
+
+describe("renderRules with a spam rule", () => {
+  const blocked = list(entry(1, "exactAddress", "a@example.com"));
+  const spam = { limit: 10, action: "trash" } as const;
+
+  it("leaves the script of a mailbox with no filter as it was, byte for byte", () => {
+    const off = renderRules(blocked, { ...DEFAULT_RENDER_OPTIONS, spam: null });
+    expect(off).toBe(renderRules(blocked, DEFAULT_RENDER_OPTIONS));
+    expect(off.startsWith('require ["fileinto", "mailbox", "envelope"];')).toBe(true);
+    expect(off).not.toContain("X-Spam-Score");
+  });
+
+  it("is one test on one list, needs no extension, and files to the folder of its action", () => {
+    const text = renderRules([], { ...DEFAULT_RENDER_OPTIONS, spam });
+    expect(text.startsWith('require ["fileinto", "mailbox", "envelope"];')).toBe(true);
+    expect(text.match(/X-Spam-Score/gu)).toHaveLength(1);
+    expect(text).toContain('if header :matches "X-Spam-Score" [');
+    expect(text).toContain('fileinto :create "Trash";');
+  });
+
+  // The list against every score a server writes. Only digits and a last `*`: Pigeonhole does not hold `?` to one character before a `*`.
+  const holds = (patterns: readonly string[], value: string): boolean =>
+    patterns.some((pattern) =>
+      pattern.endsWith("*") ? value.startsWith(pattern.slice(0, -1)) : value === pattern,
+    );
+
+  it.each([5, 10, 15] as const)("takes exactly the scores from %i up", (limit) => {
+    const text = renderRules([], { ...DEFAULT_RENDER_OPTIONS, spam: { limit, action: "junk" } });
+    const list = text.slice(text.indexOf("[", text.indexOf(":matches")));
+    const patterns = [...list.matchAll(/"([^"]+)"/gu)].flatMap((m) => m[1] ?? []).slice(0, -1);
+    expect(patterns.length).toBeLessThan(150);
+    for (const pattern of patterns) expect(pattern).toMatch(/^\d+(?:\.?\*| \*)?$/u);
+    for (let tenths = -200; tenths <= 1999; tenths += 1) {
+      const score = (tenths / 10).toFixed(1);
+      const over = tenths >= limit * 10;
+      for (const value of [score, `${score} (+++)`, `${score} (-)`]) {
+        expect(holds(patterns, value), value).toBe(over);
+      }
+      if (tenths % 10 === 0) {
+        const whole = String(tenths / 10);
+        for (const value of [whole, `${whole} (+)`])
+          expect(holds(patterns, value), value).toBe(over);
+      }
+    }
+    for (const value of ["", "high", "-", "NaN", "- 9"]) expect(holds(patterns, value)).toBe(false);
+  });
+
+  it("comes after the blocks, so that a blocked sender keeps the action of its entry", () => {
+    const text = renderRules(blocked, { ...DEFAULT_RENDER_OPTIONS, spam });
+    expect(text.indexOf('"a@example.com"')).toBeLessThan(text.indexOf("X-Spam-Score"));
+  });
+
+  it("refuses a limit that did not pass the schema", () => {
+    const bad = { limit: '5"; discard; #', action: "junk" } as unknown as typeof spam;
+    expect(() => renderRules([], { ...DEFAULT_RENDER_OPTIONS, spam: bad })).toThrow(AdapterError);
+  });
+});

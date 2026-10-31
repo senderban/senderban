@@ -13,6 +13,10 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 - **Don't ask again** on a notification stops the notifications from a sender or a whole domain. It
   moves no mail and writes no rule, and its own page lists those senders, with a filter and **Remove**. See
   [ADR 0016](docs/adr/0016-dont-ask-again.md).
+- **Spam filter** on each mailbox on a mail server, in **Accounts**: Low (score 15 or more), Medium
+  (10) or High (5). The server moves that mail to Junk or Trash, also while Senderban is closed, or the
+  notification asks and starts on **Block at server**. It never blocks a sender by itself, and it needs a
+  mail server that adds a spam score. See [ADR 0017](docs/adr/0017-spam-filter.md).
 - Every notification now says what it cannot offer, for example "This mailbox has no block-at-server
   option".
 - **Add mailbox** now takes any mail server that speaks IMAP and ManageSieve: pick MXroute, Migadu,

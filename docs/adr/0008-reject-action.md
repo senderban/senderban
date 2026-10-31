@@ -17,6 +17,8 @@ address is refused and kept nowhere until the person unblocks it. So:
    owner's request: a person who turns on **Block at server when the mailbox can** on the Settings page gets it pre-selected on the
    toasts that offer it (ADR 0015). It is a separate switch, never a value of the default action, and the page says that refused
    mail leaves no copy. A click that carries no choice uses the default action, so it never refuses mail.
+   Amended 2026-10-31 at the owner's request: a mailbox whose spam filter is set to **Ask in the notification** gets it pre-selected on
+   mail at or over its limit, where the toast offers it (ADR 0017). The person sets that per mailbox and still clicks; rule 3 applies.
 2. Single addresses only. A whole domain is never refused at the server (its reach on the blacklist is not measured):
    `blockPending` refuses `reject` for the domain scope and the domain button turns it into the default action.
 3. Never for one of the person's own login addresses, nor for an address on the mail domain of any configured account (a

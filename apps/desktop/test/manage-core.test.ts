@@ -61,6 +61,7 @@ let status: Mock<() => Promise<unknown>>;
 let pause: Mock<(value: boolean) => Promise<void>>;
 let saveSettings: Mock<(next: unknown) => Promise<void>>;
 let quietRemove: Mock<(value: string) => Promise<void>>;
+let saveSpamFilter: Mock<(accountId: string, filter: unknown) => Promise<string>>;
 let page: InstanceType<typeof ManageWindow>;
 
 beforeEach(() => {
@@ -72,6 +73,7 @@ beforeEach(() => {
   pause = vi.fn(() => Promise.resolve());
   saveSettings = vi.fn(() => Promise.resolve());
   quietRemove = vi.fn(() => Promise.resolve());
+  saveSpamFilter = vi.fn(() => Promise.resolve("saved"));
   list = vi.fn(() => []);
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "Unblocked." }));
   onError = vi.fn();
@@ -84,6 +86,7 @@ beforeEach(() => {
     saveSettings,
     quiet: () => ["deals.example"],
     quietRemove,
+    saveSpamFilter,
     mxrouteList: () => Promise.resolve({ accounts: [], keys: [], keysUnreadable: false }),
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
@@ -99,6 +102,40 @@ describe("manage:settings", () => {
     for (const event of [otherFrame, otherWindow, noFrame]) {
       expect(await call("manage:settings", event)).toBeNull();
     }
+  });
+});
+
+describe("manage:spam-filter", () => {
+  const request = { accountId: "main", filter: { limit: 5, action: "junk" } };
+
+  it("hands a valid choice over, and null turns it off", async () => {
+    expect(await call("manage:spam-filter", trusted, request)).toBe("saved");
+    expect(saveSpamFilter).toHaveBeenCalledWith("main", request.filter);
+    await call("manage:spam-filter", trusted, { accountId: "main", filter: null });
+    expect(saveSpamFilter).toHaveBeenCalledWith("main", null);
+  });
+
+  it("refuses any other sender", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:spam-filter", event, request)).toBe("denied");
+    }
+    expect(saveSpamFilter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a limit under 5", { accountId: "main", filter: { limit: 1, action: "junk" } }],
+    ["refusing at the server", { accountId: "main", filter: { limit: 5, action: "reject" } }],
+    ["an unknown key", { ...request, extra: true }],
+    ["no object", "main"],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:spam-filter", trusted, payload)).toBe("invalid");
+    expect(saveSpamFilter).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed write and sends the reason to the log", async () => {
+    saveSpamFilter.mockRejectedValueOnce(new Error("disk full"));
+    expect(await call("manage:spam-filter", trusted, request)).toBe("failed");
+    expect(onError).toHaveBeenCalledOnce();
   });
 });
 

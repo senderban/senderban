@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ADDRESS_LIMITS, mailboxKey, parseAddress, validateDomain } from "./address.js";
 import { MAIL_SERVERS, MANAGESIEVE_PORT, PRESET_SERVERS, SERVER_PRESETS } from "./mail-server.js";
+import { SpamFilterSchema, type SpamFilter } from "./spam-filter.js";
 import { ACCOUNT_ID, MAX_ACCOUNTS } from "./sync/engine.js";
 
 // RFC 1035 §2.3.4: a host name is at most 253 characters of letters, digits, dots and hyphens
@@ -144,6 +145,8 @@ export const ImapAccountConfigSchema = z.strictObject({
   passwordCipher: Ciphertext,
   /** Legacy: see `MxrouteConfig`. Nothing writes it any more. */
   mxroute: MxrouteConfig.optional(),
+  /** Absent: no filter. */
+  spamFilter: SpamFilterSchema.optional(),
 });
 export type ImapAccountConfig = z.infer<typeof ImapAccountConfigSchema>;
 
@@ -297,6 +300,21 @@ export function isGmailAccount(account: AccountConfig): account is GmailAccountC
 /** Narrows to the Microsoft kind. */
 export function isMicrosoftAccount(account: AccountConfig): account is MicrosoftAccountConfig {
   return "microsoft" in account;
+}
+
+/** The accounts with this mailbox's spam filter set, or taken off for null. */
+export function withSpamFilter(
+  accounts: readonly AccountConfig[],
+  accountId: string,
+  filter: SpamFilter | null,
+): AccountConfig[] {
+  return accounts.map((account) => {
+    if (account.id !== accountId || !isImapAccount(account)) return account;
+    if (filter !== null) return { ...account, spamFilter: filter };
+    const next = { ...account };
+    delete next.spamFilter;
+    return next;
+  });
 }
 
 /** Narrows to the kind that moves mail itself. */

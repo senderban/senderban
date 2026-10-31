@@ -67,6 +67,22 @@ describe("Sieve + Store + SyncEngine", () => {
     expect(store.journal(ACCOUNT).map((r) => r.status)).toEqual(["applied", "applied"]);
   });
 
+  it("writes a changed spam rule with an empty list, and then rests", async () => {
+    const server = new FakeSieveServer();
+    const store = new Store(openDatabase(":memory:"));
+    const adapter = new SieveAdapter({
+      accountId: ACCOUNT,
+      connect: () => Promise.resolve(server.session()),
+      spamRule: () => ({ limit: 5, action: "junk" }),
+    });
+    const engine = new SyncEngine(store, { debounceMs: 5, timeoutMs: 1_000 });
+    engine.addAccount({ id: ACCOUNT, adapter, initialState: initialSieveState() });
+
+    expect(await engine.sync(ACCOUNT)).toMatchObject({ status: "applied", applied: 0 });
+    expect(server.scripts.get("senderban-rules")).toContain("X-Spam-Score");
+    expect(await engine.sync(ACCOUNT)).toEqual({ accountId: ACCOUNT, status: "unchanged" });
+  });
+
   it("unblock removes the rule from the provider, reads it back clean and leaves the other rules", async () => {
     const server = new FakeSieveServer();
     const { store, engine } = boot(server);

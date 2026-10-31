@@ -42,6 +42,8 @@ export interface MailToast {
    * server"). The click is held to Trash again in `blockPending`, because a click does not have to match what the toast showed.
    */
   readonly trashOnly?: boolean;
+  /** At or over the limit the person set for this mailbox, with "ask" as what happens: the toast says so and starts on the block. */
+  readonly overSpamLimit?: boolean;
 }
 
 // XML 1.0 `Char`: everything else (controls, lone surrogates, U+FFFE/U+FFFF) makes the document invalid.
@@ -140,6 +142,13 @@ function missingNote(toast: MailToast): string | null {
   return toast.rejectsAtServer ? null : "This mailbox has no block-at-server option";
 }
 
+/** A person's own limit, so it is said first. */
+function noteText(toast: MailToast): string | null {
+  const missing = missingNote(toast);
+  if (toast.overSpamLimit !== true) return missing;
+  return missing === null ? "Over your spam limit" : `Over your spam limit. ${missing}`;
+}
+
 /** The small line. Measured on Windows 11 (2026-10-31): Windows draws it under the text, above the choice and the buttons. */
 function noteLine(note: string | null): string {
   return note === null ? "" : `<text placement="attribution">${note}</text>`;
@@ -219,9 +228,10 @@ export function buildMailToastXml(toast: MailToast, options: ToastOptions = {}):
   const selections = choices
     .map(([id, label]) => `<selection id="${id}" content="${label}"/>`)
     .join("");
-  const preselected = toast.rejectsAtServer && preferServerBlock ? "reject" : defaultAction;
+  const startsOnBlock = preferServerBlock || toast.overSpamLimit === true;
+  const preselected = toast.rejectsAtServer && startsOnBlock ? "reject" : defaultAction;
   return (
-    `${open}${visual(missingNote(toast))}` +
+    `${open}${visual(noteText(toast))}` +
     `<actions><input id="target" type="selection" defaultInput="${preselected}">${selections}</input>` +
     `<action content="This sender" arguments="${args("sender", toast.id)}" activationType="foreground"${critical}/>` +
     `${domainButton}</actions></toast>`

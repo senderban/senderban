@@ -2,7 +2,15 @@ import { AdapterError } from "../../src/adapter.js";
 import { stripComments } from "../../src/sieve/syntax.js";
 import type { SieveScriptInfo, SieveSession } from "../../src/sieve/session.js";
 
-export const ALL_EXTENSIONS = ["fileinto", "mailbox", "include", "envelope", "variables"];
+export const ALL_EXTENSIONS = [
+  "fileinto",
+  "mailbox",
+  "include",
+  "envelope",
+  "variables",
+  "relational",
+  "comparator-i;ascii-numeric",
+];
 
 /** In-memory ManageSieve server: same observable rules as Dovecot where the adapter depends on them. */
 export class FakeSieveServer {
