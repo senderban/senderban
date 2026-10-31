@@ -85,6 +85,49 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+describe("the client the installer comes with", () => {
+  const BUILTIN_ID = fakeClientId("333333333333", "builtinclient");
+
+  it("signs in with it when the person saved no client, and the page is told", async () => {
+    const builtInClientPath = join(dir, "google-client.builtin.json");
+    await writeFile(
+      builtInClientPath,
+      JSON.stringify({ clientId: BUILTIN_ID, clientSecret: SECRET }),
+    );
+    await rm(clientPath);
+    deps = { ...deps, builtInClientPath };
+
+    expect((await googleState(deps)).client).toEqual({ clientId: BUILTIN_ID, builtIn: true });
+    expect(await signInGoogle(deps, {})).toEqual({ reply: "signed-in" });
+    expect(signInFake.mock.calls[0]?.[0].clientId).toBe(BUILTIN_ID);
+    expect(madeFor).toEqual([BUILTIN_ID]);
+    expect(JSON.stringify(await googleState(deps))).not.toContain(SECRET);
+  });
+
+  it("lets the person's own client win, and revokes with the one an account came from", async () => {
+    const builtInClientPath = join(dir, "google-client.builtin.json");
+    await writeFile(
+      builtInClientPath,
+      JSON.stringify({ clientId: BUILTIN_ID, clientSecret: SECRET }),
+    );
+    await rm(clientPath);
+    deps = { ...deps, builtInClientPath };
+    await signInGoogle(deps, {});
+    madeFor.length = 0;
+
+    // Saving their own client signs the account out, revoked with the built-in client it came from.
+    expect(
+      await saveGoogleClientSettings(deps, {
+        clientId: NEW_ID,
+        clientSecret: SECRET,
+        confirmSignOut: true,
+      }),
+    ).toBe("saved");
+    expect(madeFor).toEqual([BUILTIN_ID]);
+    expect((await googleState(deps)).client).toEqual({ clientId: NEW_ID, builtIn: false });
+  });
+});
+
 describe("sign in", () => {
   it("stores a new account with the token as ciphertext only", async () => {
     const outcome = await signInGoogle(deps, {});

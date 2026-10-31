@@ -39,6 +39,14 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      # The Google client the installer comes with (ADR 0009): a person signs in with their own account and never sees a client ID.
+      # A tag build stops without it; a manual run builds without one. The pair lives in repository secrets, never in the tree.
+      - name: Google client for this installer
+        env:
+          SENDERBAN_GOOGLE_CLIENT_ID: ${{ secrets.SENDERBAN_GOOGLE_CLIENT_ID }}
+          SENDERBAN_GOOGLE_CLIENT_SECRET: ${{ secrets.SENDERBAN_GOOGLE_CLIENT_SECRET }}
+          SENDERBAN_REQUIRE_GOOGLE_CLIENT: ${{ github.ref_type == 'tag' }}
+        run: node apps/desktop/scripts/write-builtin-client.mjs
       - name: Build the installer
         run: npm run dist -w apps/desktop
       - name: SHA256SUMS

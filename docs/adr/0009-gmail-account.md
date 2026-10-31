@@ -5,6 +5,12 @@ pages read on that date; "from memory" and "not measured" are marked where they 
 
 ## Decision
 
+> **Amended 2026-10-31.** Asking a person for a client ID and secret keeps everyone but a developer from using Gmail, so the installer now
+> carries Senderban's own client (`google-client.builtin.json`, written by the release build from repository secrets, never committed;
+> Google: a desktop app is a public client that "cannot keep secrets confidential"). A client the person saves still wins, under
+> "Use my own Google project (advanced)". Until Google verifies the app, sign-in shows "Google hasn't verified this app" and the project is
+> capped at 100 users; verification is a separate decision.
+
 Gmail joins as a second account kind, v0.1 **bring your own OAuth client only** (006 K6): the person makes a Google Cloud project with a
 Desktop-app client and gives Senderban its client ID. No client ID or secret is in the repository.
 

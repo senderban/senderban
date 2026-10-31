@@ -21,12 +21,7 @@ import {
   saveAccounts,
   serialized,
 } from "./accounts-file.js";
-import {
-  ClientFileInvalid,
-  clientSecretGetter,
-  loadGoogleClient,
-  saveGoogleClient,
-} from "./google-client.js";
+import { ClientFileInvalid, activeGoogleClient, saveGoogleClient } from "./google-client.js";
 
 /** Token revokes in flight at once when the app-wide client changes: 50 accounts drain in 10 waves of one <= 15 s call. */
 export const MAX_CONCURRENT_REVOKES = 5;
@@ -35,6 +30,8 @@ export const MAX_CONCURRENT_REVOKES = 5;
 export interface GoogleDeps {
   readonly accountsPath: string;
   readonly clientPath: string;
+  /** The client the installer came with; absent in a build that has none. */
+  readonly builtInClientPath?: string;
   /** An OAuth client for the stored app-wide client (the secret is read per request from the ciphertext). */
   readonly makeOAuth: (clientId: string, getClientSecret: () => Promise<string>) => OAuthClient;
   readonly signIn: (options: SignInOptions) => Promise<SignInResult>;
@@ -53,7 +50,7 @@ export interface GoogleDeps {
 
 /** What the manage page may know: the client's ID (not secret), and per account the address and whether it can act. */
 export interface GooglePageState {
-  readonly client: { readonly clientId: string } | null;
+  readonly client: { readonly clientId: string; readonly builtIn: boolean } | null;
   readonly accounts: readonly {
     readonly accountId: string;
     readonly email: string;
@@ -167,7 +164,7 @@ export async function googleState(deps: GoogleDeps): Promise<GooglePageState> {
   const [client, accounts] = await Promise.all([
     // An invalid client file shows as "no client": the person can save one over it (see saveGoogleClientSettings).
     // An I/O error is not that: it throws and the page says it could not load.
-    loadGoogleClient(deps.clientPath).catch((error: unknown) => {
+    activeGoogleClient(deps.clientPath, deps.builtInClientPath).catch((error: unknown) => {
       if (error instanceof ClientFileInvalid) return null;
       throw error;
     }),
@@ -175,7 +172,7 @@ export async function googleState(deps: GoogleDeps): Promise<GooglePageState> {
   ]);
   const now = nowSeconds(deps);
   return {
-    client: client === null ? null : { clientId: client.clientId },
+    client: client === null ? null : { clientId: client.clientId, builtIn: client.builtIn },
     accounts: gmailAccounts(accounts).map((a) => ({
       accountId: a.id,
       email: a.gmail.email,
@@ -200,7 +197,7 @@ export function signInGoogle(
   request: { readonly accountId?: string },
 ): Promise<GoogleSignInOutcome> {
   return exclusive<GoogleSignInOutcome>({ reply: "busy" }, async () => {
-    const client = await loadGoogleClient(deps.clientPath);
+    const client = await activeGoogleClient(deps.clientPath, deps.builtInClientPath);
     if (client === null) return { reply: "no-client" };
 
     let expectEmail: string | undefined;
@@ -219,7 +216,7 @@ export function signInGoogle(
     try {
       result = await deps.signIn({
         clientId: client.clientId,
-        oauth: deps.makeOAuth(client.clientId, clientSecretGetter(client)),
+        oauth: deps.makeOAuth(client.clientId, client.getSecret),
         openBrowser: deps.openBrowser,
         ...(expectEmail === undefined ? {} : { expectEmail }),
         signal: abort.signal,
@@ -344,10 +341,12 @@ export function saveGoogleClientSettings(
   return exclusive<GoogleClientReply>("busy", async () => {
     // A client file that is not ours must not be a dead end: it is replaced, and what it held cannot be revoked.
     // Only that: an I/O error (a scanner holding the file) throws and the person tries again, nothing is dropped.
-    const old = await loadGoogleClient(deps.clientPath).catch((error: unknown) => {
-      if (error instanceof ClientFileInvalid) return "unreadable" as const;
-      throw error;
-    });
+    const old = await activeGoogleClient(deps.clientPath, deps.builtInClientPath).catch(
+      (error: unknown) => {
+        if (error instanceof ClientFileInvalid) return "unreadable" as const;
+        throw error;
+      },
+    );
     const changed = old === "unreadable" || (old !== null && old.clientId !== input.clientId);
     let leftAccess = false;
     let filtersRemain = false;
@@ -397,7 +396,7 @@ export function saveGoogleClientSettings(
           const revoked =
             old === "unreadable"
               ? new Map(signedIn.map((a) => [a.id, true] as const))
-              : await revokeAll(deps.makeOAuth(old.clientId, clientSecretGetter(old)), signedIn);
+              : await revokeAll(deps.makeOAuth(old.clientId, old.getSecret), signedIn);
           leftAccess = old === "unreadable";
           const gone = new Set([...revoked].filter(([, ok]) => ok).map(([id]) => id));
           // A token that is gone at Google is gone here too, whatever happens to the rest.
@@ -458,15 +457,14 @@ export function removeGoogleAccount(
     if (filters === "restart-cures" && usable(account, nowSeconds(deps))) return "restart-first";
     try {
       if (hadToken) {
-        const client = await loadGoogleClient(deps.clientPath);
+        const client = await activeGoogleClient(deps.clientPath, deps.builtInClientPath);
         if (client === null) {
           deps.filters?.abort(accountId);
           return "revoke-failed";
         }
-        const revoked = await revokeAll(
-          deps.makeOAuth(client.clientId, clientSecretGetter(client)),
-          [account],
-        );
+        const revoked = await revokeAll(deps.makeOAuth(client.clientId, client.getSecret), [
+          account,
+        ]);
         if (revoked.get(account.id) !== true) {
           deps.filters?.abort(accountId);
           return "revoke-failed";

@@ -7,6 +7,8 @@ const gApi = window.senderban;
 const gEls = {
   section: document.getElementById("gmail"),
   clientState: document.getElementById("google-client-state"),
+  intro: document.getElementById("google-intro"),
+  own: document.getElementById("google-own"),
   form: document.getElementById("google-client-form"),
   clientId: document.getElementById("google-client-id"),
   secret: document.getElementById("google-client-secret"),
@@ -133,10 +135,21 @@ function gSetBusy(busy) {
 }
 
 function gDrawClient() {
+  const client = gState.client;
   gEls.clientState.textContent =
-    gState.client === null ? "No client saved." : `Client saved: ${gState.client.clientId}`;
-  gEls.save.textContent = gState.client === null ? "Save client" : "Replace client";
-  gEls.add.disabled = gBusy || gState.client === null;
+    client === null
+      ? "No client saved."
+      : client.builtIn
+        ? "Senderban's own Google client is in use."
+        : `Your client is in use: ${client.clientId}`;
+  gEls.save.textContent = client === null || client.builtIn ? "Save client" : "Replace client";
+  gEls.add.disabled = gBusy || client === null;
+  // A build with no client of its own needs the person's first: the form is open, and the page says why.
+  if (client === null) gEls.own.open = true;
+  gEls.intro.textContent =
+    client === null
+      ? "This version of Senderban has no Google client of its own. Save yours below, then add your account."
+      : "Senderban opens Google's sign-in page in your browser and never sees your password. It asks to manage Gmail filters and to read mail headers, and it reads no mail bodies.";
 }
 
 /** What the stored token is worth today. Text and colour-free: the state is said in words (never by colour alone). */

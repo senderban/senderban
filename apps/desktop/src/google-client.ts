@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import { GoogleClientFileSchema } from "@senderban/core";
+import { GoogleClientFileSchema, GoogleClientInputSchema } from "@senderban/core";
 import type { GoogleClientFile } from "@senderban/core";
 import { decryptPassword, encryptPassword, writeJsonAtomic } from "./accounts-file.js";
 
@@ -50,4 +50,54 @@ export async function saveGoogleClient(
 /** Read per call and never held: the secret exists in memory only for the length of one request. */
 export function clientSecretGetter(file: GoogleClientFile): () => Promise<string> {
   return () => decryptPassword(file.secretCipher);
+}
+
+/**
+ * Written into the installer by the release build (scripts/write-builtin-client.mjs) next to the compiled app, never into the
+ * repository. Google calls a desktop app a public client that "cannot keep secrets confidential"
+ * (developers.google.com/identity/protocols/oauth2/native-app, read 2026-10-31), so the pair is no secret from a person who
+ * installs the app; it only has to stay out of the repository's history.
+ */
+export const BUILTIN_CLIENT_FILE = "google-client.builtin.json";
+
+const BuiltInClientSchema = GoogleClientInputSchema.pick({ clientId: true, clientSecret: true });
+
+/** The client the installer came with. Absent, unreadable or not ours: no built-in client, and the person's own file is the only way. */
+export async function loadBuiltInGoogleClient(
+  path: string,
+): Promise<{ readonly clientId: string; readonly clientSecret: string } | null> {
+  try {
+    if ((await stat(path)).size > FILE_MAX_BYTES) return null;
+    const parsed = BuiltInClientSchema.safeParse(JSON.parse(await readFile(path, "utf8")));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The client every Google step uses: what the person saved wins, else the one the installer came with. */
+export interface ActiveGoogleClient {
+  readonly clientId: string;
+  readonly getSecret: () => Promise<string>;
+  /** The installer's client: the page offers the person's own as an option, not as a step. */
+  readonly builtIn: boolean;
+}
+
+export async function activeGoogleClient(
+  userPath: string,
+  builtInPath?: string,
+): Promise<ActiveGoogleClient | null> {
+  try {
+    const file = await loadGoogleClient(userPath);
+    if (file !== null) {
+      return { clientId: file.clientId, getSecret: clientSecretGetter(file), builtIn: false };
+    }
+  } catch (error) {
+    // A file that is not ours does not shut out the built-in client; without one it stays what it was.
+    if (!(error instanceof ClientFileInvalid) || builtInPath === undefined) throw error;
+  }
+  const builtIn = builtInPath === undefined ? null : await loadBuiltInGoogleClient(builtInPath);
+  if (builtIn === null) return null;
+  const { clientId, clientSecret } = builtIn;
+  return { clientId, getSecret: () => Promise.resolve(clientSecret), builtIn: true };
 }

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // google-client.ts reaches Electron only through the accounts file helpers; a stand-in is enough.
 vi.mock("electron", () => ({ safeStorage: {} }));
 
-const { ClientFileInvalid, loadGoogleClient } = await import("../src/google-client.js");
+const { ClientFileInvalid, activeGoogleClient, loadBuiltInGoogleClient, loadGoogleClient } =
+  await import("../src/google-client.js");
 
 let dir: string;
 let path: string;
@@ -20,6 +21,56 @@ afterEach(async () => {
 
 // Built at run time: a whole fake client ID in the source trips GitHub push protection.
 const CLIENT_ID = ["123456789012-abcdefghijklmnop", "apps", "googleusercontent", "com"].join(".");
+
+describe("the client the installer comes with", () => {
+  const SECRET = ["GOCSPX", "a-built-in-secret-0123456789"].join("-");
+  let builtIn: string;
+  beforeEach(() => {
+    builtIn = join(dir, "google-client.builtin.json");
+  });
+  const own = () =>
+    writeFile(path, JSON.stringify({ version: 1, clientId: CLIENT_ID, secretCipher: "AAECAw==" }));
+
+  it("reads a pair, and takes null for a file that is absent, too large, not JSON or not ours", async () => {
+    expect(await loadBuiltInGoogleClient(builtIn)).toBeNull();
+    for (const text of [
+      "{ not json",
+      JSON.stringify({ clientId: CLIENT_ID }),
+      JSON.stringify({ clientId: CLIENT_ID, clientSecret: SECRET, x: 1 }),
+      JSON.stringify({ clientId: "not-a-client-id", clientSecret: SECRET }),
+      "x".repeat(20_000),
+    ]) {
+      await writeFile(builtIn, text);
+      expect(await loadBuiltInGoogleClient(builtIn)).toBeNull();
+    }
+    await writeFile(builtIn, JSON.stringify({ clientId: CLIENT_ID, clientSecret: SECRET }));
+    expect(await loadBuiltInGoogleClient(builtIn)).toEqual({
+      clientId: CLIENT_ID,
+      clientSecret: SECRET,
+    });
+  });
+
+  it("uses it only when the person saved none, and says so", async () => {
+    await writeFile(builtIn, JSON.stringify({ clientId: CLIENT_ID, clientSecret: SECRET }));
+    const client = await activeGoogleClient(path, builtIn);
+    expect(client).toMatchObject({ clientId: CLIENT_ID, builtIn: true });
+    expect(await client?.getSecret()).toBe(SECRET);
+    await own();
+    expect((await activeGoogleClient(path, builtIn))?.builtIn).toBe(false);
+  });
+
+  it("falls back to it from a client file that is not ours, and without it keeps failing", async () => {
+    await writeFile(path, "{ not json");
+    await writeFile(builtIn, JSON.stringify({ clientId: CLIENT_ID, clientSecret: SECRET }));
+    expect((await activeGoogleClient(path, builtIn))?.builtIn).toBe(true);
+    await expect(activeGoogleClient(path)).rejects.toBeInstanceOf(ClientFileInvalid);
+  });
+
+  it("is no client at all when there is neither", async () => {
+    expect(await activeGoogleClient(path, builtIn)).toBeNull();
+    expect(await activeGoogleClient(path)).toBeNull();
+  });
+});
 
 describe("loadGoogleClient", () => {
   it("answers null for a file that is not there", async () => {

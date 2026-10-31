@@ -297,45 +297,51 @@
           </div>
 
           <div id="panel-gmail" class="panel" hidden>
-            <p class="muted">
-              Senderban signs in to Gmail through your own Google Cloud project, so nobody else
-              holds access to your mail. In that project turn on the Gmail API, make an OAuth client
-              of type Desktop app, and paste its ID and secret here. The secret is stored encrypted
-              on this device.
+            <p id="google-intro" class="muted">
+              Senderban opens Google's sign-in page in your browser and never sees your password. It
+              asks to manage Gmail filters and to read mail headers, and it reads no mail bodies.
             </p>
-            <p id="google-client-state" class="muted"></p>
-            <form id="google-client-form" autocomplete="off">
-              <div class="field">
-                <label for="google-client-id">Client ID</label>
-                <input
-                  id="google-client-id"
-                  type="text"
-                  required
-                  autocomplete="off"
-                  spellcheck="false"
-                />
-              </div>
-              <div class="field">
-                <label for="google-client-secret">Client secret</label>
-                <input
-                  id="google-client-secret"
-                  type="password"
-                  required
-                  autocomplete="off"
-                  spellcheck="false"
-                />
-              </div>
-              <div class="row">
-                <button type="submit" id="google-client-save">Save client</button>
-                <button type="button" id="google-client-confirm" hidden>
-                  Replace and sign out
-                </button>
-              </div>
-              <p id="google-client-message" class="status" role="status"></p>
-            </form>
             <div class="row">
               <button type="button" id="google-add" class="primary">Add Gmail account</button>
             </div>
+            <details id="google-own">
+              <summary>Use my own Google project (advanced)</summary>
+              <p class="muted">
+                Senderban signs in through your own Google Cloud project instead. In that project
+                turn on the Gmail API, make an OAuth client of type Desktop app, and paste its ID
+                and secret here. The secret is stored encrypted on this device.
+              </p>
+              <p id="google-client-state" class="muted"></p>
+              <form id="google-client-form" autocomplete="off">
+                <div class="field">
+                  <label for="google-client-id">Client ID</label>
+                  <input
+                    id="google-client-id"
+                    type="text"
+                    required
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+                <div class="field">
+                  <label for="google-client-secret">Client secret</label>
+                  <input
+                    id="google-client-secret"
+                    type="password"
+                    required
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+                <div class="row">
+                  <button type="submit" id="google-client-save">Save client</button>
+                  <button type="button" id="google-client-confirm" hidden>
+                    Replace and sign out
+                  </button>
+                </div>
+                <p id="google-client-message" class="status" role="status"></p>
+              </form>
+            </details>
           </div>
 
           <div id="panel-microsoft" class="panel" hidden>

@@ -84,7 +84,7 @@ import {
   signInGoogle,
 } from "./google-accounts.js";
 import type { GoogleDeps } from "./google-accounts.js";
-import { clientSecretGetter, loadGoogleClient } from "./google-client.js";
+import { BUILTIN_CLIENT_FILE, activeGoogleClient } from "./google-client.js";
 import {
   buildGmailLanes,
   createGmailLifecycle,
@@ -148,6 +148,9 @@ import {
 } from "./mxroute-settings.js";
 import { Toasts } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
+
+/** Written next to this file by the release build; absent in a build from source (scripts/write-builtin-client.mjs). */
+const builtInClientPath = join(import.meta.dirname, BUILTIN_CLIENT_FILE);
 
 // Groups the windows under one taskbar identity. Placeholder id: confirm before the first installer ships.
 const APP_USER_MODEL_ID = "com.senderban.desktop";
@@ -825,11 +828,14 @@ async function start(): Promise<Runtime> {
   let oauth: ReturnType<typeof createOAuthClient> | null = null;
   let noClientReason: "no-client" | "client-unreadable" = "no-client";
   try {
-    const clientFile = await loadGoogleClient(join(dir, "google-client.json"));
-    if (clientFile !== null) {
+    const activeClient = await activeGoogleClient(
+      join(dir, "google-client.json"),
+      builtInClientPath,
+    );
+    if (activeClient !== null) {
       oauth = createOAuthClient({
-        clientId: clientFile.clientId,
-        getClientSecret: clientSecretGetter(clientFile),
+        clientId: activeClient.clientId,
+        getClientSecret: activeClient.getSecret,
         onCall: (call) => {
           log("google-call", { ...call });
         },
@@ -1211,6 +1217,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     const googleDeps: GoogleDeps = {
       accountsPath,
       clientPath: join(app.getPath("userData"), "google-client.json"),
+      builtInClientPath,
       makeOAuth: (clientId, getClientSecret) =>
         createOAuthClient({
           clientId,
