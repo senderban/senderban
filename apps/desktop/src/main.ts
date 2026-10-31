@@ -36,6 +36,8 @@ import {
   GraphBudgets,
   isOwnEntry,
   isOwnMailbox,
+  isQuiet,
+  quietTarget,
   initialGmailState,
   gmailLaneId,
 } from "@senderban/core";
@@ -146,7 +148,9 @@ import {
   setMxrouteEnabled,
   strandedOnBlacklist,
 } from "./mxroute-settings.js";
-import { Toasts } from "./toasts.js";
+import { QuietStore } from "./quiet-file.js";
+import { SettingsStore } from "./settings-file.js";
+import { Toasts, spamStripUrls } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
 
 /** Written next to this file by the release build; absent in a build from source (scripts/write-builtin-client.mjs). */
@@ -157,6 +161,8 @@ const APP_USER_MODEL_ID = "com.senderban.desktop";
 
 app.setName("Senderban");
 const log = createLog(join(app.getPath("userData"), "logs"));
+const settings = new SettingsStore(join(app.getPath("userData"), "settings.json"));
+const quiet = new QuietStore(join(app.getPath("userData"), "quiet.json"));
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : "unknown error";
 /** A handler threw: the channel and a message the log sanitises, never the payload. */
@@ -391,9 +397,10 @@ function describe(result: BlockResult, labels: ReadonlyMap<string, string>): Toa
           ? ""
           : ` ${String(result.otherAccounts)} other place(s) are updating in the background.`;
       if (cleanLanes.has(result.accountId)) {
+        // Not a plain success: no rule was written, so this shows with "Confirm each block" off too.
         return {
-          tone: "ok",
-          text: `✓ ${result.target}: while it runs, Senderban moves its mail in ${where} to ${destination(folderAction(result.action))}, also from the last ${String(RETRO_DAYS)} days. This is no rule on the server, and Unblock does not bring moved mail back.${others}`,
+          tone: "warn",
+          text: `${result.target}: while it runs, Senderban moves its mail in ${where} to ${destination(folderAction(result.action))}, also from the last ${String(RETRO_DAYS)} days. This is no rule on the server, and Unblock does not bring moved mail back.${others}`,
         };
       }
       // A toast outlives the choice it offered: the key may have been removed while it was on screen.
@@ -539,6 +546,13 @@ const keyTag = (key: MxrouteKeyRef): string => accountTag(`${key.username}@${key
 
 async function start(): Promise<Runtime> {
   const dir = app.getPath("userData");
+  // Before any watcher: the first toast already follows the person's choices.
+  await settings.load((reason) => {
+    log("settings-unreadable", { reason });
+  });
+  await quiet.load((reason) => {
+    log("quiet-unreadable", { reason });
+  });
   const mxrouteKeys = await startMxrouteKeys(
     join(dir, "mxroute-keys.json"),
     join(dir, "accounts.json"),
@@ -613,6 +627,10 @@ async function start(): Promise<Runtime> {
           "Senderban",
           `New mail in ${labels.get(accountId) ?? accountId} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
         );
+        return;
+      }
+      if (isQuiet(message.from, quiet.entries)) {
+        log("announce", { account: accountTag(accountId), uid: message.uid, sender: "quiet" });
         return;
       }
       const id = pending.add({ accountId, sender: message.from });
@@ -893,6 +911,7 @@ async function start(): Promise<Runtime> {
     gate: createGate(MAX_CONCURRENT_GMAIL_POLLS),
     isHeld: (laneId) => heldGmailLanes.has(laneId),
     isOwn: (address) => isOwnMailbox(address, own.get()),
+    isQuiet: (address) => isQuiet(address, quiet.entries),
     pending,
     showMail: (toast) => {
       toasts?.show(toast);
@@ -1290,11 +1309,33 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         : { onAccountsChanged: googleDeps.onAccountsChanged }),
     };
     toasts = new Toasts({
+      settings: () => settings.current,
+      spamStrips: spamStripUrls(assets),
       onActivation: () => {
         log("toast-activation");
       },
       onIgnored: (reason) => {
         log("toast-ignored", { reason });
+      },
+      onRefused: () => {
+        log("toast-refused");
+      },
+      quiet: async (id, scope) => {
+        const { pending, own } = await ready.promise;
+        const target = quietTarget(pending, id, scope, own.get());
+        log("quiet", { scope, result: target.status });
+        if (target.status === "duplicate") return { tone: "warn", text: "Already handled." };
+        if (target.status !== "ok") {
+          return { tone: "warn", text: "This message has expired, so nothing changed." };
+        }
+        if (!(await quiet.add(target.value))) {
+          return {
+            tone: "warn",
+            text: "The Don't ask again list is full. Remove some entries in Settings.",
+          };
+        }
+        manage?.notifyChanged();
+        return { tone: "ok", text: `${target.value}: you will not be asked again.` };
       },
       onError: logIpcError,
       choose: async (id, scope, action) => {
@@ -1372,7 +1413,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           (microsoftLanes.size > 0
             ? microsoftWideNote(store.list(), result.target, own.get())
             : "") + microsoftSkippedNote(microsoftSkipped);
-        return { ...toast, text: toast.text + gmailNote + microsoftNote };
+        const notes = gmailNote + microsoftNote;
+        // A place the block did not reach is a warning, so "Confirm each block" off cannot hide it.
+        return { tone: notes === "" ? toast.tone : "warn", text: toast.text + notes };
       },
     });
     // How many list entries reach the person's own mail, so none of them applies. Never throws: an account is stored by then.
@@ -1592,6 +1635,15 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         })),
       }),
       pause: (value) => setPaused(value, "window"),
+      quiet: () => [...quiet.entries],
+      quietRemove: async (value) => {
+        await quiet.remove(value);
+      },
+      settings: () => settings.current,
+      saveSettings: async (next) => {
+        await settings.save(next);
+        log("settings", next);
+      },
       restart: () => {
         restartApp({
           isQuitting: () => quitting,

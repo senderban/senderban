@@ -8,7 +8,7 @@ import {
   buildMailToastXml,
   escapeXml,
   parseActivation,
-  spamLabel,
+  spamLevel,
 } from "../../src/notify/toast.js";
 import type { MailToast } from "../../src/notify/toast.js";
 
@@ -49,10 +49,13 @@ describe("buildMailToastXml", () => {
   it("builds both buttons, the choice and the spam score", () => {
     const xml = buildMailToastXml(toast());
     expect(xml).toContain('<text hint-maxLines="2">🚫 news@example.com</text>');
-    expect(xml).toContain('<text hint-maxLines="2">Hello</text>');
     expect(xml).toContain(
-      '<text hint-maxLines="1">🟢 Spam 1.6 · low · To: info@example.com</text>',
+      '<text hint-style="base" hint-wrap="true" hint-maxLines="2">Hello</text>',
     );
+    expect(xml).toContain('<text hint-style="captionSubtle">To: info@example.com</text>');
+    expect(xml).toContain('<text hint-style="captionSubtle" hint-align="right">Spam 1.6</text>');
+    expect(xml).toContain('<text hint-style="base" hint-align="right">🟢 low</text>');
+    expect(xml.match(/<subgroup/gu)).toHaveLength(2);
     expect(xml).toContain(`arguments="act=sender;id=${ID}"`);
     expect(xml).toContain(`arguments="act=domain;id=${ID}"`);
     expect(xml).toContain('defaultInput="junk"');
@@ -67,7 +70,15 @@ describe("buildMailToastXml", () => {
     expect(xml).not.toContain("Block");
   });
 
-  it("offers Block at server last, never as the default, when the server can refuse the sender", () => {
+  it("offers Don't ask again last, never as the default", () => {
+    for (const shape of [toast(), toast({ rejectsAtServer: true })]) {
+      const xml = buildMailToastXml(shape);
+      expect(xml).toMatch(/<selection id="quiet" content="Don't ask again"\/><\/input>/u);
+      expect(xml).not.toContain('defaultInput="quiet"');
+    }
+  });
+
+  it("offers Block at server, never as the default, when the server can refuse the sender", () => {
     const xml = buildMailToastXml(toast({ rejectsAtServer: true }));
     expect(xml).toContain('<selection id="reject" content="Block at server"/>');
     expect(xml.indexOf('id="reject"')).toBeGreaterThan(xml.indexOf('id="trash"'));
@@ -88,12 +99,14 @@ describe("buildMailToastXml", () => {
     expect(xml).toContain(
       `<action content="Move this sender to Trash" arguments="act=sender;id=${ID}"`,
     );
-    expect(xml).toContain('<text placement="attribution">Gmail has no whole-domain option</text>');
+    expect(xml).toContain(
+      '<text placement="attribution">Gmail has no whole-domain or block-at-server option</text>',
+    );
     expect(xml).not.toContain("<input");
     expect(xml).not.toContain("<selection");
-    // Our one button (red) and the system's own Dismiss, which Windows draws and never reports to us.
-    expect(xml).toContain('hint-buttonStyle="Critical"');
-    expect(xml).toContain('<action content="" arguments="dismiss" activationType="system"/>');
+    // Our one red button, and "Don't ask again", which has no choice to live in here.
+    expect(xml.match(/hint-buttonStyle="Critical"/gu)).toHaveLength(1);
+    expect(xml).toContain(`<action content="Don't ask again" arguments="act=quiet;id=${ID}"`);
     expect(xml.match(/<action /gu)).toHaveLength(2);
     // Even if a caller asks for the server or domain button, a trash-only toast does not show them.
     const asked = buildMailToastXml(
@@ -147,8 +160,43 @@ describe("buildMailToastXml", () => {
 
   it("omits the score when the server sent none", () => {
     const xml = buildMailToastXml(toast({ spamScore: null }));
-    expect(xml).toContain('<text hint-maxLines="1">To: info@example.com</text>');
-    expect(xml).not.toContain("Spam score");
+    expect(xml).toContain('<text hint-style="captionSubtle">To: info@example.com</text>');
+    expect(xml).not.toContain("Spam");
+    expect(xml.match(/<subgroup/gu)).toHaveLength(1);
+  });
+
+  it.each([
+    [1.6, "low"],
+    [SPAM_MEDIUM, "medium"],
+    [SPAM_HIGH, "high"],
+  ] as const)("draws the strip of the level of score %s", (spamScore, level) => {
+    const spamStrips = {
+      low: "file:///a/low.png",
+      medium: "file:///a/medium.png",
+      high: "file:///a/high.png",
+    };
+    const xml = buildMailToastXml(toast({ spamScore }), { spamStrips });
+    expect(xml).toContain(`<image src="file:///a/${level}.png" alt="Spam score: ${level}"/>`);
+    expect(xml.match(/<image /gu)).toHaveLength(1);
+  });
+
+  it("draws no strip without a score or without strips", () => {
+    const spamStrips = {
+      low: "file:///a/s.png",
+      medium: "file:///a/s.png",
+      high: "file:///a/s.png",
+    };
+    expect(buildMailToastXml(toast({ spamScore: null }), { spamStrips })).not.toContain("<image");
+    expect(buildMailToastXml(toast())).not.toContain("<image");
+  });
+
+  it("keeps a long strip path whole, and cannot be broken out of by it", () => {
+    const long = `file:///${"a".repeat(TOAST_TEXT_MAX)}.png`;
+    const spamStrips = { low: long, medium: long, high: `${long}"/><x` };
+    expect(buildMailToastXml(toast(), { spamStrips })).toContain(`<image src="${long}"`);
+    const xml = buildMailToastXml(toast({ spamScore: SPAM_HIGH }), { spamStrips });
+    expect(xml).toContain(`${long}&quot;/&gt;&lt;x`);
+    expect(xml).not.toContain("<x");
   });
 
   it("cannot be broken out of by a hostile subject or account label", () => {
@@ -156,7 +204,8 @@ describe("buildMailToastXml", () => {
     const xml = buildMailToastXml(toast({ subject: hostile, account: hostile }));
     // Exactly the two buttons we wrote: the hostile text added no element.
     expect(xml.match(/<action /gu)).toHaveLength(2);
-    expect(xml.match(/<text /gu)).toHaveLength(3);
+    // Our three lines, the two of the score and the fixed note.
+    expect(xml.match(/<text /gu)).toHaveLength(6);
     expect(xml).not.toContain(hostile);
   });
 
@@ -171,11 +220,88 @@ describe("buildMailToastXml", () => {
     expect(buildMailToastXml(gmail, { buttonStyle: true })).toContain('useButtonStyle="true"');
   });
 
-  it("leaves the Gmail extras (attribution, Dismiss, button style) off the other toasts", () => {
+  it("gives the sender button the red style only when the caller says Windows can draw it, and the domain button never", () => {
+    expect(buildMailToastXml(toast())).not.toContain("useButtonStyle");
+    expect(buildMailToastXml(toast())).not.toContain("hint-buttonStyle");
     const xml = buildMailToastXml(toast(), { buttonStyle: true });
-    expect(xml).not.toContain("attribution");
+    expect(xml).toContain('useButtonStyle="true"');
+    expect(xml.match(/hint-buttonStyle/gu)).toHaveLength(1);
+    expect(xml).toMatch(/content="This sender"[^>]*hint-buttonStyle="Critical"/u);
     expect(xml).not.toContain('activationType="system"');
-    expect(xml).not.toContain("useButtonStyle");
+  });
+
+  it.each([
+    [
+      { domain: "example.com", rejectsAtServer: false },
+      "This mailbox has no block-at-server option",
+    ],
+    [
+      { domain: null, rejectsAtServer: false },
+      "No whole-domain or block-at-server option for this sender",
+    ],
+    [{ domain: null, rejectsAtServer: true }, "No whole-domain option for this sender"],
+  ])("says what is missing from %j", (over, note) => {
+    expect(buildMailToastXml(toast(over))).toContain(
+      `<text placement="attribution">${note}</text>`,
+    );
+  });
+
+  it("carries no note when nothing is missing", () => {
+    expect(buildMailToastXml(toast({ rejectsAtServer: true }))).not.toContain("attribution");
+  });
+
+  it("starts the choice on the person's default action", () => {
+    expect(buildMailToastXml(toast(), { defaultAction: "trash" })).toContain(
+      'defaultInput="trash"',
+    );
+  });
+
+  it("starts on Block at server only when the person turned it on and this mail can be refused", () => {
+    const on = { preferServerBlock: true, defaultAction: "trash" } as const;
+    expect(buildMailToastXml(toast({ rejectsAtServer: true }), on)).toContain(
+      'defaultInput="reject"',
+    );
+    expect(buildMailToastXml(toast({ rejectsAtServer: false }), on)).toContain(
+      'defaultInput="trash"',
+    );
+    expect(buildMailToastXml(toast({ rejectsAtServer: true }))).toContain('defaultInput="junk"');
+  });
+
+  it("leaves the Gmail toast as one button whatever the settings say", () => {
+    const xml = buildMailToastXml(toast({ trashOnly: true, domain: null }), {
+      defaultAction: "junk",
+      preferServerBlock: true,
+    });
+    expect(xml).toContain('content="Move this sender to Trash"');
+    expect(xml).not.toContain("defaultInput");
+  });
+
+  it.each(["short", "long"] as const)("keeps a toast on screen for %s", (toastDuration) => {
+    for (const shape of [toast(), toast({ trashOnly: true, domain: null })]) {
+      expect(buildMailToastXml(shape, { toastDuration })).toContain(
+        `<toast duration="${toastDuration}"`,
+      );
+    }
+  });
+
+  it("keeps a toast until it is closed with the reminder scenario, the ordinary sound and no third button", () => {
+    const plain = buildMailToastXml(toast(), { toastDuration: "until-closed", buttonStyle: true });
+    expect(plain).toContain('<toast scenario="reminder" useButtonStyle="true">');
+    expect(plain).not.toContain("duration=");
+    expect(plain).toContain(
+      '</visual><audio src="ms-winsoundevent:Notification.Default"/><actions>',
+    );
+    expect(plain.match(/<action /gu)).toHaveLength(2);
+    expect(plain).not.toContain('activationType="system"');
+    const gmail = buildMailToastXml(toast({ trashOnly: true, domain: null }), {
+      toastDuration: "until-closed",
+    });
+    expect(gmail).toContain('<toast scenario="reminder">');
+    expect(gmail).toContain("<audio ");
+  });
+
+  it("gives a timed toast no sound of its own", () => {
+    expect(buildMailToastXml(toast())).not.toContain("<audio");
   });
 
   it("ignores a click on the system Dismiss, the toast body or the close button (nothing to do)", () => {
@@ -186,18 +312,46 @@ describe("buildMailToastXml", () => {
 
   it("shows an empty subject as a placeholder", () => {
     expect(buildMailToastXml(toast({ subject: "" }))).toContain(
-      '<text hint-maxLines="2">(no subject)</text>',
+      '<text hint-style="base" hint-wrap="true" hint-maxLines="2">(no subject)</text>',
     );
   });
 });
 
-describe("spamLabel", () => {
-  it("says low, medium or high with a dot and the word, so colour is never the only cue", () => {
-    expect(spamLabel(-3)).toBe("🟢 Spam -3 · low");
-    expect(spamLabel(SPAM_MEDIUM - 0.1)).toContain("· low");
-    expect(spamLabel(SPAM_MEDIUM)).toBe("🟡 Spam 2 · medium");
-    expect(spamLabel(SPAM_HIGH - 0.1)).toContain("· medium");
-    expect(spamLabel(SPAM_HIGH)).toBe("🔴 Spam 5 · high");
+describe("the size of a toast", () => {
+  it("stays well under what Windows refuses, with hostile text and a long path", () => {
+    const hostile = "'".repeat(1_000);
+    const long = `file:///${"é".repeat(200)}.png`;
+    const xml = buildMailToastXml(
+      toast({
+        sender: hostile,
+        subject: hostile,
+        account: hostile,
+        domain: hostile,
+        rejectsAtServer: true,
+      }),
+      {
+        toastDuration: "until-closed",
+        buttonStyle: true,
+        spamStrips: { low: long, medium: long, high: long },
+      },
+    );
+    // Measured on Windows 11 (2026-10-31): 10,991 characters showed, 39,991 were refused.
+    expect(xml.length).toBeLessThan(5_000);
+  });
+});
+
+describe("spamLevel", () => {
+  it("draws the lines at SPAM_MEDIUM and SPAM_HIGH", () => {
+    expect(spamLevel(-3)).toBe("low");
+    expect(spamLevel(SPAM_MEDIUM - 0.1)).toBe("low");
+    expect(spamLevel(SPAM_MEDIUM)).toBe("medium");
+    expect(spamLevel(SPAM_HIGH - 0.1)).toBe("medium");
+    expect(spamLevel(SPAM_HIGH)).toBe("high");
+  });
+
+  it("says the level with a dot and the word, so colour is never the only cue", () => {
+    expect(buildMailToastXml(toast({ spamScore: SPAM_MEDIUM }))).toContain(">🟡 medium<");
+    expect(buildMailToastXml(toast({ spamScore: SPAM_HIGH }))).toContain(">🔴 high<");
   });
 });
 
@@ -248,6 +402,40 @@ describe("parseActivation", () => {
     ["null", null],
   ])("ignores %s", (_name, details) => {
     expect(parseActivation(details).ok).toBe(false);
+  });
+
+  it("falls back to the person's default action when no choice came back", () => {
+    expect(parseActivation({ arguments: `act=sender;id=${ID}` }, "trash")).toEqual({
+      ok: true,
+      activation: { id: ID, scope: "address", action: "trash" },
+    });
+  });
+
+  it("turns Block at server into the default action on the domain button", () => {
+    expect(
+      parseActivation(
+        { arguments: `act=domain;id=${ID}`, userInputs: { target: "reject" } },
+        "trash",
+      ),
+    ).toEqual({ ok: true, activation: { id: ID, scope: "domain", action: "trash" } });
+  });
+
+  it("reads Don't ask again on either button, and it never turns into a block", () => {
+    expect(parseActivation(click(`act=sender;id=${ID}`, { target: "quiet" }))).toEqual({
+      ok: true,
+      activation: { id: ID, scope: "address", action: "quiet" },
+    });
+    expect(parseActivation(click(`act=domain;id=${ID}`, { target: "quiet" }))).toEqual({
+      ok: true,
+      activation: { id: ID, scope: "domain", action: "quiet" },
+    });
+  });
+
+  it("reads Gmail's own Don't ask again button, whatever a choice says", () => {
+    expect(parseActivation(click(`act=quiet;id=${ID}`, { target: "reject" }))).toEqual({
+      ok: true,
+      activation: { id: ID, scope: "address", action: "quiet" },
+    });
   });
 
   it("refuses a choice that is not Junk or Trash instead of guessing", () => {

@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld("senderban", {
   restart: () => ipcRenderer.invoke("manage:restart"),
   status: () => ipcRenderer.invoke("manage:status"),
   pause: (value) => ipcRenderer.invoke("manage:pause", value),
+  quiet: () => ipcRenderer.invoke("manage:quiet"),
+  quietRemove: (value) => ipcRenderer.invoke("manage:quiet-remove", value),
+  settings: () => ipcRenderer.invoke("manage:settings"),
+  saveSettings: (value) => ipcRenderer.invoke("manage:settings-save", value),
   /** The list changed behind the page's back (a popup blocked something): ask for it again. */
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {

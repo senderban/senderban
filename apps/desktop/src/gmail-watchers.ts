@@ -73,6 +73,8 @@ export interface GmailWatchersDeps {
    * `From` of your own address would otherwise offer to send your own mail to Trash (the Gmail filter lane refuses it too).
    */
   readonly isOwn?: (address: string) => boolean;
+  /** True for a sender on the "Don't ask again" list: no toast. */
+  readonly isQuiet?: (address: string) => boolean;
   /** True for a lane held still for a removal: `start()` leaves it alone (an un-pause must not wake it). */
   readonly isHeld?: (laneId: string) => boolean;
   /** Every state change, for the tray. */
@@ -148,6 +150,10 @@ export function createGmailWatchers(deps: GmailWatchersDeps): GmailWatchers {
               "Senderban",
               `New mail in ${label()} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
             );
+            return;
+          }
+          if (deps.isQuiet?.(message.from) === true) {
+            deps.log("gmail-announce", { account: tag, sender: "quiet" });
             return;
           }
           const id = deps.pending.add({ accountId: laneId, sender: message.from });

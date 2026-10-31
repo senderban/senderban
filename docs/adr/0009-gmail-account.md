@@ -86,7 +86,7 @@ Desktop-app client and gives Senderban its client ID. No client ID or secret is 
    announced without Block buttons, or not at all, and logged as the fixed word `from-unparsable`. A display name is never an address
    (`"boss@co.com" <x@spam.example>` must offer `x@spam.example`). The subject goes through the same sanitiser as on IMAP.
 6. **Toast.** The choices a Gmail account can honour decide the buttons: one red "Move this sender to Trash" button (Windows 11; plain on older builds) next to the system Dismiss, no choice box, and a small
-   line "Gmail has no whole-domain option" (a toast has no disabled button and no text under the buttons)
+   line "Gmail has no whole-domain or block-at-server option" (a toast has no disabled button and no text under the buttons)
    ("Move to Junk" is not offered for Gmail: a filter cannot add `SPAM`, measured); "Block at server" never. When one block spans
    accounts of different kinds, a single-address block reaches Gmail whatever its action: Junk and "Block at server" are carried
    out there as Trash (amended 2026-10-28: a live test showed the default Junk click on an MXroute toast never reached the Gmail
@@ -296,7 +296,7 @@ addresses), each deleted at once, filter count checked before and after (1 and 1
   `brand.example.test`, `news.brand.example.test` (stand-ins for a real brand and its country domain). Whole tokens only (`@brand.e` 0 rows, `@rand.example` 0), adjacent tokens only, anywhere in the
   address, **and in the display name** (`@word` matched a sender whose display name holds that word and whose address does not).
   So no query form in this format means "this domain and its subdomains": every one also takes `brand.example.<anything>` and display
-  names. Point 3 stands: **no domain terms on Gmail**, the toast keeps "Gmail has no whole-domain option".
+  names. Point 3 stands: **no domain terms on Gmail**, the toast keeps "Gmail has no whole-domain or block-at-server option".
 
 ## Not decided / open
 

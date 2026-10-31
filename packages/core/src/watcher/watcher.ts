@@ -123,7 +123,8 @@ export function sanitizeSubject(raw: string): string {
     .slice(0, SUBJECT_MAX);
 }
 
-const SPAM_SCORE_LINE = /^x-spam-score:[ \t]*(-?\d{1,3}(?:\.\d{1,2})?)(?=[ \t]*(?:\(|\r|\n|$))/gimu;
+const SPAM_SCORE_LINE = /^x-spam-score:[ \t]*(-?\d{1,3}(?:\.\d{1,2})?)(?=[ \t]*(?:\(|\r|\n|$))/imu;
+const ANY_SPAM_SCORE_LINE = /^x-spam-score:/gimu;
 
 /** `X-Spam-Score` out of a fetched header block, or null. The block is server text: bounded, strict number only. */
 export function parseSpamScore(headers: Uint8Array | undefined): number | null {
@@ -131,9 +132,10 @@ export function parseSpamScore(headers: Uint8Array | undefined): number | null {
   // put its own score line first and push the server's out of the window, so no score is trusted.
   if (headers === undefined || headers.length > SPAM_HEADER_MAX_BYTES) return null;
   const text = Buffer.from(headers).toString("latin1");
-  // A sender can put its own `X-Spam-Score` line ahead of the server's: more than one line means no trusted score.
-  const lines = [...text.matchAll(SPAM_SCORE_LINE)];
-  const match = lines.length === 1 ? lines[0] : undefined;
+  // A sender can put its own `X-Spam-Score` line ahead of the server's: more than one line means no trusted score. Every line
+  // counts, also one whose value we cannot read: otherwise a server line in another format leaves the forged one alone.
+  if (text.match(ANY_SPAM_SCORE_LINE)?.length !== 1) return null;
+  const match = SPAM_SCORE_LINE.exec(text);
   if (match?.[1] === undefined) return null;
   const score = Number(match[1]);
   return Number.isFinite(score) && score >= SPAM_SCORE.min && score <= SPAM_SCORE.max

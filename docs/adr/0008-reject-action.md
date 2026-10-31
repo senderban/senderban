@@ -13,15 +13,19 @@ Trash never reach MXroute. The person chooses it in the toast: "Block at server"
 **This is the one action that is not reversible in the K7 sense** (K7: no permanent delete, no discard). A later mail from that
 address is refused and kept nowhere until the person unblocks it. So:
 
-1. It is never the default; the toast lists it last and pre-selects Junk.
+1. It is off by default: the toast lists it last and pre-selects the default action (Junk or Trash). Amended 2026-10-31 at the
+   owner's request: a person who turns on **Block at server when the mailbox can** on the Settings page gets it pre-selected on the
+   toasts that offer it (ADR 0015). It is a separate switch, never a value of the default action, and the page says that refused
+   mail leaves no copy. A click that carries no choice uses the default action, so it never refuses mail.
 2. Single addresses only. A whole domain is never refused at the server (its reach on the blacklist is not measured):
-   `blockPending` refuses `reject` for the domain scope and the domain button turns it into Junk.
+   `blockPending` refuses `reject` for the domain scope and the domain button turns it into the default action.
 3. Never for one of the person's own login addresses, nor for an address on the mail domain of any configured account (a
    subdomain counts; a freemail domain such as gmail.com does not count as owned, only the full login address does). The blacklist
    is shared by every mailbox of the account, and From can be forged: one click on a forged mail from a colleague would bounce
    their real mail. Enforced in core (`canRejectSender`), not only in the toast. **Accepted residual risk:** a second domain on
    the same MXroute account that no Senderban account logs in with is unknown to the app, so a forged address on it can still be
-   refused. It needs the person to pick "Block at server" on that mail; Junk is the default.
+   refused. It needs the person to pick "Block at server" on that mail, or to have turned on "Block at server when the mailbox can" and
+   click (ADR 0015); Junk is the default.
 4. Only addresses the blacklist takes as a single entry (`canRefuseAtServer`: its own pattern, no `*`, no leading `@`). One
    predicate is shared by the adapter, the client, the toast and the block action.
 5. Off unless the person added an MXroute API key and switched the option on (Accounts). Switching it off takes back only what

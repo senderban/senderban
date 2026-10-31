@@ -17,6 +17,8 @@ import {
   MxrouteInputSchema,
   MxrouteKeyRefSchema,
   SERVER_PRESETS,
+  QuietEntrySchema,
+  SettingsSchema,
   WatchPausedSchema,
   formServer,
   isEntryId,
@@ -29,6 +31,7 @@ import type {
   MxrouteEnableInput,
   MxrouteInput,
   MxrouteKeyRef,
+  Settings,
 } from "@senderban/core";
 import { BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
@@ -162,6 +165,14 @@ export interface ManageHandlers {
   readonly status: () => Promise<WatchStatus>;
   /** Pauses or resumes every watcher, as the tray's menu does. */
   readonly pause: (value: boolean) => Promise<void>;
+  /** The "Don't ask again" list. */
+  readonly quiet: () => readonly string[];
+  /** Takes one entry off that list. The input has already passed the core schema. */
+  readonly quietRemove: (value: string) => Promise<void>;
+  /** What the Settings page shows. */
+  readonly settings: () => Settings;
+  /** Writes the choices to disk; they apply from then on. The input has already passed the core schema. */
+  readonly saveSettings: (next: Settings) => Promise<void>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -230,6 +241,14 @@ export class ManageWindow {
     ipcMain.handle("manage:restart", (event) => this.#restart(event));
     ipcMain.handle("manage:status", (event) => this.#status(event));
     ipcMain.handle("manage:pause", (event, value: unknown) => this.#pause(event, value));
+    ipcMain.handle("manage:quiet", (event) => this.#quiet(event));
+    ipcMain.handle("manage:quiet-remove", (event, value: unknown) =>
+      this.#quietRemove(event, value),
+    );
+    ipcMain.handle("manage:settings", (event) => this.#settings(event));
+    ipcMain.handle("manage:settings-save", (event, value: unknown) =>
+      this.#settingsSave(event, value),
+    );
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -341,6 +360,48 @@ export class ManageWindow {
     } catch (error) {
       this.#handlers.onError("manage:status", error);
       return null;
+    }
+  }
+
+  #quiet(event: IpcMainInvokeEvent): readonly string[] | null {
+    if (!this.#trusted(event)) return null;
+    return this.#handlers.quiet();
+  }
+
+  async #quietRemove(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<"removed" | "denied" | "invalid" | "failed"> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = QuietEntrySchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      await this.#handlers.quietRemove(parsed.data);
+      return "removed";
+    } catch (error) {
+      this.#handlers.onError("manage:quiet-remove", error);
+      return "failed";
+    }
+  }
+
+  #settings(event: IpcMainInvokeEvent): Settings | null {
+    if (!this.#trusted(event)) return null;
+    return this.#handlers.settings();
+  }
+
+  async #settingsSave(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<"saved" | "denied" | "invalid" | "failed"> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = SettingsSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      await this.#handlers.saveSettings(parsed.data);
+      return "saved";
+    } catch (error) {
+      this.#handlers.onError("manage:settings-save", error);
+      return "failed";
     }
   }
 

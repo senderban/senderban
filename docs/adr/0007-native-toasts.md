@@ -18,11 +18,12 @@ say "Block", which would be untrue for Junk and Trash. The click comes back as a
 - **Untrusted both ways.** The XML is built from mail-controlled text (sender, subject): every text node is escaped and bounded
   (`escapeXml`, `TOAST_TEXT_MAX`). The click is parsed with fixed patterns and a Zod envelope (`parseActivation`) before anything
   runs; a rejected click logs a fixed reason, never the input. Both live in core without Electron (`notify/toast.ts`) and are tested.
-- **What is selected is what is done.** The selection offers "Move to Junk" (default), "Move to Trash" and, only when the server can
+- **What is selected is what is done**, with one exception: "Block at server" on the domain button is the default action, because a whole
+  domain is never refused at the server. The selection offers "Move to Junk", "Move to Trash" (the Settings page picks which one starts selected, ADR 0015) and, only when the server can
   refuse the sender (ADR 0008), "Block at server". Buttons say who, the selection says what.
-- **Spam score.** The server's own `X-Spam-Score` is shown as a colour dot plus a word (colour is never the only cue). A message with
-  more than one score line shows none: a sender can forge the first one.
-- **Windows draws it.** Colours, fonts and layout are Windows'. The app name and icon in the toast header come from the app identity
+- **Spam score.** The server's own `X-Spam-Score` is shown as a colour dot plus a word, with a coloured strip for the level (ADR 0015;
+  colour is never the only cue). A message with more than one score line shows none: a sender can forge the first one.
+- **Windows draws it.** The card, its colours, font and top row are Windows'; what goes inside is ours (ADR 0015). The app name and icon in the toast header come from the app identity
   (`com.senderban.desktop`): an installer must create a Start-menu shortcut that carries it. In development the header reads
   "Electron" until such a shortcut exists.
 - **Do not register the identity by hand in development.** Measured 2026-10-26: after a registry key
@@ -36,11 +37,12 @@ say "Block", which would be untrue for Junk and Trash. The click comes back as a
 
 ## Cost of the move
 
-- The "popup stays N seconds" setting is removed (2026-10-26): a native toast only knows `short` or `long` (25 s used here),
-  and honouring N seconds would need a timer and `close()` per toast (not measured whether `close()` also removes it from
-  the Action Center). How long a toast stays is Windows' own setting (Settings > Accessibility > Visual effects > Dismiss
-  notifications after; read from memory, not checked on this machine). No settings file remains; a leftover `settings.json` in the user data folder is ignored. ADRs 0004 and 0005 describe the old setting.
+- The "popup stays N seconds" setting is removed (2026-10-26): a native toast only knows `short` or `long`, or stays with the reminder
+  scenario (ADR 0015, which also times them). Honouring N seconds would need a timer and `close()` per toast, and `close()` removes it
+  from the Action Center too (Electron Notification documentation). ADRs 0004 and 0005 describe the old setting.
 - A toast keeps the sender and subject in the Action Center and may show them on the lock screen. Not checked on a machine.
+- The Action Center keeps at most 20 notifications per app, first in, first out (Microsoft Learn, App notification headers), so
+  blocking a missed mail from there works for the last 20.
 - The old popup's drop counter is gone; the watcher still caps announcements per drain (`DEFAULT_MAX_PER_DRAIN` = 5 per account).
 
 ## Scale (derived)

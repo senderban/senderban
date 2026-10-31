@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from "@senderban/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
@@ -58,6 +59,8 @@ let unblock: Mock<(id: string) => Promise<unknown>>;
 let onError: ReturnType<typeof vi.fn>;
 let status: Mock<() => Promise<unknown>>;
 let pause: Mock<(value: boolean) => Promise<void>>;
+let saveSettings: Mock<(next: unknown) => Promise<void>>;
+let quietRemove: Mock<(value: string) => Promise<void>>;
 let page: InstanceType<typeof ManageWindow>;
 
 beforeEach(() => {
@@ -67,6 +70,8 @@ beforeEach(() => {
     Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] as unknown[] }),
   );
   pause = vi.fn(() => Promise.resolve());
+  saveSettings = vi.fn(() => Promise.resolve());
+  quietRemove = vi.fn(() => Promise.resolve());
   list = vi.fn(() => []);
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "Unblocked." }));
   onError = vi.fn();
@@ -75,6 +80,10 @@ beforeEach(() => {
     unblock,
     status,
     pause,
+    settings: () => DEFAULT_SETTINGS,
+    saveSettings,
+    quiet: () => ["deals.example"],
+    quietRemove,
     mxrouteList: () => Promise.resolve({ accounts: [], keys: [], keysUnreadable: false }),
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
@@ -82,6 +91,85 @@ beforeEach(() => {
     onError,
   } as never);
   page.show();
+});
+
+describe("manage:settings", () => {
+  it("answers the page and nothing else", async () => {
+    expect(await call("manage:settings", trusted)).toEqual(DEFAULT_SETTINGS);
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:settings", event)).toBeNull();
+    }
+  });
+});
+
+describe("the Don't ask again list", () => {
+  it("is read by the page and by nothing else", async () => {
+    expect(await call("manage:quiet", trusted)).toEqual(["deals.example"]);
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:quiet", event)).toBeNull();
+    }
+  });
+
+  it("removes what the schema takes", async () => {
+    expect(await call("manage:quiet-remove", trusted, "deals.example")).toBe("removed");
+    expect(quietRemove).toHaveBeenCalledWith("deals.example");
+  });
+
+  it("refuses any other sender", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:quiet-remove", event, "deals.example")).toBe("denied");
+    }
+    expect(quietRemove).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a shape no entry has", "@deals.example"],
+    ["an oversize value", "a".repeat(10_000)],
+    ["no string at all", { value: "deals.example" }],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:quiet-remove", trusted, payload)).toBe("invalid");
+    expect(quietRemove).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed write and sends the reason to the log", async () => {
+    quietRemove.mockRejectedValueOnce(new Error("disk full"));
+    expect(await call("manage:quiet-remove", trusted, "deals.example")).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:quiet-remove", expect.any(Error));
+  });
+});
+
+describe("manage:settings-save", () => {
+  const next = { ...DEFAULT_SETTINGS, defaultAction: "trash" };
+
+  it("saves what the schema takes", async () => {
+    expect(await call("manage:settings-save", trusted, next)).toBe("saved");
+    expect(saveSettings).toHaveBeenCalledWith(next);
+  });
+
+  it("refuses any other sender", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:settings-save", event, next)).toBe("denied");
+    }
+    expect(saveSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a default action that keeps no copy", { ...DEFAULT_SETTINGS, defaultAction: "reject" }],
+    ["a duration Windows has no word for", { ...DEFAULT_SETTINGS, toastDuration: "forever" }],
+    ["a number where a switch goes", { ...DEFAULT_SETTINGS, confirmBlocks: 1 }],
+    ["a key that is not ours", { ...DEFAULT_SETTINGS, extra: true }],
+    ["a missing key", { defaultAction: "junk" }],
+    ["no object at all", "junk"],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:settings-save", trusted, payload)).toBe("invalid");
+    expect(saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed write and sends the reason to the log", async () => {
+    saveSettings.mockRejectedValueOnce(new Error("disk full"));
+    expect(await call("manage:settings-save", trusted, next)).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:settings-save", expect.any(Error));
+  });
 });
 
 describe("manage:status", () => {

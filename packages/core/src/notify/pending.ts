@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 /** Entries kept (spent ones included). Oldest is evicted first; a toast older than this loses its button. */
 export const PENDING_MAX = 200;
-/** A popup lives seconds; this bounds an id nobody ever answered. */
+/** Bounds an id nobody ever answered. A toast can outlive it (Action Center, "Until I close them"): the click then says the mail expired. */
 export const PENDING_TTL_MS = 24 * 60 * 60_000;
 
 const TAG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

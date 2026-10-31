@@ -23,6 +23,9 @@ files:
   - "!**/*.map"
   - "!**/node_modules/**/{test,tests,__tests__,benchmarks,docs,example,examples}/**"
 asar: true
+# Windows itself reads the images of a toast (ADR 0015) and cannot look inside app.asar.
+asarUnpack:
+  - assets/toast/**
 win:
   target:
     - target: nsis

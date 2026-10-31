@@ -6,6 +6,15 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Added
 
+- **Settings** page: the action a notification starts on (Junk or Trash), an opt-in to start on
+  **Block at server** where the mailbox offers it, **Confirm each block**, and how long new-mail
+  notifications stay on screen (Short, Long or Until I close them). See
+  [ADR 0015](docs/adr/0015-settings-page.md).
+- **Don't ask again** on a notification stops the notifications from a sender or a whole domain. It
+  moves no mail and writes no rule, and Settings lists those senders with **Remove**. See
+  [ADR 0016](docs/adr/0016-dont-ask-again.md).
+- Every notification now says what it cannot offer, for example "This mailbox has no block-at-server
+  option".
 - **Add mailbox** now takes any mail server that speaks IMAP and ManageSieve: pick MXroute, Migadu,
   mailbox.org or Purelymail, or **Other mail server** with your own host and port. The presets were
   checked on the providers' public ports without signing in; the rules themselves were measured on
@@ -23,6 +32,12 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Changed
 
+- A block that worked no longer shows a notification unless **Confirm each block** is on. Warnings
+  and failures always show.
+- The notification reads in two columns: the subject and the account on the left, the spam score on
+  the right, with a green, yellow or red line for its level.
+- New logo: a blue envelope with a red ban sign.
+- On Windows 11, **This sender** uses the red button style that the Gmail button already had.
 - Gmail no longer needs a Google Cloud project: the installer comes with Senderban's own client and
   you sign in with your Google account. Your own project stays available under **Use my own Google
   project (advanced)**.

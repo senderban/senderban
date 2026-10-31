@@ -356,6 +356,19 @@ summary:focus-visible {
   padding: 8px 12px;
   border-top: 1px solid var(--line);
 }
+.setting-note {
+  margin: 0;
+  padding: 12px 16px;
+}
+#quiet-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+#quiet-list span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .key-list li {
   display: flex;
   flex-wrap: wrap;
@@ -409,6 +422,42 @@ input[type="checkbox"][role="switch"]:checked {
 }
 input[type="checkbox"][role="switch"]:checked::before {
   background: var(--accent-fg);
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.setting-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.choices {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.choices button {
+  padding: 8px 12px;
+  font-weight: 600;
+}
+.choices button[aria-pressed="true"],
+.choices button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 .panel,

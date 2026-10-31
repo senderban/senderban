@@ -1,7 +1,9 @@
-import { buildMailToastXml, parseActivation } from "@senderban/core";
-import type { BlockAction, BlockScope, MailToast } from "@senderban/core";
+import { QUIET_CHOICE, SPAM_LEVELS, buildMailToastXml, parseActivation } from "@senderban/core";
+import type { BlockAction, BlockScope, MailToast, Settings, SpamLevel } from "@senderban/core";
 import { Notification } from "electron";
 import { release } from "node:os";
+import { join, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // Scale budget: the watcher announces at most 5 messages per drain per account (DEFAULT_MAX_PER_DRAIN), so
 // toasts are a burst, not a rate. Windows queues and stacks them. Here only the Notification objects whose
@@ -15,14 +17,35 @@ export interface ToastResult {
 }
 
 export interface ToastHandlers {
+  /** The person's choices, read at each toast and each click, so a change on the Settings page applies to the next one. */
+  readonly settings: () => Settings;
+  /** `spamStripUrls`: the coloured line of a toast that has a spam score. */
+  readonly spamStrips: Readonly<Record<SpamLevel, string>>;
   /** Runs the block and describes the outcome. */
   readonly choose: (id: string, scope: BlockScope, action: BlockAction) => Promise<ToastResult>;
+  /** Puts the sender or domain of that toast on the "Don't ask again" list. */
+  readonly quiet: (id: string, scope: BlockScope) => Promise<ToastResult>;
   /** Windows delivered an activation (any click on a toast of ours): the log line that tells "not delivered" from "ignored". */
   readonly onActivation: () => void;
   /** A click was not one of our buttons or was malformed; `reason` is a fixed string, never the input. */
   readonly onIgnored: (reason: string) => void;
+  /** Windows refused a toast: a mail was announced and never shown. A fixed log line, not Windows' text. */
+  readonly onRefused: () => void;
   /** A handler threw: the log gets the channel and a sanitised message, the person a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
+}
+
+/**
+ * The strips of `assets/toast`. Windows draws them, not Electron, and Windows cannot read inside app.asar: an installed build keeps them
+ * in app.asar.unpacked (`asarUnpack`, electron-builder.yml).
+ */
+export function spamStripUrls(assets: string): Readonly<Record<SpamLevel, string>> {
+  const folder = join(assets, "toast").replace(`app.asar${sep}`, `app.asar.unpacked${sep}`);
+  const url = (level: SpamLevel): string => pathToFileURL(join(folder, `spam-${level}.png`)).href;
+  return Object.fromEntries(SPAM_LEVELS.map((level) => [level, url(level)])) as Record<
+    SpamLevel,
+    string
+  >;
 }
 
 /** First Windows 11 build (21H2). Unit: Windows build number (`os.release()` is "10.0.<build>"). */
@@ -53,7 +76,11 @@ export class Toasts {
   /** A mail announcement with buttons. */
   show(toast: MailToast): void {
     const notification = new Notification({
-      toastXml: buildMailToastXml(toast, { buttonStyle: BUTTON_STYLE }),
+      toastXml: buildMailToastXml(toast, {
+        ...this.#handlers.settings(),
+        buttonStyle: BUTTON_STYLE,
+        spamStrips: this.#handlers.spamStrips,
+      }),
     });
     this.#live.set(toast.id, notification);
     while (this.#live.size > MAX_TRACKED) {
@@ -63,6 +90,10 @@ export class Toasts {
     }
     notification.on("close", () => {
       if (this.#live.get(toast.id) === notification) this.#live.delete(toast.id);
+    });
+    notification.on("failed", () => {
+      if (this.#live.get(toast.id) === notification) this.#live.delete(toast.id);
+      this.#handlers.onRefused();
     });
     notification.show();
   }
@@ -79,7 +110,7 @@ export class Toasts {
   }
 
   async #activated(details: unknown): Promise<void> {
-    const parsed = parseActivation(details);
+    const parsed = parseActivation(details, this.#handlers.settings().defaultAction);
     if (!parsed.ok) {
       this.#handlers.onIgnored(parsed.reason);
       return;
@@ -91,13 +122,19 @@ export class Toasts {
     this.#live.delete(id);
     let result: ToastResult;
     try {
-      result = await this.#handlers.choose(id, scope, action);
+      result =
+        action === QUIET_CHOICE
+          ? await this.#handlers.quiet(id, scope)
+          : await this.#handlers.choose(id, scope, action);
     } catch (error) {
       this.#handlers.onError("toast:choose", error);
       result = { tone: "error", text: "Something went wrong. See the log." };
     } finally {
       this.#busy.delete(id);
     }
-    this.notice("Senderban", `${MARK[result.tone]}${result.text}`);
+    // A warning or a failure always shows: only a block that worked may stay quiet.
+    if (result.tone !== "ok" || this.#handlers.settings().confirmBlocks) {
+      this.notice("Senderban", `${MARK[result.tone]}${result.text}`);
+    }
   }
 }

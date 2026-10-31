@@ -22,6 +22,7 @@ const els = {
   notice: $("notice"),
   navBlocked: $("nav-blocked"),
   navAccounts: $("nav-accounts"),
+  navSettings: $("nav-settings"),
   navBlockedCount: $("nav-blocked-count"),
   navAccountsCount: $("nav-accounts-count"),
   health: $("health"),
@@ -87,7 +88,12 @@ const STATE_LABEL = {
   "halted-rejected": ["error", "Stopped. See the log"],
 };
 
-const VIEW_TITLE = { blocked: "Blocked senders", accounts: "Accounts", add: "Add mailbox" };
+const VIEW_TITLE = {
+  blocked: "Blocked senders",
+  accounts: "Accounts",
+  add: "Add mailbox",
+  settings: "Settings",
+};
 
 let entries = [];
 let busy = false;
@@ -265,7 +271,9 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   els.goAdd.hidden = name !== "accounts";
   els.navBlocked.toggleAttribute("aria-current", false);
   els.navAccounts.toggleAttribute("aria-current", false);
-  (name === "blocked" ? els.navBlocked : els.navAccounts).setAttribute("aria-current", "page");
+  els.navSettings.toggleAttribute("aria-current", false);
+  const current = { blocked: els.navBlocked, settings: els.navSettings }[name] ?? els.navAccounts;
+  current.setAttribute("aria-current", "page");
   if (!keepNotice && els.notice.dataset.tone !== "working") setNotice("", "");
   els.count.textContent = "";
   if (name === "blocked") render();
@@ -394,6 +402,9 @@ els.navBlocked.addEventListener("click", () => {
 });
 els.navAccounts.addEventListener("click", () => {
   showView("accounts");
+});
+els.navSettings.addEventListener("click", () => {
+  showView("settings");
 });
 els.goAdd.addEventListener("click", () => {
   showView("add", { focusTitle: true });

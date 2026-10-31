@@ -30,8 +30,11 @@ gh attestation verify .\Senderban-Setup-X.Y.Z.exe --repo senderban/senderban --s
 
 A new mail arrives. Senderban shows a Windows notification. One click writes a rule on the mail
 provider's own server (a Gmail filter or a Sieve script), so the block also applies on your phone,
-in webmail and in whichever mail client you use. The block list is shared by all your accounts, the
-result is shown in the notification, and every block can be undone in the **Blocked senders** window.
+in webmail and in whichever mail client you use. The block list is shared by all your accounts, a
+warning or a failure shows as a notification, and every block can be undone in the **Blocked senders**
+window. **Settings** picks the default action, whether a block that worked is confirmed, and how long
+new-mail notifications stay on screen. **Don't ask again** on a notification stops the questions about a
+sender without blocking it; Settings lists those senders and can take them back.
 
 | On                | Choices                                                            | Whole domain |
 | ----------------- | ------------------------------------------------------------------ | ------------ |

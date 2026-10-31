@@ -1,8 +1,9 @@
 // Draws the Senderban icon with no image dependency and writes assets/icon.png (256) and
-// assets/icon.ico (16/32/48/256, PNG-compressed entries). Run: node apps/desktop/scripts/make-icons.mjs
+// assets/icon.ico (16/32/48/256, PNG-compressed entries), and the coloured strips of a toast (assets/toast).
+// Run: node apps/desktop/scripts/make-icons.mjs
 // Every size is drawn from the same vector description (not scaled down), so the small ones stay crisp.
 import { Buffer } from "node:buffer";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
@@ -11,9 +12,14 @@ const ASSETS = join(dirname(fileURLToPath(import.meta.url)), "../assets");
 const ICO_SIZES = [16, 32, 48, 256];
 const SUPERSAMPLE = 4;
 
-const BLUE = [11, 95, 255];
-const WHITE = [255, 255, 255];
-const RED = [229, 72, 77];
+const BLUE = [37, 125, 224];
+const RED = [217, 67, 58];
+
+// One strip per spam level. Windows stretches it to the width of the toast; 728 is that width at 200%. It must read on Windows' light
+// and dark card, and the word beside the score carries the meaning, so colour is never the only cue.
+const STRIP_WIDTH = 728;
+const STRIP_HEIGHT = 12;
+const STRIPS = { low: [45, 164, 78], medium: [210, 153, 34], high: RED };
 
 /** Signed distance to a rounded rectangle (negative inside). */
 function roundRect(x, y, x0, y0, x1, y1, r) {
@@ -32,19 +38,20 @@ function segment(x, y, ax, ay, bx, by) {
   return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
 }
 
-/** Colour at a point of the unit square, painter's order, or null where the icon is transparent. */
+/** Colour at a point of the unit square, or null where the icon is transparent. Drawn on a 32-unit grid, the size of the logo's master. */
 function paint(x, y) {
-  if (roundRect(x, y, 0.04, 0.04, 0.96, 0.96, 0.22) > 0) return null;
-  let color = BLUE;
-  if (roundRect(x, y, 0.17, 0.28, 0.83, 0.72, 0.06) <= 0) color = WHITE;
-  const flap =
-    Math.min(segment(x, y, 0.17, 0.3, 0.5, 0.53), segment(x, y, 0.5, 0.53, 0.83, 0.3)) <= 0.022;
-  if (flap && color === WHITE) color = BLUE;
-  // The ban slash: a white halo under a red bar, so it reads on both the blue ground and the envelope.
-  const slash = segment(x, y, 0.24, 0.76, 0.76, 0.24);
-  if (slash <= 0.1) color = WHITE;
-  if (slash <= 0.065) color = RED;
-  return color;
+  const u = x * 32;
+  const v = y * 32;
+  // The ban sign on the corner, in a clear ring: the taskbar shows through, so it reads on a light and on a dark one.
+  const fromBan = Math.hypot(u - 24.5, v - 23.5);
+  if (fromBan <= 7.5) {
+    const ring = Math.abs(fromBan - 5.2) <= 1.2;
+    const bar = fromBan <= 5.2 && segment(u, v, 21, 20, 28, 27) <= 1.2;
+    return ring || bar ? RED : null;
+  }
+  const outline = Math.abs(roundRect(u, v, 2.5, 6, 27.5, 24.5, 3.5)) <= 1.3;
+  const flap = Math.min(segment(u, v, 4, 8.5, 15, 17), segment(u, v, 15, 17, 26, 8.5)) <= 1.3;
+  return outline || flap ? BLUE : null;
 }
 
 function render(size) {
@@ -77,7 +84,19 @@ function render(size) {
       raw[at + 3] = Math.round((255 * a) / n);
     }
   }
-  return png(size, raw);
+  return png(size, size, raw);
+}
+
+function strip([r, g, b]) {
+  const row = STRIP_WIDTH * 4 + 1;
+  const raw = Buffer.alloc(STRIP_HEIGHT * row);
+  for (let y = 0; y < STRIP_HEIGHT; y++) {
+    raw[y * row] = 0; // PNG filter type: none
+    for (let x = 0; x < STRIP_WIDTH; x++) {
+      raw.set([r, g, b, 255], y * row + 1 + x * 4);
+    }
+  }
+  return png(STRIP_WIDTH, STRIP_HEIGHT, raw);
 }
 
 function chunk(type, data) {
@@ -89,10 +108,10 @@ function chunk(type, data) {
   return Buffer.concat([head, data, crc]);
 }
 
-function png(size, raw) {
+function png(width, height, raw) {
   const header = Buffer.alloc(13);
-  header.writeUInt32BE(size, 0);
-  header.writeUInt32BE(size, 4);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
   header[8] = 8; // bit depth
   header[9] = 6; // RGBA
   return Buffer.concat([
@@ -124,4 +143,8 @@ function ico(images) {
 const images = ICO_SIZES.map((size) => ({ size, data: render(size) }));
 writeFileSync(join(ASSETS, "icon.png"), images[images.length - 1].data);
 writeFileSync(join(ASSETS, "icon.ico"), ico(images));
-console.log(`wrote icon.png and icon.ico (${ICO_SIZES.join("/")}) to ${ASSETS}`);
+mkdirSync(join(ASSETS, "toast"), { recursive: true });
+for (const [level, colour] of Object.entries(STRIPS)) {
+  writeFileSync(join(ASSETS, "toast", `spam-${level}.png`), strip(colour));
+}
+console.log(`wrote icon.png, icon.ico (${ICO_SIZES.join("/")}) and the toast strips to ${ASSETS}`);

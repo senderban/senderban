@@ -26,6 +26,9 @@
             <span>Accounts</span>
             <span id="nav-accounts-count" class="count"></span>
           </button>
+          <button type="button" id="nav-settings" class="nav">
+            <span>Settings</span>
+          </button>
         </nav>
         <div class="health">
           <p id="health" class="health-line" role="status">
@@ -159,6 +162,82 @@
               </details>
             </div>
           </section>
+        </section>
+
+        <section id="view-settings" class="view narrow" hidden>
+          <section class="card" aria-labelledby="settings-notifications">
+            <div class="card-head">
+              <h2 id="settings-notifications">Notifications</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-text">
+                <span id="action-label">Default action</span>
+                <span class="meta">
+                  Picked for you on each notification, and you can still change it there. Gmail
+                  always moves to Trash.
+                </span>
+              </div>
+              <div id="setting-action" class="choices" role="group" aria-labelledby="action-label">
+                <button type="button" data-value="junk">Move to Junk</button>
+                <button type="button" data-value="trash">Move to Trash</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label for="setting-server">Block at server when the mailbox can</label>
+                  <span class="meta">
+                    Refused mail leaves no copy to recover. Other mailboxes use the default action.
+                  </span>
+                </div>
+                <span id="setting-server-text" class="meta"></span>
+                <input id="setting-server" type="checkbox" role="switch" />
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label for="setting-confirm">Confirm each block</label>
+                  <span class="meta">
+                    Shows a notification when a block works. Warnings and failures always show.
+                  </span>
+                </div>
+                <span id="setting-confirm-text" class="meta"></span>
+                <input id="setting-confirm" type="checkbox" role="switch" />
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-text">
+                <span id="duration-label">Keep new-mail notifications on screen</span>
+                <span class="meta">
+                  When Short or Long ends they wait in Windows Notification Center, where you can
+                  still block.
+                </span>
+              </div>
+              <div
+                id="setting-duration"
+                class="choices"
+                role="group"
+                aria-labelledby="duration-label"
+              >
+                <button type="button" data-value="short">Short</button>
+                <button type="button" data-value="long">Long</button>
+                <button type="button" data-value="until-closed">Until I close them</button>
+              </div>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="settings-quiet">
+            <div class="card-head">
+              <h2 id="settings-quiet">Don't ask again</h2>
+            </div>
+            <p class="meta setting-note">
+              No notification for these senders. Their mail is left alone, and nothing is written to
+              your mailbox.
+            </p>
+            <p id="quiet-empty" class="meta setting-note" hidden>
+              Choose Don't ask again on a notification to add a sender.
+            </p>
+            <ul id="quiet-list" class="rows"></ul>
+          </section>
+          <p id="settings-status" class="status" role="status" hidden></p>
         </section>
 
         <section id="view-add" class="view narrow" hidden>
@@ -370,5 +449,6 @@
     <script src="advanced.js"></script>
     <script src="gmail.js"></script>
     <script src="microsoft.js"></script>
+    <script src="settings.js"></script>
   </body>
 </html>

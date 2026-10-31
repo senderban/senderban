@@ -597,6 +597,14 @@ describe("header sanitising", () => {
     expect(parseSpamScore(Buffer.from(forged))).toBeNull();
   });
 
+  it.each(["7.20 / 15", "+7.2", "12.345", "spam"])(
+    "counts a line it cannot read, so a forged line beside the server's %s gives no score",
+    (server) => {
+      const headers = `X-Spam-Score: -5\r\nX-Spam-Score: ${server}\r\n`;
+      expect(parseSpamScore(Buffer.from(headers))).toBeNull();
+    },
+  );
+
   it("gives no score when the header is missing or past the parsed bytes", () => {
     expect(parseSpamScore(undefined)).toBeNull();
     const padded = Buffer.from(`${"X-Pad: x\r\n".repeat(60)}X-Spam-Score: 3\r\n`);
