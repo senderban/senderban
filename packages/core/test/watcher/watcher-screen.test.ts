@@ -130,6 +130,60 @@ describe("screen", () => {
 });
 
 describe("onGap", () => {
+  it("counts a row with no usable From, or one among the newest hides a burst on a live session", async () => {
+    const onGap = vi.fn();
+    const rows = Array.from({ length: FETCH_LIMIT }, (_, i) => (i === 100 ? null : msg(i + 2)));
+    const { instance, cursors } = watcher(
+      () =>
+        Promise.resolve({
+          ...session([], 3),
+          fetchSince: () => Promise.resolve(rows),
+        }),
+      { uidValidity: "1", lastUid: 1 },
+      { onGap },
+    );
+    instance.start();
+    await vi.waitFor(() => {
+      expect(onGap).toHaveBeenCalledWith("a", "burst");
+    });
+    expect(cursors.get("a")?.lastUid).toBe(FETCH_LIMIT + 1);
+    await instance.stop();
+  });
+
+  it.each([
+    ["renumbered", "2"],
+    ["unreadable", "1"],
+  ])("does not end the drain when the listener throws: %s", async (reason, uidValidity) => {
+    const onGap = vi.fn(() => {
+      throw new Error("the state could not be saved");
+    });
+    let opens = 0;
+    let unreadable = reason === "unreadable";
+    const { instance, cursors } = watcher(
+      () => {
+        opens += 1;
+        const open = session([], 9);
+        if (!unreadable) return Promise.resolve({ ...open, uidValidity });
+        unreadable = false;
+        return Promise.resolve({
+          ...open,
+          fetchSince: () => Promise.reject(new UnreadableMailError("bad row")),
+        });
+      },
+      { uidValidity: "1", lastUid: 1 },
+      { onGap, backoff: { baseMs: 1, maxMs: 1, stableMs: 100_000 } },
+    );
+    instance.start();
+    await vi.waitFor(() => {
+      expect(onGap).toHaveBeenCalledWith("a", reason);
+    });
+    await vi.waitFor(() => {
+      expect(cursors.get("a")?.lastUid).toBe(8);
+    });
+    expect(opens).toBeLessThanOrEqual(reason === "unreadable" ? 2 : 1);
+    await instance.stop();
+  });
+
   it("screens and moves on when the listener throws at a burst, on the same connection", async () => {
     const onGap = vi.fn(() => {
       throw new Error("the state could not be saved");

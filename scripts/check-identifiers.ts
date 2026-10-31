@@ -130,6 +130,8 @@ const MARK = "�";
 /** Binary files: the allowlist does not read them, the denylist still does (an ASCII term survives in a database or a document). */
 const BINARY =
   /\.(?:png|ico|jpe?g|gif|webp|woff2?|ttf|zip|gz|exe|dll|node|pdf|docx|xlsx|pptx|db|sqlite3?|p12|pfx|jar|svgz)$/iu;
+/** Left out of the history scan: one installer replaced a few times would pass `git`'s output limit and stop every push. gitleaks still reads them. */
+const HISTORY_SKIPPED = ["exe", "dll", "node", "zip", "gz", "jar", "db", "sqlite", "sqlite3"];
 /** Generated: npm writes package maintainers' addresses into it. The denylist still reads it. */
 const LOCKFILE = /(?:^|\/)package-lock\.json$/u;
 
@@ -337,6 +339,53 @@ export function scanRepo(root: string, denylist: readonly string[], staged = fal
   return found;
 }
 
+/** The lines a `git log -p` added, per file: a value one commit adds and the next removes is published all the same. */
+export function addedByFile(patch: string): Map<string, string[]> {
+  const added = new Map<string, string[]>();
+  let lines: string[] | undefined;
+  let header = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      lines = undefined;
+      header = true;
+    } else if (line.startsWith("@@")) header = false;
+    else if (header && line.startsWith("+++ ")) {
+      // A content line can read `+++ ` too; only the header before the first hunk names a file.
+      const name = line.slice(4).replace(/^b\//u, "").replace(/^"|"$/gu, "");
+      if (name === "/dev/null") continue;
+      lines = added.get(name) ?? [];
+      added.set(name, lines);
+    } else if (!header && line.startsWith("+")) lines?.push(line.slice(1));
+  }
+  return added;
+}
+
+/** Every line any commit added, merge resolutions included. */
+export function scanHistory(root: string, denylist: readonly string[]): Finding[] {
+  const exact = freemailHosts(root);
+  // `--text`: git calls a UTF-16 file binary, and PowerShell's `>` writes those. Without its NUL bytes it reads as text.
+  const patch = String(
+    git(root, [
+      "log",
+      "--all",
+      "-p",
+      "-U0",
+      "--text",
+      "--format=",
+      "--diff-merges=first-parent",
+      "--",
+      ".",
+      ...HISTORY_SKIPPED.map((type) => `:(exclude,glob,icase)**/*.${type}`),
+    ]),
+  ).replaceAll("\0", "");
+  return [...addedByFile(patch)].flatMap(([file, lines]) =>
+    scanText(lines.join("\n"), file, denylist, exact, BINARY.test(file)).map((f) => ({
+      ...f,
+      file: `history of ${f.file}`,
+    })),
+  );
+}
+
 /** A finding as printed. In CI the log is public: file and line only, the commit already holds the value. */
 export function shown(f: Finding, masked: boolean): string {
   if (f.kind === "denylist") return `denylist item ${f.what}`;
@@ -377,6 +426,7 @@ function main(argv: readonly string[]): number {
       // Every commit message of every ref: one `git log`, scanned as one text (a hit names the line, not the commit).
       const messages = String(git(root, ["log", "--all", "--format=%B"]));
       found.push(...scanText(messages, "commit messages", terms, freemailHosts(root)));
+      found.push(...scanHistory(root, terms));
     }
   }
   for (const f of found) console.error(`${f.file}:${String(f.line)}: ${shown(f, masked)}`);

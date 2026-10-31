@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { appliedFor, laneViewOf } from "../src/applied.js";
+import { NO_STARTTLS_MESSAGE } from "@senderban/core/node";
+import { appliedFor, laneViewOf, unsyncedReason } from "../src/applied.js";
 import type { LaneView } from "../src/applied.js";
+
+describe("unsyncedReason", () => {
+  it("names a server that offers no encryption, and the code otherwise", () => {
+    const failed = { accountId: "a", status: "failed", code: "TRANSIENT" } as const;
+    expect(unsyncedReason({ ...failed, message: NO_STARTTLS_MESSAGE })).toContain("encryption");
+    expect(unsyncedReason({ ...failed, message: "timed out" })).toBe("TRANSIENT");
+    expect(unsyncedReason({ accountId: "a", status: "partial", applied: 1, failed: 1 })).toBe(
+      "some changes failed",
+    );
+  });
+});
 
 const VALUE = "spam@attacker.example";
 const view = (over: Partial<LaneView> = {}): LaneView => ({

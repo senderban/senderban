@@ -13,6 +13,7 @@ export class FakeSieveServer {
   /** Hooks for failure injection. */
   beforeGet: ((name: string, nth: number) => void) | null = null;
   failSetActiveOnce = false;
+  beforePut?: (name: string) => void;
   failDelete = false;
   /** Run around commands: a person acting between two commands of a round. `nth` counts from 1. */
   afterPut: (() => void) | null = null;
@@ -52,6 +53,7 @@ export class FakeSieveServer {
       },
       putScript: (name, content) => {
         this.commands.push("PUTSCRIPT");
+        this.beforePut?.(name);
         this.compile(content);
         this.scripts.set(name, content);
         this.puts.push(name);

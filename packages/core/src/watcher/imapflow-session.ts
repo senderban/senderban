@@ -236,8 +236,8 @@ export function imapflowConnector(
       return {
         uidValidity: mailbox.uidValidity.toString(),
         uidNext: openUidNext,
-        async fetchSince(uid: number): Promise<IncomingMessage[]> {
-          const rows = await keepNewest(
+        fetchSince(uid: number): Promise<(IncomingMessage | null)[]> {
+          return keepNewest(
             reduceRows(
               client.fetch(
                 `${String(fetchStartUid(uid, openUidNext))}:*`,
@@ -250,7 +250,6 @@ export function imapflowConnector(
           ).catch((error: unknown) => {
             throw error instanceof Error ? fromMail(error) : error;
           });
-          return rows.filter((row) => row !== null);
         },
         onExists(listener) {
           existsListener = listener;

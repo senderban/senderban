@@ -27,7 +27,7 @@ describe.skipIf(host === undefined)("live IMAP account (read-only)", () => {
       expect(session.uidNext).toBeGreaterThan(0);
 
       const fetchStarted = Date.now();
-      const all = await session.fetchSince(0);
+      const all = (await session.fetchSince(0)).filter((m) => m !== null);
       const fetchMs = Date.now() - fetchStarted;
       for (const m of all) {
         expect(m.uid).toBeGreaterThan(0);
@@ -40,7 +40,7 @@ describe.skipIf(host === undefined)("live IMAP account (read-only)", () => {
       );
 
       // A range past the end must still not announce anything (the n:* quirk).
-      const none = await session.fetchSince(session.uidNext);
+      const none = (await session.fetchSince(session.uidNext)).filter((m) => m !== null);
       expect(none.filter((m) => m.uid >= session.uidNext)).toEqual([]);
     } finally {
       await session.close();

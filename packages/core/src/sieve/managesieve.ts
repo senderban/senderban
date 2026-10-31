@@ -150,9 +150,12 @@ export function authFailure(response: Response): AdapterError {
  * The greeting offers no STARTTLS. Nothing is sent, and the form names it, but only a greeting says so and anyone on the path can
  * write that: a lane tries again, as for every other answer from before TLS.
  */
+export const NO_STARTTLS_MESSAGE =
+  "server does not offer STARTTLS; refusing to send credentials unencrypted";
+
 export class NoStartTlsError extends AdapterError {
   constructor() {
-    super("TRANSIENT", "server does not offer STARTTLS; refusing to send credentials unencrypted");
+    super("TRANSIENT", NO_STARTTLS_MESSAGE);
     this.name = "NoStartTlsError";
   }
 }

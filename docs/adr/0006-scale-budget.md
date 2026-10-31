@@ -20,7 +20,7 @@ Unit = account. `MAX_ACCOUNTS = 50` (`sync/engine.ts`). Everything below is line
 | ManageSieve connections per block                                    | 2 (sync + verify)       | 11      | 51                         | derived from `notify/block-action.ts`                                          |
 | ManageSieve commands per block, steady state                         | 10                      | 64      | 304                        | measured with a counting fake session                                          |
 | ManageSieve connections per unblock                                  | 2                       | 20      | 100                        | derived from `notify/unblock.ts`                                               |
-| Provider rounds in flight at once (sync, verify)                     | 1                       | 5       | **5** (was 50)             | `MAX_CONCURRENT_SYNCS`, test `perf/storm.test.ts`                              |
+| Provider rounds in flight on the main gate (see Gates below)         | 1                       | 5       | **5** (was 50)             | `MAX_CONCURRENT_SYNCS`, test `perf/storm.test.ts`                              |
 | Unblock wall time (sync + verify per account, ~2 s a round, 5 slots) | 4 s                     | 8 s     | about 40 s (was about 4 s) | derived: 2 rounds per account / 5 slots x 2 s. Typical 1–3 accounts: unchanged |
 | Time to open every login at 5 slots, 2 s per login                   | 2 s                     | 4 s     | about 20 s                 | derived from MXroute login time (ADR 0003)                                     |
 | Rules script per PUTSCRIPT (100 / 1000 / 5000 entries)               | 5.5 KB / 53 KB / 275 KB | ×10     | ×50 up and the same down   | measured (`renderRules`)                                                       |
@@ -30,7 +30,7 @@ Unit = account. `MAX_ACCOUNTS = 50` (`sync/engine.ts`). Everything below is line
 ## Decision
 
 1. **One shared gate per resource, not per account.** `createGate(max)` (`gate.ts`) is a FIFO semaphore. Watchers share one
-   gate for IMAP logins (`MAX_CONCURRENT_LOGINS = 5`); the engine owns one for provider rounds (`MAX_CONCURRENT_SYNCS = 5`).
+   gate for IMAP logins (`MAX_CONCURRENT_LOGINS = 5`); the engine owns the provider-round gates (main `MAX_CONCURRENT_SYNCS = 5`, all four under Gates below).
    Per-account lanes stay as they are. A stuck account can hold a slot only until its deadline, so it delays the others by at most
    that deadline, never for good.
 2. **Every gated job has a deadline**, otherwise one stuck account would hold a slot for good: a login is abandoned after
@@ -45,8 +45,8 @@ Unit = account. `MAX_ACCOUNTS = 50` (`sync/engine.ts`). Everything below is line
 
 ## Known cost
 
-One FIFO serves interactive and background rounds. At 50 accounts an unblock takes about 40 s instead of about 4 s, and a block
-clicked while a background wave is draining can wait behind it (about 20 s at 50 accounts). Up to about 3 accounts nothing changes.
+One FIFO per gate. At 50 accounts on the main gate an unblock takes about 40 s instead of about 4 s, and a block clicked while a
+wave is draining on that gate can wait behind it (about 20 s at 50 accounts); background lanes have their own gate. Up to about 3 accounts nothing changes.
 Interactive priority (a reserved slot or a two-level queue) is the fix if the pilot shows it; it needs the lane model to upgrade a
 round that is already waiting, so it is not done here. `dispose()` skips rounds still waiting, so quitting never starts new provider work.
 

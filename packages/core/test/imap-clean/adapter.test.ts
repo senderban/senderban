@@ -626,12 +626,14 @@ describe("clearing past mail", () => {
       const link = new CleanLink();
       link.attach(box);
       const onRested = vi.fn();
+      const onClean = vi.fn();
       const adapter = new ImapCleanAdapter({
         accountId: "x",
         link,
         initialState: state,
         updateState: noSave,
         onRested,
+        onClean,
       });
       box.onSearch = () => {
         throw new Error("socket closed");
@@ -651,6 +653,7 @@ describe("clearing past mail", () => {
         RETRO_HOLD_MAX_MS,
       ]) {
         await strikeOut();
+        expect(onClean).toHaveBeenCalledWith({ kind: "rest", reason: "aborts", ms: rest });
         await vi.advanceTimersByTimeAsync(rest - 1);
         expect(onRested).toHaveBeenCalledTimes(expected);
         await vi.advanceTimersByTimeAsync(1);
@@ -728,6 +731,63 @@ describe("clearing past mail", () => {
     clock.now += 1;
     adapter.sweepAll(true);
     expect((await adapter.plan([a], first.state)).changes).toHaveLength(1);
+  });
+
+  it("tries a failed save of a waiting sweep again at the next plan, so a restart keeps it", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    let saved: OpaqueState = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
+    let refuse = false;
+    const updateState = (change: (state: OpaqueState) => OpaqueState): void => {
+      if (refuse) throw new Error("no");
+      saved = change(saved);
+    };
+    const start = (): ImapCleanAdapter => {
+      const link = new CleanLink();
+      link.attach(box);
+      return new ImapCleanAdapter({ accountId: "x", link, initialState: saved, updateState });
+    };
+    const first = start();
+    first.sweepAll();
+    saved = (await round(first, [a], saved)).state;
+
+    // Inside the hour: the sweep is only a timer now, and the one write that says so fails.
+    refuse = true;
+    expect(() => {
+      first.sweepAll();
+    }).toThrow("no");
+    expect(dataOf(saved).sweepOwed).toBe(false);
+    await first.plan([a], saved); // still failing: the plan does not throw
+    expect(dataOf(saved).sweepOwed).toBe(false);
+
+    refuse = false;
+    await first.plan([a], saved);
+    expect(dataOf(saved).sweepOwed).toBe(true);
+    first.retire();
+    expect(start().hasWork).toBe(true);
+  });
+
+  it("says in the log when a lane waits on purpose", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    const clock = { now: 1_000 };
+    const onClean = vi.fn();
+    const link = new CleanLink();
+    link.attach(box);
+    const adapter = new ImapCleanAdapter({
+      accountId: "x",
+      link,
+      initialState: initialCleanState(),
+      updateState: noSave,
+      now: () => clock.now,
+      onClean,
+    });
+    adapter.sweepAll();
+    await round(adapter, [a], initialCleanState());
+    onClean.mockClear();
+    adapter.sweepAll();
+    expect(onClean).toHaveBeenCalledWith({ kind: "rest", reason: "sweep", ms: SWEEP_ALL_GAP_MS });
+    adapter.retire();
   });
 
   it("saves a sweep it cannot run yet, once, and runs it first after a restart", async () => {

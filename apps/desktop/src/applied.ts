@@ -1,4 +1,5 @@
-import type { BlockAction, BlockEntry } from "@senderban/core";
+import { NO_STARTTLS_MESSAGE } from "@senderban/core/node";
+import type { BlockAction, BlockEntry, SyncOutcome } from "@senderban/core";
 
 type BlockMatch = BlockEntry["match"];
 
@@ -88,4 +89,12 @@ export function appliedFor(
     return { applied: "unknown", atServer };
   }
   return { applied: view.hasFolderLane || onGmail || onOutlook ? "yes" : "no", atServer };
+}
+
+/** The bracket in the "not up to date" notice. A code alone tells a person nothing where the cause is theirs to fix. */
+export function unsyncedReason(outcome: SyncOutcome): string {
+  if (outcome.status !== "failed") return "some changes failed";
+  return outcome.message === NO_STARTTLS_MESSAGE
+    ? "the server is not offering encryption, so no password was sent"
+    : outcome.code;
 }

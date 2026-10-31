@@ -10,6 +10,8 @@ import {
   decode,
   isAllowedHost,
   loadDenylist,
+  addedByFile,
+  scanHistory,
   scanRepo,
   scanText,
   shown,
@@ -167,6 +169,71 @@ describe("denylist", () => {
       SENDERBAN_DENYLIST_FILE: fileURLToPath(new URL("./no-such-file.txt", import.meta.url)),
     };
     expect(loadDenylist(env)).toEqual({ terms: [], short: 0, source: "none" });
+  });
+});
+
+describe("addedByFile", () => {
+  it("keeps what one commit added and the next removed, per file, and skips what was only removed", () => {
+    const patch = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +1 @@",
+      '+const owner = "someone@acmecorp.test";',
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1 +1 @@",
+      '-const owner = "someone@acmecorp.test";',
+      '+const owner = "x@example.com";',
+      "diff --git a/old.ts b/old.ts",
+      "--- a/old.ts",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-gone",
+      "diff --git a/c.ts b/c.ts",
+      "--- a/c.ts",
+      "+++ b/c.ts",
+      "@@ -0,0 +1 @@",
+      "+++ not a header",
+    ].join("\n");
+    expect([...addedByFile(patch)]).toEqual([
+      ["src/a.ts", ['const owner = "someone@acmecorp.test";', 'const owner = "x@example.com";']],
+      ["c.ts", ["++ not a header"]],
+    ]);
+  });
+});
+
+describe("scanHistory", () => {
+  const dir = mkdtempSync(join(tmpdir(), "senderban-history-"));
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.hooksPath=", ...args],
+      { cwd: dir, stdio: "ignore" },
+    );
+
+  it("finds what a commit added and a later one removed, in UTF-16 and on a line that reads like a header", () => {
+    git("init", "-q");
+    const utf16 = (text: string) =>
+      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]);
+    writeFileSync(join(dir, "log.txt"), utf16("first line\r\nuser somelogin\r\n"));
+    writeFileSync(join(dir, "plus.txt"), "++ otherlogin\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "add");
+    writeFileSync(join(dir, "log.txt"), utf16("first line\r\n"));
+    writeFileSync(join(dir, "plus.txt"), "clean\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "remove");
+
+    const found = scanHistory(dir, ["somelogin", "otherlogin"]);
+    expect(found.map((f) => [f.file, f.what]).sort()).toEqual([
+      ["history of log.txt", "#1"],
+      ["history of plus.txt", "#2"],
+    ]);
   });
 });
 

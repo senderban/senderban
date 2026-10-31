@@ -291,6 +291,58 @@ describe("SieveAdapter failure handling", () => {
     expect((await adapter.verify(retry.result.state)).drifted).toBe(false);
   });
 
+  it.each([
+    ["with include", false],
+    ["without include", true],
+  ])(
+    "takes a different list after a failure before the real rules went up (%s)",
+    async (_name, noInclude) => {
+      const { server, adapter } = setup();
+      if (noInclude) server.extensions.delete("include");
+      const start = initialSieveState();
+      server.failSetActiveOnce = true;
+      const first = [entry(1, "exactAddress", "a@example.com")];
+      expect(await failure(sync(adapter, first, start))).toBe("TRANSIENT");
+      expect(server.scripts.get("senderban-rules")).not.toContain("a@example.com");
+
+      const wider = [...first, entry(2, "exactAddress", "b@example.com")];
+      const { result } = await sync(adapter, wider, start);
+      expect(result.applied).toBe(2);
+      expect(server.scripts.get("senderban-rules")).toContain("b@example.com");
+      expect((await adapter.verify(result.state)).drifted).toBe(false);
+    },
+  );
+
+  it("keeps the copy of a person's script when the real rules fail to go up after it was edited", async () => {
+    const { server, adapter } = setup();
+    const theirs = "# mine\nkeep;\n";
+    server.scripts.set("mine", theirs);
+    server.active = "mine";
+    let writes = 0;
+    server.beforePut = (name) => {
+      if (name !== "senderban-rules") return;
+      writes += 1;
+      if (writes === 2) throw new AdapterError("TRANSIENT", "connection lost");
+    };
+    const list = [entry(1, "exactAddress", "a@example.com")];
+    const first = await sync(adapter, list, initialSieveState());
+    expect(first.result.applied).toBe(0);
+    expect(first.result.failed.map((f) => f.error.code)).toEqual(["TRANSIENT"]);
+    expect(server.scripts.get("mine")).toContain("include");
+
+    const second = await sync(adapter, list, first.result.state);
+    expect(second.result.applied).toBe(1);
+    expect(server.scripts.get("senderban-rules")).toContain("a@example.com");
+    await adapter.uninstall(second.result.state);
+    expect(server.scripts.get("mine")).toBe(theirs);
+  });
+
+  it("writes an empty first list once", async () => {
+    const { server, adapter } = setup();
+    await sync(adapter, [], initialSieveState());
+    expect(server.puts.filter((name) => name === "senderban-rules")).toHaveLength(1);
+  });
+
   it("fails with QUOTA_EXCEEDED and writes nothing when the script would not fit", async () => {
     const { server, adapter } = setup();
     server.maxScriptBytes = 10;
@@ -422,8 +474,8 @@ describe("SieveAdapter failure handling", () => {
     expect(server.active).toBe("senderban-rules");
     expect(server.scripts.get("senderban-rules")).not.toContain("include");
     expect((await adapter.verify(state)).drifted).toBe(false);
-    // One write per change: an include written into the live script and then overwritten would show as a third.
-    expect(server.puts.filter((name) => name === "senderban-rules")).toHaveLength(2);
+    // The empty first write, then one per change: an include written into the live script and overwritten would show as a fourth.
+    expect(server.puts.filter((name) => name === "senderban-rules")).toHaveLength(3);
   });
 
   describe("what a round costs", () => {
@@ -450,6 +502,7 @@ describe("SieveAdapter failure handling", () => {
         "GETSCRIPT",
         "PUTSCRIPT",
         "SETACTIVE",
+        "PUTSCRIPT",
       ]);
       const second = await round(adapter, server, [e("b@evil.example", 2)], first.next);
       expect(second.commands).toEqual([
@@ -485,6 +538,7 @@ describe("SieveAdapter failure handling", () => {
         "PUTSCRIPT",
         "LISTSCRIPTS",
         "SETACTIVE",
+        "PUTSCRIPT",
       ]);
       const second = await round(adapter, server, [e("b@evil.example", 2)], first.next);
       expect(second.commands).toEqual(["GETSCRIPT", "HAVESPACE", "LISTSCRIPTS", "PUTSCRIPT"]);
@@ -582,6 +636,21 @@ describe("sieveStateForReinstall", () => {
     const { plan } = await sync(adapter, [], sieveStateForReinstall(result.state));
     expect(plan.changes.map((c) => c.kind)).toEqual(["remove"]);
     expect([...server.scripts.values()].join("\n")).not.toContain("a@example.com");
+  });
+
+  it("takes a different list after a rewrite failed before the real rules went up", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, [one], initialSieveState());
+    const state = sieveStateForReinstall(result.state);
+    server.scripts.clear();
+    server.active = null;
+    server.failSetActiveOnce = true;
+    expect(await failure(sync(adapter, [one], state))).toBe("TRANSIENT");
+
+    const two = entry(2, "exactAddress", "b@example.com");
+    const retry = await sync(adapter, [one, two], state);
+    expect(server.scripts.get("senderban-rules")).toContain("b@example.com");
+    expect((await adapter.verify(retry.result.state)).drifted).toBe(false);
   });
 
   it("writes an entry twice over without doubling it, and ends the rewrite", async () => {

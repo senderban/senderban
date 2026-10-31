@@ -76,7 +76,7 @@ list row and the result toast.
 
 - Adding a mailbox clears the last 30 days for the whole list at the next start. The confirmation and the panel say so before the password
   is sent.
-- A sweep of every rule runs at most once an hour; a request inside that hour waits for its end, and all of them are one sweep. A renumbered mailbox voids the saved pass, so it waits 30 min instead. The request is saved, because the watcher's cursor has already passed that mail: a restart starts the sweep at the first session. The limit and the rests live in the process, so a restart that follows a gap can sweep inside the hour: one sweep per such restart, four in 30 min when measured with four restarts (2026-10-31), and restarts are paced by the person.
+- A sweep of every rule runs at most once an hour; a request inside that hour waits for its end, and all of them are one sweep. A renumbered mailbox voids the saved pass, so it waits 30 min instead. The request is saved, because the watcher's cursor has already passed that mail: a restart starts the sweep at the first session. A save that fails is tried again at the next plan, and costs one failed write and one plan per gap (log: one `sweep-save-failed` line an hour, with the count); the sweep stays at one an hour. A rest shows in the log as a `clean` line with `kind: "rest"`. The limit and the rests live in the process, so a restart that follows a gap can sweep inside the hour: one sweep per such restart, four in 30 min when measured with four restarts (2026-10-31), and restarts are paced by the person.
 
 ## Budget
 

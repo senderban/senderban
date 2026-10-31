@@ -108,6 +108,24 @@ describe("Sieve + Store + SyncEngine", () => {
     expect(store.journal(ACCOUNT)[0]?.status).toBe("applied");
   });
 
+  it("does not call a round applied when the rules failed to go up after a person's script was edited", async () => {
+    const server = new FakeSieveServer();
+    const { store, engine } = boot(server);
+    server.scripts.set("mine", "keep;\n");
+    server.active = "mine";
+    store.add(entry("exactAddress", "a@example.com"));
+    let writes = 0;
+    server.beforePut = (name) => {
+      if (name !== "senderban-rules") return;
+      writes += 1;
+      if (writes === 2) throw new Error("connection lost");
+    };
+
+    expect(await engine.sync(ACCOUNT)).toMatchObject({ status: "partial", applied: 0, failed: 1 });
+    expect(await engine.sync(ACCOUNT)).toMatchObject({ status: "applied", applied: 1 });
+    expect(server.scripts.get("senderban-rules")).toContain("a@example.com");
+  });
+
   it("recovers after the process dies between the provider write and completeSync", async () => {
     const server = new FakeSieveServer();
     const file = tempFile();

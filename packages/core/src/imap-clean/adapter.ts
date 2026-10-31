@@ -97,7 +97,7 @@ function parseState(state: OpaqueState): CleanState {
 }
 
 /** What one pass did, for the log: counts and times only. */
-export interface CleanEvent {
+export interface CleanPassEvent {
   readonly kind: "arrival" | "retro";
   readonly moved: number;
   /** Messages the server would not move (arrival), or read as too large (retro). */
@@ -106,6 +106,15 @@ export interface CleanEvent {
   /** Retro only: entries still queued. */
   readonly left?: number;
 }
+
+/** The lane waits on purpose: without this line a rest of hours looks like an idle mailbox in the log. */
+export interface CleanRestEvent {
+  readonly kind: "rest";
+  readonly reason: "aborts" | "sweep";
+  readonly ms: number;
+}
+
+export type CleanEvent = CleanPassEvent | CleanRestEvent;
 
 export interface ImapCleanAdapterOptions {
   readonly accountId: string;
@@ -245,7 +254,10 @@ export class ImapCleanAdapter implements BlockAdapter {
     const due = this.#sweptAllAt + (force ? RETRO_HOLD_MS : SWEEP_ALL_GAP_MS);
     if (this.#now() < due) this.#deferSweep(due);
     else this.#startSweep();
-    if (this.#sweepOwed) return;
+    if (!this.#sweepOwed) this.#saveSweepOwed();
+  }
+
+  #saveSweepOwed(): void {
     this.#options.updateState((state) => ({
       adapterId: IMAP_CLEAN_ADAPTER_ID,
       data: { ...parseState(state), sweepOwed: true },
@@ -270,11 +282,13 @@ export class ImapCleanAdapter implements BlockAdapter {
     if (this.#sweepDue !== null && this.#sweepDue <= due) return;
     if (this.#sweepTimer !== null) clearTimeout(this.#sweepTimer);
     this.#sweepDue = due;
+    const rest = due - this.#now();
     this.#sweepTimer = setTimeout(() => {
       this.#startSweep();
       this.#options.onRested?.();
-    }, due - this.#now());
+    }, rest);
     this.#sweepTimer.unref();
+    this.#options.onClean?.({ kind: "rest", reason: "sweep", ms: rest });
   }
 
   /** Whether a round may read the Inbox now. A reconnect must not restart a search the provider just could not finish. */
@@ -295,6 +309,14 @@ export class ImapCleanAdapter implements BlockAdapter {
 
   #plan(list: Blocklist, state: OpaqueState): Plan {
     const current = parseState(state);
+    // A save that failed at the gap is tried once a round: without it a restart loses a sweep the cursor has already gone past.
+    if (this.#owesSweep() && !this.#sweepOwed) {
+      try {
+        this.#saveSweepOwed();
+      } catch {
+        // The request is still in memory, and the next round tries again.
+      }
+    }
     const wanted = new Map<string, BlockEntry>();
     for (const raw of list) {
       const checked = checkEntry(raw);
@@ -528,6 +550,7 @@ export class ImapCleanAdapter implements BlockAdapter {
       this.#options.onRested?.();
     }, rest);
     this.#restTimer.unref();
+    this.#options.onClean?.({ kind: "rest", reason: "aborts", ms: rest });
   }
 
   async #foldersOf(box: CleanMailbox): Promise<CleanFolders> {

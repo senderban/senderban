@@ -408,6 +408,7 @@ export class SieveAdapter implements BlockAdapter {
     ]);
     const rules = renderRules(applied, this.#render);
     const sha = scriptSha256(rules);
+    const empty = renderRules([], this.#render);
 
     return withSession(
       this.#options.connect,
@@ -421,10 +422,10 @@ export class SieveAdapter implements BlockAdapter {
           }
         } else {
           const remoteSha = scriptSha256(remote);
-          // No recorded state (lost DB, first run after a crash) is not an edit: a script that is
+          // No recorded state (lost DB, first run after a crash) is not an edit, nor is a rewrite: a script that is
           // byte-for-byte our empty rule set holds nothing of anyone's, so adopting it loses nothing.
           const isOurEmpty =
-            state.rulesSha256 === null && remoteSha === scriptSha256(renderRules([], this.#render));
+            (state.rulesSha256 === null || state.rewrite) && remoteSha === scriptSha256(empty);
           if (remoteSha !== sha && remoteSha !== state.rulesSha256 && !isOurEmpty) {
             throw new AdapterError("REMOTE_CHANGED", "rules script was edited on the server");
           }
@@ -441,10 +442,35 @@ export class SieveAdapter implements BlockAdapter {
           throw ownScriptInTheWay();
         }
 
-        // The include target must exist before anything points at it (servers compile includes).
-        if (remote === null) await session.putScript(state.rulesName, rules);
+        // The include target must exist before anything points at it (servers compile includes). It goes up empty: a round
+        // that fails on the way leaves a script the next round adopts, whatever list that round brings.
+        if (remote === null) await session.putScript(state.rulesName, empty);
         const backup = await ensureRulesRun(session, state, listed, remote === null);
-        if (remote !== null && needsWrite) await session.putScript(state.rulesName, rules);
+        if (needsWrite && (remote !== null || rules !== empty)) {
+          try {
+            await session.putScript(state.rulesName, rules);
+          } catch (error) {
+            if (backup === null) throw error;
+            // The person's script now has our line, and the only exact copy of it is here: a failed round would lose it. Save
+            // what the server holds, and report every change as failed: the click must not say blocked, and the retry goes on.
+            const held = remote === null ? { applied: [], rulesSha256: scriptSha256(empty) } : {};
+            const data: SieveState = {
+              ...state,
+              ...held,
+              rewrite: remote === null ? false : state.rewrite,
+              includeBackup: backup,
+            };
+            const reason =
+              error instanceof AdapterError
+                ? error
+                : new AdapterError("TRANSIENT", "the rules script could not be written");
+            return {
+              applied: 0,
+              failed: plan.changes.map((c) => ({ entryId: c.entry.id, error: reason })),
+              state: { adapterId: SIEVE_ADAPTER_ID, data },
+            };
+          }
+        }
 
         const next: SieveState = {
           ...state,

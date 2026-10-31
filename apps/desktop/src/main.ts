@@ -65,8 +65,9 @@ import {
 import { Store, openDatabase } from "@senderban/core/store";
 import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
 import { checkAccount, checkCleanAccount } from "./account-check.js";
+import { cleanGapListener, cleanLane } from "./clean-lane.js";
 import type { AccountCheckStage } from "./account-check.js";
-import { appliedFor, laneViewOf } from "./applied.js";
+import { appliedFor, laneViewOf, unsyncedReason } from "./applied.js";
 import type { HeldAddresses } from "./applied.js";
 import {
   AddAccountError,
@@ -309,7 +310,7 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
   unsynced.add(id);
   manage?.notifyChanged();
   const label = runtime?.labels.get(id) ?? id;
-  const why = outcome.status === "failed" ? outcome.code : "some changes failed";
+  const why = unsyncedReason(outcome);
   const next =
     outcome.status !== "failed"
       ? "Open Blocked senders to check."
@@ -770,12 +771,7 @@ async function start(): Promise<Runtime> {
           noticeCleaned(account.id, account.clean.address, event);
         },
       });
-      engine.addAccount({
-        id: account.id,
-        initialState: initialCleanState(),
-        adapter,
-        cleanGate: true,
-      });
+      engine.addAccount(cleanLane(account.id, adapter));
     } catch {
       log("account-skipped", { account: accountTag(account.id) });
       notice(
@@ -792,6 +788,17 @@ async function start(): Promise<Runtime> {
     link.onOpen(() => {
       if (adapter.hasWork) engine.requestSync(account.id);
     });
+    const onCleanGap = cleanGapListener({
+      sweepAll: (force) => {
+        adapter.sweepAll(force);
+      },
+      requestSync: () => {
+        engine.requestSync(account.id);
+      },
+      log: (fields) => {
+        log("sweep-save-failed", { account: accountTag(account.id), ...fields });
+      },
+    });
     const { host, port, secure, user } = account.clean;
     watchers.set(
       account.id,
@@ -805,14 +812,7 @@ async function start(): Promise<Runtime> {
         ),
         screen: (fresh) => adapter.screen(fresh),
         onGap: (_, reason) => {
-          // Renumbering voids the saved pass. A burst or an unreadable mail repeats at a sender's wish, so those keep the hourly limit.
-          try {
-            adapter.sweepAll(reason === "renumbered");
-          } catch {
-            // A state that could not be saved leaves the request in memory, and this session can still run it.
-            log("sweep-save-failed", { account: accountTag(account.id), reason });
-          }
-          engine.requestSync(account.id);
+          onCleanGap(reason);
         },
         ...announce,
       }),

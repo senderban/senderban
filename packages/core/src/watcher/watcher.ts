@@ -34,6 +34,8 @@ export const DEFAULT_BACKOFF = { baseMs: 1_000, maxMs: 300_000, stableMs: 30_000
 /** Messages fetched per `exists`. More than this in one gap means a burst; the watcher announces few anyway. */
 export const FETCH_LIMIT = 200;
 
+export type GapReason = "burst" | "unreadable" | "renumbered";
+
 export interface IncomingMessage {
   readonly uid: number;
   /** Validated, lowercased `local@domain` (the matching key). Never the display name. */
@@ -48,7 +50,8 @@ export interface MailboxSession {
   readonly uidValidity: string;
   readonly uidNext: number;
   /** Messages with uid > `uid`, ascending. IMAP `n:*` returns the last message even when n is past it; callers must not trust the range. */
-  fetchSince(uid: number): Promise<IncomingMessage[]>;
+  /** The newest rows after `uid`, oldest first; `null` is a row with no usable From, which still counts towards FETCH_LIMIT. */
+  fetchSince(uid: number): Promise<(IncomingMessage | null)[]>;
   onExists(listener: () => void): void;
   /** Called once when the connection is gone, with the cause when there is one. */
   onClose(listener: (cause: Error | null) => void): void;
@@ -94,7 +97,7 @@ export interface WatcherOptions {
    */
   readonly screen?: (fresh: readonly IncomingMessage[]) => Promise<readonly IncomingMessage[]>;
   /** New mail went past the cursor unseen: more at once than FETCH_LIMIT, stepped over with an unreadable mail, or a renumbered mailbox. */
-  readonly onGap?: (accountId: string, reason: "burst" | "unreadable" | "renumbered") => void;
+  readonly onGap?: (accountId: string, reason: GapReason) => void;
   /** More new messages than `maxPerDrain`: the older `skipped` ones were not announced. */
   readonly onOverflow?: (accountId: string, skipped: number) => void;
   /** A mail too large to read was stepped past, with whatever came in beside it; `skipped` counts UIDs, an upper bound. */
@@ -366,11 +369,13 @@ export class AccountWatcher {
     if (opening && session.uidNext - 1 <= cursor.lastUid) return;
     const wide = opening && session.uidNext - 1 - cursor.lastUid > FETCH_LIMIT;
 
-    const fresh = (await session.fetchSince(cursor.lastUid))
-      .filter((m) => m.uid > cursor.lastUid)
+    const rows = await session.fetchSince(cursor.lastUid);
+    const fresh = rows
+      .filter((m): m is IncomingMessage => m !== null && m.uid > cursor.lastUid)
       .sort((a, b) => a.uid - b.uid);
-    // A burst past the limit on a live session shows only here: `uidNext` is frozen at open.
-    if (wide || fresh.length >= FETCH_LIMIT) this.gap("burst");
+    // A burst past the limit on a live session shows only here: `uidNext` is frozen at open. Rows count before the unusable ones
+    // go, or one bad From among the newest hides mail the limit left out.
+    if (wide || rows.length >= FETCH_LIMIT) this.gap("burst");
     // The watcher was stopped or replaced while the fetch ran: its result belongs to nobody.
     if (epoch !== this.epoch || fresh.length === 0) return;
 
@@ -394,7 +399,7 @@ export class AccountWatcher {
     if (skipped > 0) this.options.onOverflow?.(accountId, skipped);
   }
 
-  private gap(reason: "burst" | "unreadable" | "renumbered"): void {
+  private gap(reason: GapReason): void {
     try {
       this.options.onGap?.(this.options.accountId, reason);
     } catch {
