@@ -43,6 +43,9 @@ export const SIEVE_SUSPEND_WAIT_MS = 75_000;
  */
 const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "envelope"] as const;
 
+/** Unanswered rule writes remembered per session (`#sent`): one retry after another, each with a changed list, stays far below it. */
+const SENT_MAX = 8;
+
 /** The name `initialSieveState` gives the rules script. */
 const RULES_SCRIPT = "senderban-rules";
 
@@ -281,7 +284,9 @@ async function ensureInclude(
 /** True while this state says rules of ours are on the server; a false answer needs no connection to take them out. */
 export function sieveStateHoldsRules(state: OpaqueState): boolean {
   const current = parseState(state);
-  return current.applied.length > 0 || current.rulesSha256 !== null;
+  return (
+    current.applied.length > 0 || current.rulesSha256 !== null || current.includeBackup !== null
+  );
 }
 
 /**
@@ -303,6 +308,11 @@ export class SieveAdapter implements BlockAdapter {
   #retired = false;
   #active = 0;
   #idle: (() => void)[] = [];
+  /**
+   * Rules this session tried to write with no answer yet. A reply can get lost after the server took the script, and a client cannot
+   * tell that from a refusal; a person's edit has another hash. Holds at most SENT_MAX: each one is a write that was not confirmed.
+   */
+  readonly #sent = new Set<string>();
 
   constructor(options: SieveAdapterOptions) {
     this.#options = options;
@@ -426,7 +436,12 @@ export class SieveAdapter implements BlockAdapter {
           // byte-for-byte our empty rule set holds nothing of anyone's, so adopting it loses nothing.
           const isOurEmpty =
             (state.rulesSha256 === null || state.rewrite) && remoteSha === scriptSha256(empty);
-          if (remoteSha !== sha && remoteSha !== state.rulesSha256 && !isOurEmpty) {
+          if (
+            remoteSha !== sha &&
+            remoteSha !== state.rulesSha256 &&
+            !isOurEmpty &&
+            !this.#sent.has(remoteSha)
+          ) {
             throw new AdapterError("REMOTE_CHANGED", "rules script was edited on the server");
           }
         }
@@ -447,6 +462,11 @@ export class SieveAdapter implements BlockAdapter {
         if (remote === null) await session.putScript(state.rulesName, empty);
         const backup = await ensureRulesRun(session, state, listed, remote === null);
         if (needsWrite && (remote !== null || rules !== empty)) {
+          this.#sent.add(sha);
+          for (const old of this.#sent) {
+            if (this.#sent.size <= SENT_MAX) break;
+            this.#sent.delete(old);
+          }
           try {
             await session.putScript(state.rulesName, rules);
           } catch (error) {
@@ -472,6 +492,7 @@ export class SieveAdapter implements BlockAdapter {
           }
         }
 
+        this.#sent.clear();
         const next: SieveState = {
           ...state,
           applied,
@@ -503,10 +524,13 @@ export class SieveAdapter implements BlockAdapter {
       if (scripts.some((s) => s.name === current.rulesName)) {
         const rules = await session.getScript(current.rulesName);
         // The hash, as `apply` does it: a rule the person added to our script is theirs and has no other copy.
+        const hash = rules === null ? null : scriptSha256(rules);
         const edited =
-          rules !== null &&
+          hash !== null &&
           current.rulesSha256 !== null &&
-          scriptSha256(rules) !== current.rulesSha256;
+          hash !== current.rulesSha256 &&
+          hash !== scriptSha256(renderRules([], this.#render)) &&
+          !this.#sent.has(hash);
         if (rules !== null && (edited || !isOurRules(rules))) {
           throw new AdapterError("REMOTE_CHANGED", `script "${current.rulesName}" is not ours`);
         }

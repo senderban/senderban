@@ -235,6 +235,39 @@ describe("scanHistory", () => {
       ["history of plus.txt", "#2"],
     ]);
   });
+
+  it("reads a colour-forcing git setting away, and reports a type it does not read", () => {
+    writeFileSync(join(dir, "notes.db"), Buffer.from("\0\0user thirdlogin\0\0", "latin1"));
+    writeFileSync(join(dir, "setup.exe"), "MZ");
+    git("add", ".");
+    git("commit", "-q", "-m", "binaries");
+    writeFileSync(join(dir, "notes.db"), "x");
+    git("add", ".");
+    git("commit", "-q", "-m", "gone");
+
+    const before = { ...process.env };
+    Object.assign(process.env, {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "color.ui",
+      GIT_CONFIG_VALUE_0: "always",
+    });
+    try {
+      const found = scanHistory(dir, ["thirdlogin", "somelogin"]);
+      expect(found.map((f) => f.file)).toContain("history of notes.db");
+      expect(found.map((f) => f.file)).toContain("history of log.txt");
+      expect(found).toContainEqual({
+        file: "setup.exe",
+        line: 0,
+        kind: "unscannable",
+        what: "in history, type not read",
+      });
+    } finally {
+      for (const key of ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]) {
+        if (before[key] === undefined) Reflect.deleteProperty(process.env, key);
+        else process.env[key] = before[key];
+      }
+    }
+  });
 });
 
 describe("printing and decoding", () => {

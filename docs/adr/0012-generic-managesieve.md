@@ -81,10 +81,11 @@ write and one to verify. Nothing shared grows with the account count at 10x or 5
 - Any sign-in, rule, delivery or removal at Migadu, mailbox.org or Purelymail. The README says so per provider.
 - `imap.mailbox.org`: its ports are documented, its host only in a user forum. It answered ManageSieve and IMAP under a verified
   certificate on 2026-10-31.
-- **A lost answer to the last write can still strand the rules script.** The first write is now the empty rule set, so a round that fails before
-  the real rules go up leaves a script the next round adopts. If the server took the real rules and the answer never arrived, the script stays
-  unrecorded, and a later round with a different list stops with `REMOTE_CHANGED`. Same on every server, and refusing there keeps a person's
-  edit safe: an unrecorded script with entries cannot be told from one they changed.
+- **A lost answer to a write survives only this session.** The first write is the empty rule set, so a round that fails before the real rules go
+  up leaves a script the next round adopts. If the server took the real rules and the answer never arrived, the session remembers the hash it
+  sent, and rounds and Remove accept it. After a restart that memory is gone: a later round with a different list and Remove both stop with
+  `REMOTE_CHANGED`. Same on every server, and refusing there keeps a person's edit safe: a script we cannot vouch for cannot be told from one
+  they changed.
 - **The 60 s deadline can still lose the copy of a person's script.** A failed last write saves the copy made in that round, and the changes
   count as failed. If that write outlasts the round's deadline, the engine has already given up and nothing is saved. Removal then drops our
   two lines by hand, and a `require "include";` it added stays.

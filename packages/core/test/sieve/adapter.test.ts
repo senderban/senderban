@@ -313,6 +313,92 @@ describe("SieveAdapter failure handling", () => {
     },
   );
 
+  it("knows its own rules when the reply to the write got lost: an Unblock and a removal still work", async () => {
+    const { server, adapter } = setup();
+    const theirs = "# mine\nkeep;\n";
+    server.scripts.set("mine", theirs);
+    server.active = "mine";
+    let writes = 0;
+    server.afterPut = () => {
+      writes += 1;
+      // The rules' first write, the edit of the person's script, then the real rules: taken, reply lost.
+      if (writes === 3) throw new AdapterError("TRANSIENT", "connection lost");
+    };
+    const one = entry(1, "exactAddress", "a@example.com");
+    const two = entry(2, "exactAddress", "b@example.com");
+    const first = await sync(adapter, [one, two], initialSieveState());
+    expect(first.result.applied).toBe(0);
+    expect(server.scripts.get("senderban-rules")).toContain("b@example.com");
+
+    const second = await sync(adapter, [one], first.result.state);
+    expect(server.scripts.get("senderban-rules")).not.toContain("b@example.com");
+    await adapter.uninstall(second.result.state);
+    expect(server.scripts.get("mine")).toBe(theirs);
+  });
+
+  it("removes rules whose write lost its reply, without another round in between", async () => {
+    const { server, adapter } = setup();
+    const theirs = "# mine\nkeep;\n";
+    server.scripts.set("mine", theirs);
+    server.active = "mine";
+    let writes = 0;
+    server.afterPut = () => {
+      writes += 1;
+      if (writes === 3) throw new AdapterError("TRANSIENT", "connection lost");
+    };
+    const first = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    expect(sieveStateHoldsRules(first.result.state)).toBe(true);
+    await adapter.uninstall(first.result.state);
+    expect(server.scripts.get("mine")).toBe(theirs);
+  });
+
+  it("still refuses a person's edit after a write that lost its reply", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("mine", "# mine\nkeep;\n");
+    server.active = "mine";
+    let writes = 0;
+    server.afterPut = () => {
+      writes += 1;
+      if (writes === 3) throw new AdapterError("TRANSIENT", "connection lost");
+    };
+    const one = entry(1, "exactAddress", "a@example.com");
+    const first = await sync(adapter, [one], initialSieveState());
+    server.afterPut = null;
+    const edited = `${server.scripts.get("senderban-rules") ?? ""}# theirs\n`;
+    server.scripts.set("senderban-rules", edited);
+    const two = entry(2, "exactAddress", "b@example.com");
+    expect(await failure(sync(adapter, [one, two], first.result.state))).toBe("REMOTE_CHANGED");
+    expect(await failure(adapter.uninstall(first.result.state))).toBe("REMOTE_CHANGED");
+    expect(server.scripts.get("senderban-rules")).toBe(edited);
+  });
+
+  it("counts a saved copy of a person's script as rules to take out", () => {
+    const start = initialSieveState();
+    const includeBackup = { scriptName: "mine", sha256: "0".repeat(64), content: "keep;" };
+    const data = { ...(start.data as object), includeBackup };
+    expect(sieveStateHoldsRules(start)).toBe(false);
+    expect(sieveStateHoldsRules({ ...start, data })).toBe(true);
+  });
+
+  it("removes our own empty script under a rewrite, as a round would adopt it", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(
+      adapter,
+      [entry(1, "exactAddress", "a@example.com")],
+      initialSieveState(),
+    );
+    server.scripts.set(
+      "senderban-rules",
+      'require ["fileinto", "mailbox", "envelope"];\n# senderban-managed v1\n',
+    );
+    await adapter.uninstall(sieveStateForReinstall(result.state));
+    expect(server.scripts.has("senderban-rules")).toBe(false);
+  });
+
   it("keeps the copy of a person's script when the real rules fail to go up after it was edited", async () => {
     const { server, adapter } = setup();
     const theirs = "# mine\nkeep;\n";

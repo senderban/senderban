@@ -130,8 +130,11 @@ const MARK = "�";
 /** Binary files: the allowlist does not read them, the denylist still does (an ASCII term survives in a database or a document). */
 const BINARY =
   /\.(?:png|ico|jpe?g|gif|webp|woff2?|ttf|zip|gz|exe|dll|node|pdf|docx|xlsx|pptx|db|sqlite3?|p12|pfx|jar|svgz)$/iu;
-/** Left out of the history scan: one installer replaced a few times would pass `git`'s output limit and stop every push. gitleaks still reads them. */
-const HISTORY_SKIPPED = ["exe", "dll", "node", "zip", "gz", "jar", "db", "sqlite", "sqlite3"];
+/**
+ * Not read in the history scan: one installer replaced a few times would pass `git`'s output limit and stop every push. Such a file
+ * in history is reported instead, so leaving it out is a decision and not a silence. gitleaks does not read these either.
+ */
+const HISTORY_SKIPPED = ["exe", "dll", "node", "zip", "gz", "jar"];
 /** Generated: npm writes package maintainers' addresses into it. The denylist still reads it. */
 const LOCKFILE = /(?:^|\/)package-lock\.json$/u;
 
@@ -366,11 +369,16 @@ export function scanHistory(root: string, denylist: readonly string[]): Finding[
   // `--text`: git calls a UTF-16 file binary, and PowerShell's `>` writes those. Without its NUL bytes it reads as text.
   const patch = String(
     git(root, [
+      "-c",
+      "log.showRoot=true",
       "log",
       "--all",
       "-p",
       "-U0",
       "--text",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
       "--format=",
       "--diff-merges=first-parent",
       "--",
@@ -378,11 +386,34 @@ export function scanHistory(root: string, denylist: readonly string[]): Finding[
       ...HISTORY_SKIPPED.map((type) => `:(exclude,glob,icase)**/*.${type}`),
     ]),
   ).replaceAll("\0", "");
-  return [...addedByFile(patch)].flatMap(([file, lines]) =>
-    scanText(lines.join("\n"), file, denylist, exact, BINARY.test(file)).map((f) => ({
-      ...f,
-      file: `history of ${f.file}`,
-    })),
+  const unread = String(git(root, ["log", "--all", "--name-only", "--format="]))
+    .split("\n")
+    .filter((file) => HISTORY_SKIPPED.some((type) => file.toLowerCase().endsWith(`.${type}`)));
+  const skipped = [...new Set(unread)].map((file): Finding => ({
+    file,
+    line: 0,
+    kind: "unscannable",
+    what: "in history, type not read",
+  }));
+  // Commits and no diff at all: a setting changed what `git log` prints, and silence must not read as clean.
+  if (
+    !patch.includes("diff --git ") &&
+    String(git(root, ["rev-list", "--all", "--count"])).trim() !== "0"
+  ) {
+    skipped.push({
+      file: "history",
+      line: 0,
+      kind: "unscannable",
+      what: "git log printed no diff",
+    });
+  }
+  return skipped.concat(
+    [...addedByFile(patch)].flatMap(([file, lines]) =>
+      scanText(lines.join("\n"), file, denylist, exact, BINARY.test(file)).map((f) => ({
+        ...f,
+        file: `history of ${f.file}`,
+      })),
+    ),
   );
 }
 
