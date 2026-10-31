@@ -94,7 +94,7 @@ export interface WatcherOptions {
    */
   readonly screen?: (fresh: readonly IncomingMessage[]) => Promise<readonly IncomingMessage[]>;
   /** New mail went past the cursor unseen: more at once than FETCH_LIMIT, stepped over with an unreadable mail, or a renumbered mailbox. */
-  readonly onGap?: (accountId: string) => void;
+  readonly onGap?: (accountId: string, reason: "burst" | "unreadable" | "renumbered") => void;
   /** More new messages than `maxPerDrain`: the older `skipped` ones were not announced. */
   readonly onOverflow?: (accountId: string, skipped: number) => void;
   /** A mail too large to read was stepped past, with whatever came in beside it; `skipped` counts UIDs, an upper bound. */
@@ -347,7 +347,7 @@ export class AccountWatcher {
       // First run, or the server renumbered the mailbox: mail already there is not "new".
       cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: session.uidNext - 1 });
       this.skipUnreadable = false;
-      if (cursor !== undefined) this.options.onGap?.(accountId);
+      if (cursor !== undefined) this.options.onGap?.(accountId, "renumbered");
       return;
     }
     if (this.skipUnreadable) {
@@ -357,7 +357,7 @@ export class AccountWatcher {
       if (lastUid > cursor.lastUid) {
         cursors.set(accountId, { uidValidity: session.uidValidity, lastUid });
         this.options.onUnreadable?.(accountId, lastUid - cursor.lastUid);
-        this.options.onGap?.(accountId);
+        this.options.onGap?.(accountId, "unreadable");
         return;
       }
     }
@@ -370,7 +370,7 @@ export class AccountWatcher {
       .filter((m) => m.uid > cursor.lastUid)
       .sort((a, b) => a.uid - b.uid);
     // A burst past the limit on a live session shows only here: `uidNext` is frozen at open.
-    if (wide || fresh.length >= FETCH_LIMIT) this.options.onGap?.(accountId);
+    if (wide || fresh.length >= FETCH_LIMIT) this.options.onGap?.(accountId, "burst");
     // The watcher was stopped or replaced while the fetch ran: its result belongs to nobody.
     if (epoch !== this.epoch || fresh.length === 0) return;
 

@@ -66,6 +66,13 @@ describe("topUid", () => {
   });
 });
 
+describe("uidValidity", () => {
+  it("is the mailbox's own, as text", () => {
+    const client = stubClient({ mailbox: { uidNext: 1, readOnly: false, uidValidity: 7n } });
+    expect(cleanMailboxOf(client, hooks()).uidValidity()).toBe("7");
+  });
+});
+
 describe("search", () => {
   it("asks by UID, within the range, and keeps each address one value", async () => {
     const search = vi.fn(() => Promise.resolve([3, 4]));

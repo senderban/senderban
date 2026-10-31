@@ -296,22 +296,29 @@ function noticeIfUnsynced(outcome: SyncOutcome): void {
 }
 
 /** Mail a past-mail pass has moved so far, per lane: the person hears one number when the pass ends. At most one per cleaning lane. */
-const cleanedMail = new Map<string, number>();
+const cleanedMail = new Map<string, { readonly moved: number; readonly failed: number }>();
 
 /** Moving old mail out of an inbox is a change the person should see, and Unblock does not undo it. */
 function noticeCleaned(id: string, label: string, event: CleanEvent): void {
   if (event.kind !== "retro") return;
-  const total = (cleanedMail.get(id) ?? 0) + event.moved;
+  const before = cleanedMail.get(id) ?? { moved: 0, failed: 0 };
+  const moved = before.moved + event.moved;
+  const failed = before.failed + event.failed;
   if ((event.left ?? 0) > 0) {
-    cleanedMail.set(id, total);
+    cleanedMail.set(id, { moved, failed });
     return;
   }
   cleanedMail.delete(id);
-  if (total === 0) return;
-  notice(
-    "Senderban",
-    `${String(total)} older message(s) from blocked senders moved out of the inbox of ${label}, to Junk or Trash. Unblock does not bring them back.`,
-  );
+  if (moved === 0 && failed === 0) return;
+  const done =
+    moved === 0
+      ? ""
+      : `${String(moved)} older message(s) from blocked senders moved out of the inbox of ${label}, to Junk or Trash. Unblock does not bring them back.`;
+  const unread =
+    failed === 0
+      ? ""
+      : ` ${String(failed)} older message(s) in ${label} could not be read and were left in the inbox, blocked or not.`;
+  notice("Senderban", (done + unread).trim());
 }
 
 /** A server that refuses the move leaves blocked mail in the Inbox: said once, not per mail. */
@@ -402,9 +409,12 @@ function describeUnblock(
     const read = result.accounts.some((a) => !cleanLanes.has(a.accountId))
       ? " and was read back from the provider"
       : "";
+    const moved = result.accounts.some((a) => cleanLanes.has(a.accountId))
+      ? " Mail Senderban already moved stays where it is."
+      : "";
     return {
       tone: "ok",
-      text: `✓ ${value} unblocked. The rule is gone from ${String(result.accounts.length)} place(s)${read}.`,
+      text: `✓ ${value} unblocked. The rule is gone from ${String(result.accounts.length)} place(s)${read}.${moved}`,
     };
   }
   const first = unconfirmed
@@ -707,6 +717,9 @@ async function start(): Promise<Runtime> {
         accountId: account.id,
         link,
         initialState: store.getState(account.id) ?? initialCleanState(),
+        onRested: () => {
+          engine.requestSync(account.id);
+        },
         onClean: (event) => {
           log("clean", { account: accountTag(account.id), ...event });
           noticeCleanFailure(account.id, account.clean.address, event);
@@ -742,8 +755,9 @@ async function start(): Promise<Runtime> {
           link,
         ),
         screen: (fresh) => adapter.screen(fresh),
-        onGap: () => {
-          adapter.sweepAll();
+        onGap: (_, reason) => {
+          // Only a burst can repeat on every drain; these two passed mail nobody looked at.
+          adapter.sweepAll(reason !== "burst");
           engine.requestSync(account.id);
         },
         ...announce,

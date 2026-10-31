@@ -33,7 +33,7 @@ list row and the result toast.
    take (200 mails), an unreadable mail stepped over, or a renumbered mailbox (UIDVALIDITY) queues every rule for the past-mail pass.
 5. **Past mail.** A new entry also clears the last 30 days, and at most 50,000 UIDs. A pass walks 5,000-UID windows down from the top
    with `UID SEARCH UID lo:hi SINCE d` until one comes back empty, then runs `UID SEARCH UID floor:top OR FROM ...`, 8 entries at a time.
-   A queue of more than 32 entries, as on a first run, reads the envelopes of those UIDs once instead: 2,500 mails took 0.44 s against
+   A queue of more than 256 entries, as on a first run with a long list, reads the envelopes of those UIDs once instead: 2,500 mails took 0.44 s against
    6.5 s of 313 searches on Dovecot.
    FROM is a substring match over the header, display name included, so each candidate's ENVELOPE is read and matched locally: a
    server's search result alone never moves a mail. A round stops after 10 s, keeps its queue and how far it read in state, and the engine goes on 30-60 s
@@ -52,6 +52,11 @@ list row and the result toast.
 
 - Only the first address in From is matched, the one the notification shows. A Sieve `address` test looks at all of them. From is the
   sender's to write, so neither is a security boundary.
+- A past-mail pass sends one UID MOVE per read, so sparse hits in a long scan cost one command each: 40 hits took 6.1 s of a 7.9 s
+  round over 12,000 mails on Dovecot. Holding hits across reads would save that, and would lose them when a mail too large ends the
+  connection between reads, so it stays this way.
+- Saved rules act from the first mail, the list from the first round after a start. An Unblock whose round failed just before quitting
+  can still move mail for that moment.
 - A person who drags a blocked sender's mail back to the Inbox gives it a new UID, and Senderban moves it again. Unblock is the way out.
 - A refused move is a decision, not a retry: the mail stays in the Inbox, the person is told once, and read-back reports it until a
   move works. Only a new entry or a gap looks at that mail again. The library hides the server's reason for a refused MOVE, so a
@@ -70,5 +75,5 @@ list row and the result toast.
 
 ## Measured (Dovecot 2.4.5, loopback, 2026-10-31)
 
-`packages/core/contract/imap-clean.contract.ts`, a real watcher and adapter on one connection, delivery over LMTP. A blocked mail was in Junk
+Past-mail passes over 12,000 mails and 5,000 entries took 7.9-11.6 s in 1-2 rounds. `packages/core/contract/imap-clean.contract.ts`, a real watcher and adapter on one connection, delivery over LMTP. A blocked mail was in Junk
 1,044 ms after delivery began, polling included (limit: 5 s). A past-mail pass of 2 entries over 5 mails took 50 ms and moved 3.

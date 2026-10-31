@@ -71,6 +71,10 @@ class FakeBox implements CleanMailbox {
   topUid(): number {
     return this.top;
   }
+  validity = "1";
+  uidValidity(): string {
+    return this.validity;
+  }
   uidsSince(range: string): Promise<number[]> {
     this.probes.push(range);
     const [lo, hi] = range.split(":").map(Number) as [number, number];
@@ -453,7 +457,7 @@ describe("clearing past mail", () => {
   it("starts a pass over when the entries it stood for changed", async () => {
     const a = entry(1, "a@blocked.example");
     const b = entry(2, "b@blocked.example");
-    const pass = { size: 2, below: 2 };
+    const pass = { size: 2, below: 2, validity: "1" };
     const state = {
       adapterId: "imap-clean",
       data: { applied: [a, b], retro: [a.id, b.id], pass },
@@ -467,12 +471,99 @@ describe("clearing past mail", () => {
     expect(box.mail.size).toBe(0);
   });
 
+  it("forgets how far it read when the mailbox was renumbered", async () => {
+    const a = entry(1, "a@blocked.example");
+    const pass = { size: 1, below: 2, validity: "1" };
+    const state = { adapterId: "imap-clean", data: { applied: [a], retro: [a.id], pass } };
+    const box = new FakeBox().fill([[5, "a@blocked.example"]]);
+    box.validity = "2";
+    const { adapter } = rig(box, state);
+    await round(adapter, [a], state);
+    expect(box.mail.size).toBe(0);
+  });
+
+  it("wakes up by itself after the rest", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = entry(1, "a@blocked.example");
+      const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+      const state = { adapterId: "imap-clean", data: { applied: [a], retro: [a.id] } };
+      const link = new CleanLink();
+      link.attach(box);
+      const onRested = vi.fn();
+      const adapter = new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: state,
+        onRested,
+      });
+      box.onSearch = () => {
+        throw new Error("socket closed");
+      };
+      for (let i = 0; i < RETRO_ABORTS_MAX; i += 1) {
+        await expect(round(adapter, [a], state)).rejects.toThrow();
+      }
+      await vi.advanceTimersByTimeAsync(RETRO_HOLD_MS);
+      expect(onRested).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the wake-up when the account is removed", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = entry(1, "a@blocked.example");
+      const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+      const state = { adapterId: "imap-clean", data: { applied: [a], retro: [a.id] } };
+      const link = new CleanLink();
+      link.attach(box);
+      const onRested = vi.fn();
+      const adapter = new ImapCleanAdapter({ accountId: "x", link, initialState: state, onRested });
+      box.onSearch = () => {
+        throw new Error("socket closed");
+      };
+      for (let i = 0; i < RETRO_ABORTS_MAX; i += 1) {
+        await expect(round(adapter, [a], state)).rejects.toThrow();
+      }
+      adapter.retire();
+      await vi.advanceTimersByTimeAsync(RETRO_HOLD_MS);
+      expect(onRested).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks for a round on a new session after a round that failed", async () => {
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    box.refuseMoves = true;
+    const { adapter } = rig(box);
+    const a = entry(1, "a@blocked.example");
+    await expect(round(adapter, [a], initialCleanState())).rejects.toMatchObject({
+      code: "REJECTED",
+    });
+    expect(adapter.hasWork).toBe(true);
+    box.refuseMoves = false;
+    await round(adapter, [a], initialCleanState());
+    expect(adapter.hasWork).toBe(false);
+  });
+
+  it("lets a renumbered mailbox past the hourly limit", async () => {
+    const a = entry(1, "a@blocked.example");
+    const state = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
+    const { adapter } = rig(new FakeBox(), state);
+    adapter.sweepAll();
+    const first = await round(adapter, [a], state);
+    adapter.sweepAll(true);
+    expect((await adapter.plan([a], first.state)).changes).toHaveLength(1);
+  });
+
   it("keeps a pass when a new entry joins behind it", async () => {
     const a = entry(1, "a@blocked.example");
     const b = entry(2, "b@blocked.example");
     const state = {
       adapterId: "imap-clean",
-      data: { applied: [a], retro: [a.id], pass: { size: 1, below: 3 } },
+      data: { applied: [a], retro: [a.id], pass: { size: 1, below: 3, validity: "1" } },
     };
     const box = new FakeBox().fill([
       [1, "a@blocked.example"],

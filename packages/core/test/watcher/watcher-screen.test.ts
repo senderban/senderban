@@ -167,7 +167,7 @@ describe("onGap", () => {
     );
     renumbered.instance.start();
     await settled(renumbered.instance);
-    expect(onGap).toHaveBeenCalledTimes(1);
+    expect(onGap).toHaveBeenCalledWith("a", "renumbered");
     await renumbered.instance.stop();
 
     onGap.mockClear();

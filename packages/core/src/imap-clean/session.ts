@@ -37,6 +37,8 @@ export interface CleanMailbox {
   canMove(): boolean;
   /** Highest UID that existed when the mailbox was last told about; 0 for an empty one. */
   topUid(): number;
+  /** What the UIDs of this session mean (RFC 9051 §2.3.1.1): a position saved under another value says nothing here. */
+  uidValidity(): string;
   /** UIDs of `range` that arrived on or after `since`, by the server's arrival date (SINCE). */
   uidsSince(range: string, since: Date): Promise<number[]>;
   /** UIDs of `range` whose From header contains one of `needles`. A substring match: rows must be checked with `readFrom`. */

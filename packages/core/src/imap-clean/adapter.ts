@@ -40,9 +40,9 @@ export const RETRO_WINDOW_UIDS = 5_000;
 export const RETRO_BATCH = 8;
 /**
  * Unit: entries queued. Past this a pass reads every sender in the window once instead of searching: 2,500 mails took 0.44 s of
- * ENVELOPE against 6.5 s of 313 SEARCHes on Dovecot (2026-10-31). A person's click stays a search, which reads almost nothing.
+ * ENVELOPE against 6.5 s of 313 SEARCHes on Dovecot (2026-10-31), and the two met at about 260 entries. A click stays a search.
  */
-export const RETRO_SCAN_ABOVE = 32;
+export const RETRO_SCAN_ABOVE = 256;
 /** Unit: milliseconds. Well under the engine's 60 s deadline, and short because a round holds a slot a click may be waiting for. */
 export const RETRO_ROUND_MS = 10_000;
 /** Unit: entries named in one plan, which the journal keeps while the round runs. Apply works down the whole queue either way. */
@@ -69,6 +69,8 @@ const StateSchema = z.strictObject({
         .int()
         .min(1)
         .max(UID_MAX + 1),
+      /** RFC 9051 §2.3.1.1: `below` means nothing once the mailbox has been renumbered. */
+      validity: z.string().regex(/^\d{1,20}$/u),
     })
     .nullable()
     .default(null),
@@ -107,6 +109,8 @@ export interface ImapCleanAdapterOptions {
   /** The saved state: the rules hold from the first mail, before any round has run. */
   readonly initialState: OpaqueState;
   readonly onClean?: (event: CleanEvent) => void;
+  /** Past-mail clearing may go on after a rest: a round has to be asked for, nothing else would start one. */
+  readonly onRested?: () => void;
   readonly now?: () => number;
 }
 
@@ -182,6 +186,9 @@ export class ImapCleanAdapter implements BlockAdapter {
   #sweptAllAt = Number.NEGATIVE_INFINITY;
   #retroAborts = 0;
   #retroHeldUntil = 0;
+  #restTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The last round threw, so nothing was saved: a new session is worth a round even with an empty queue. */
+  #roundFailed = false;
   #retired = false;
   #folders: { readonly box: CleanMailbox; folders: CleanFolders } | null = null;
 
@@ -199,17 +206,22 @@ export class ImapCleanAdapter implements BlockAdapter {
 
   /** Past mail is waiting for a round. A new session with nothing queued needs none: a quiet plan costs 33-49 ms at 5,000 entries. */
   get hasWork(): boolean {
-    return this.#queued > 0 || this.#sweepAll;
+    return this.#queued > 0 || this.#sweepAll || this.#roundFailed;
   }
 
   /** The account was removed: nothing moves any more, and rounds have nothing to do for the rest of the session. */
   retire(): void {
     this.#retired = true;
+    if (this.#restTimer !== null) clearTimeout(this.#restTimer);
+    this.#restTimer = null;
   }
 
-  /** Mail came in that `screen` never saw (more in one gap than the watcher fetches): the next round reads the Inbox for every rule. */
-  sweepAll(): void {
-    if (this.#now() - this.#sweptAllAt < SWEEP_ALL_GAP_MS) return;
+  /**
+   * Mail came in that `screen` never saw: the next round reads the Inbox for every rule. `force` passes the hourly limit, which is
+   * for a flood that repeats on every drain.
+   */
+  sweepAll(force = false): void {
+    if (!force && this.#now() - this.#sweptAllAt < SWEEP_ALL_GAP_MS) return;
     this.#sweptAllAt = this.#now();
     this.#sweepAll = true;
   }
@@ -290,6 +302,7 @@ export class ImapCleanAdapter implements BlockAdapter {
     const sameFront =
       !sweepAll &&
       held !== null &&
+      state.retro.length >= held.size &&
       state.retro.slice(0, held.size).every((id, at) => queue[at] === id);
 
     const box = this.#options.link.current;
@@ -302,8 +315,10 @@ export class ImapCleanAdapter implements BlockAdapter {
     } catch (error) {
       // No state is saved for a failed round, so the request must outlive it.
       if (sweepAll) this.#sweepAll = true;
+      this.#roundFailed = true;
       throw error;
     }
+    this.#roundFailed = false;
     this.#queued = left.length;
     return {
       applied: plan.changes.length,
@@ -332,7 +347,8 @@ export class ImapCleanAdapter implements BlockAdapter {
     if (top < 1) return { left: [], pass: null };
 
     const started = this.#now();
-    let pass = resume;
+    const validity = box.uidValidity();
+    let pass = resume?.validity === validity ? resume : null;
     let moved = 0;
     let failed = 0;
     let reading: readonly number[] = [];
@@ -344,7 +360,10 @@ export class ImapCleanAdapter implements BlockAdapter {
       const since = new Date(this.#now() - RETRO_DAYS * DAY_MS);
       const inWindow = await uidsInWindow(box, top, since, signal);
       const lowest = inWindow.at(-1);
-      if (lowest === undefined) return { left: [], pass: null };
+      if (lowest === undefined) {
+        left.length = 0;
+        return { left, pass: null };
+      }
       const entries = new Map(applied.map((e) => [e.id, e]));
       let steps = 0;
       const mayGoOn = (): boolean => steps === 0 || this.#now() - started < RETRO_ROUND_MS;
@@ -354,6 +373,7 @@ export class ImapCleanAdapter implements BlockAdapter {
         const current: CleanPass = pass ?? {
           size: left.length > RETRO_SCAN_ABOVE ? left.length : Math.min(left.length, RETRO_BATCH),
           below: top + 1,
+          validity,
         };
         pass = current;
         // A long queue reads the window's senders once, instead of one search per RETRO_BATCH entries over the same mail.
@@ -386,7 +406,7 @@ export class ImapCleanAdapter implements BlockAdapter {
             return target === null ? [] : [{ uid: row.uid, target }];
           });
           moved += await this.#move(box, hits);
-          pass = { size: current.size, below: Math.min(...part) };
+          pass = { ...current, below: Math.min(...part) };
           steps += 1;
           this.#retroAborts = 0;
         }
@@ -400,7 +420,9 @@ export class ImapCleanAdapter implements BlockAdapter {
       if (error instanceof UnreadableMailError) {
         // The connection ended on it. The messages of this one read are given up; the next session goes on below them.
         failed += reading.length;
-        if (pass !== null) pass = { size: pass.size, below: Math.min(...reading) };
+        if (pass !== null && reading.length > 0) {
+          pass = { ...pass, below: Math.min(...reading) };
+        }
       } else if (error instanceof AdapterError) {
         throw error;
       } else {
@@ -432,6 +454,12 @@ export class ImapCleanAdapter implements BlockAdapter {
     if (this.#retroAborts < RETRO_ABORTS_MAX) return;
     this.#retroAborts = 0;
     this.#retroHeldUntil = this.#now() + RETRO_HOLD_MS;
+    if (this.#restTimer !== null) clearTimeout(this.#restTimer);
+    this.#restTimer = setTimeout(() => {
+      this.#restTimer = null;
+      this.#options.onRested?.();
+    }, RETRO_HOLD_MS);
+    this.#restTimer.unref();
   }
 
   async #foldersOf(box: CleanMailbox): Promise<CleanFolders> {

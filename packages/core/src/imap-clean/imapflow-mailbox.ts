@@ -70,6 +70,9 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
     topUid() {
       return client.mailbox === false ? 0 : Math.max(0, client.mailbox.uidNext - 1);
     },
+    uidValidity() {
+      return client.mailbox === false ? "" : client.mailbox.uidValidity.toString();
+    },
     async uidsSince(range, since) {
       return checkedUids(await client.search({ uid: range, since }, { uid: true }));
     },
