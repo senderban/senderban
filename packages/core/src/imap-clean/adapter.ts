@@ -76,12 +76,14 @@ const StateSchema = z.strictObject({
     })
     .nullable()
     .default(null),
+  /** A gap's sweep has not run yet. The watcher's cursor is already past that mail, so the request must outlive a restart. */
+  sweepOwed: z.boolean().default(false),
 });
 type CleanState = z.infer<typeof StateSchema>;
 type CleanPass = NonNullable<CleanState["pass"]>;
 
 export function initialCleanState(): OpaqueState {
-  const data: CleanState = { applied: [], retro: [], pass: null };
+  const data: CleanState = { applied: [], retro: [], pass: null, sweepOwed: false };
   return { adapterId: IMAP_CLEAN_ADAPTER_ID, data };
 }
 
@@ -110,6 +112,8 @@ export interface ImapCleanAdapterOptions {
   readonly link: CleanLink;
   /** The saved state: the rules hold from the first mail, before any round has run. */
   readonly initialState: OpaqueState;
+  /** Changes the saved state outside a round: a gap comes with no round that could save it. */
+  readonly updateState: (change: (state: OpaqueState) => OpaqueState) => void;
   readonly onClean?: (event: CleanEvent) => void;
   /** Past-mail clearing may go on after a rest: a round has to be asked for, nothing else would start one. */
   readonly onRested?: () => void;
@@ -181,6 +185,8 @@ export class ImapCleanAdapter implements BlockAdapter {
   #rules: CleanRules;
   /** Mail came in that nothing looked at: every rule clears the Inbox again. */
   #sweepAll = false;
+  /** The saved state says a sweep is owed: a flood of gaps writes it once. */
+  #sweepOwed = false;
   /** Entries still queued, as of the last saved state. */
   #queued = 0;
   /** The server turned the last move down: rules are held, but mail is not moving, and `verify` must say so. */
@@ -203,6 +209,10 @@ export class ImapCleanAdapter implements BlockAdapter {
     const initial = parseState(options.initialState);
     this.#rules = compileRules(initial.applied);
     this.#queued = initial.retro.length;
+    if (initial.sweepOwed) {
+      this.#sweepOwed = true;
+      this.#startSweep();
+    }
   }
 
   capabilities(): Capabilities {
@@ -227,16 +237,25 @@ export class ImapCleanAdapter implements BlockAdapter {
   /**
    * Mail came in that `screen` never saw: the next round reads the Inbox for every rule. `force` is for a renumbered mailbox, whose
    * saved pass is void: it waits the shorter rest instead of the hourly limit, because a sweep restarts a pass. A request inside the
-   * limit is not lost: that mail is still unread, so one sweep at the end of the limit answers every gap inside it.
+   * limit is not lost: that mail is still unread, so one sweep at the end of the limit answers every gap inside it, and a restart
+   * before that end starts it at the first session.
    */
   sweepAll(force = false): void {
     if (this.#retired) return;
     const due = this.#sweptAllAt + (force ? RETRO_HOLD_MS : SWEEP_ALL_GAP_MS);
-    if (this.#now() < due) {
-      this.#deferSweep(due);
-      return;
-    }
-    this.#startSweep();
+    if (this.#now() < due) this.#deferSweep(due);
+    else this.#startSweep();
+    if (this.#sweepOwed) return;
+    this.#options.updateState((state) => ({
+      adapterId: IMAP_CLEAN_ADAPTER_ID,
+      data: { ...parseState(state), sweepOwed: true },
+    }));
+    this.#sweepOwed = true;
+  }
+
+  /** A method, so the compiler does not assume the flag is still false after an await. */
+  #owesSweep(): boolean {
+    return this.#sweepAll || this.#sweepDue !== null;
   }
 
   #startSweep(): void {
@@ -352,10 +371,13 @@ export class ImapCleanAdapter implements BlockAdapter {
     }
     this.#roundFailed = false;
     this.#queued = left.length;
+    // What this round took is in `left` now, and only a request made since is still owed.
+    const sweepOwed = this.#owesSweep();
+    this.#sweepOwed = sweepOwed;
     return {
       applied: plan.changes.length,
       failed: [],
-      state: { adapterId: IMAP_CLEAN_ADAPTER_ID, data: { applied, retro: left, pass } },
+      state: { adapterId: IMAP_CLEAN_ADAPTER_ID, data: { applied, retro: left, pass, sweepOwed } },
       // With the connection gone the link's `onOpen` starts the next round; a timer would only find it gone again.
       ...(left.length > 0 && this.#canSweep() ? { deferred: left.length } : {}),
     };
@@ -384,6 +406,7 @@ export class ImapCleanAdapter implements BlockAdapter {
     let moved = 0;
     let failed = 0;
     let reading: readonly number[] = [];
+    let progressed = false;
     const onAbort = (): void => {
       box.destroy();
     };
@@ -440,12 +463,12 @@ export class ImapCleanAdapter implements BlockAdapter {
           moved += await this.#move(box, hits);
           pass = { ...current, below: Math.min(...part) };
           steps += 1;
-          this.#noteProgress();
+          progressed = true;
         }
         if (complete) {
           left.splice(0, current.size);
           pass = null;
-          this.#noteProgress();
+          progressed = true;
         }
       }
     } catch (error) {
@@ -458,6 +481,10 @@ export class ImapCleanAdapter implements BlockAdapter {
       } else if (error instanceof AdapterError) {
         throw error;
       } else {
+        // Progress first: with the connection simply gone this round's steps are saved below, and they count before the abort does.
+        const stays = signal?.aborted === true || this.#options.link.current === box;
+        if (progressed && !stays) this.#noteProgress();
+        progressed = false;
         this.#noteAbort();
         if (signal?.aborted === true) throw error;
         // With the session still there this was no lost connection, and a round that did nothing must not read as done.
@@ -478,6 +505,8 @@ export class ImapCleanAdapter implements BlockAdapter {
         left: left.length,
       });
     }
+    // Only here: a round that throws saves nothing, so the next one passes the same step again and the rest would never begin.
+    if (progressed) this.#noteProgress();
     return { left, pass };
   }
 

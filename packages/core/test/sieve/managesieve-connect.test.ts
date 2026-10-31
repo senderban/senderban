@@ -2,7 +2,11 @@ import { createServer } from "node:net";
 import type { AddressInfo, Server, Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AdapterError } from "../../src/adapter.js";
-import { connectManageSieve, probeManageSieve } from "../../src/sieve/managesieve.js";
+import {
+  connectManageSieve,
+  NoStartTlsError,
+  probeManageSieve,
+} from "../../src/sieve/managesieve.js";
 
 const servers: Server[] = [];
 const sockets: Socket[] = [];
@@ -95,9 +99,10 @@ describe("connectManageSieve", () => {
 
   it("refuses a server without STARTTLS before any credential is sent", async () => {
     const { port } = await listen('"IMPLEMENTATION" "fake"\r\nOK\r\n');
-    await expect(connectManageSieve(options(port))).rejects.toMatchObject({
-      code: "CAPABILITY_NOT_SUPPORTED",
-    });
+    const refused = connectManageSieve(options(port));
+    await expect(refused).rejects.toBeInstanceOf(NoStartTlsError);
+    // Only a greeting says so, which anyone on the path can write: it must not stop the lane.
+    await expect(refused).rejects.toMatchObject({ code: "TRANSIENT" });
   });
 });
 
@@ -167,9 +172,9 @@ describe("probeManageSieve", () => {
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const { port } = server.address() as AddressInfo;
-    await expect(probeManageSieve({ host: "127.0.0.1", port })).rejects.toMatchObject({
-      code: "CAPABILITY_NOT_SUPPORTED",
-    });
+    await expect(probeManageSieve({ host: "127.0.0.1", port })).rejects.toBeInstanceOf(
+      NoStartTlsError,
+    );
     expect(received).toBe(0);
   });
 

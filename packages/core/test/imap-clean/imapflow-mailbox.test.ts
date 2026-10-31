@@ -64,6 +64,14 @@ describe("topUid", () => {
     const empty = stubClient({ mailbox: { uidNext: 1, readOnly: false } });
     expect(cleanMailboxOf(empty, hooks()).topUid()).toBe(0);
   });
+
+  it("reads the live value, and refuses one a FETCH row raised past the limit", () => {
+    const mailbox = { uidNext: UID_MAX + 1, readOnly: false };
+    const box = cleanMailboxOf(stubClient({ mailbox }), hooks());
+    expect(box.topUid()).toBe(UID_MAX);
+    mailbox.uidNext = UID_MAX + 2;
+    expect(() => box.topUid()).toThrow(expect.objectContaining({ code: "TRANSIENT" }) as unknown);
+  });
 });
 
 describe("uidValidity", () => {

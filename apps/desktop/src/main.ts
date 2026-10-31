@@ -758,6 +758,9 @@ async function start(): Promise<Runtime> {
         accountId: account.id,
         link,
         initialState: store.getState(account.id) ?? initialCleanState(),
+        updateState: (change) => {
+          store.setState(account.id, change(store.getState(account.id) ?? initialCleanState()));
+        },
         onRested: () => {
           engine.requestSync(account.id);
         },
@@ -803,8 +806,12 @@ async function start(): Promise<Runtime> {
         screen: (fresh) => adapter.screen(fresh),
         onGap: (_, reason) => {
           // Renumbering voids the saved pass. A burst or an unreadable mail repeats at a sender's wish, so those keep the hourly limit.
-          adapter.sweepAll(reason === "renumbered");
-          engine.requestSync(account.id);
+          try {
+            adapter.sweepAll(reason === "renumbered");
+          } finally {
+            // A state that could not be saved leaves the request in memory, and this session can still run it.
+            engine.requestSync(account.id);
+          }
         },
         ...announce,
       }),

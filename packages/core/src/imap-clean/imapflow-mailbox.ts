@@ -12,7 +12,7 @@ import {
 } from "../watcher/imapflow-session.js";
 import type { MailboxSession } from "../watcher/watcher.js";
 import { RETRO_MAX_UIDS } from "./adapter.js";
-import { CLEAN_UIDS_PER_COMMAND, CleanUid, FolderPath } from "./session.js";
+import { CLEAN_UIDS_PER_COMMAND, CleanUid, FolderPath, UID_MAX } from "./session.js";
 import type { CleanFolders, CleanLink, CleanMailbox, CleanRow } from "./session.js";
 
 // Not exported from index.ts, like the session it extends: it pulls in a Node-only library.
@@ -68,7 +68,12 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
       return has("MOVE") || has("UIDPLUS") || rev2;
     },
     topUid() {
-      return client.mailbox === false ? 0 : Math.max(0, client.mailbox.uidNext - 1);
+      if (client.mailbox === false) return 0;
+      // Live, not the value from the open: the library raises it from any FETCH row, and a pass saved past the limit would stop the lane.
+      const top = client.mailbox.uidNext - 1;
+      if (top > UID_MAX)
+        throw new AdapterError("TRANSIENT", "server reported a UID past the limit");
+      return Math.max(0, top);
     },
     uidValidity() {
       return client.mailbox === false ? "" : client.mailbox.uidValidity.toString();

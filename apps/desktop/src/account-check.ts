@@ -11,6 +11,7 @@ import {
   connectManageSieve,
   imapflowConnector,
   isAuthFailure,
+  NoStartTlsError,
   probeManageSieve,
 } from "@senderban/core/node";
 
@@ -198,9 +199,7 @@ export async function checkAccount(
   } catch (error) {
     if (options.signal?.aborted === true) return "cancelled";
     if (isCertificateRefusal(error)) return "tls-refused";
-    return error instanceof AdapterError && error.code === "CAPABILITY_NOT_SUPPORTED"
-      ? "sieve-no-tls"
-      : "sieve-missing";
+    return error instanceof NoStartTlsError ? "sieve-no-tls" : "sieve-missing";
   }
   try {
     await withDeadline(

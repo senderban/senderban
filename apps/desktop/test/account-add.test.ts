@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AdapterError, FatalWatchError, MAX_ACCOUNTS } from "@senderban/core";
 import type { AccountConfig, NewAccount } from "@senderban/core";
+import { NoStartTlsError } from "@senderban/core/node";
 import type { AccountAddSteps } from "../src/add-account.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -439,7 +440,7 @@ describe("checkAccount", () => {
     const imap = vi.fn(ok);
     const sieve = vi.fn(fits);
     const dead = () => Promise.reject(new AdapterError("TRANSIENT", "connection error"));
-    const clear = () => Promise.reject(new AdapterError("CAPABILITY_NOT_SUPPORTED", "no STARTTLS"));
+    const clear = () => Promise.reject(new NoStartTlsError());
     const tls = Object.assign(new Error("certificate"), { code: "CERT_HAS_EXPIRED" });
     const badCert = () => Promise.reject(new AdapterError("TRANSIENT", "TLS", { cause: tls }));
     const lacking = () => Promise.resolve("missing-extensions" as const);

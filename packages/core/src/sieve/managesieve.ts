@@ -146,6 +146,17 @@ export function authFailure(response: Response): AdapterError {
   return new AdapterError("AUTH_REQUIRED", "ManageSieve login was refused");
 }
 
+/**
+ * The greeting offers no STARTTLS. Nothing is sent, and the form names it, but only a greeting says so and anyone on the path can
+ * write that: a lane tries again, as for every other answer from before TLS.
+ */
+export class NoStartTlsError extends AdapterError {
+  constructor() {
+    super("TRANSIENT", "server does not offer STARTTLS; refusing to send credentials unencrypted");
+    this.name = "NoStartTlsError";
+  }
+}
+
 function expectOk(response: Response, what: string): void {
   if (response.status !== "OK") throw failure(response, what);
 }
@@ -266,12 +277,7 @@ async function overTls<T>(
     const plain = new ResponseChannel(raw, timeoutMs);
     const greeting = await plain.read();
     expectClearOk(greeting, "greeting");
-    if (!capabilitiesOf(greeting).has("STARTTLS")) {
-      throw new AdapterError(
-        "CAPABILITY_NOT_SUPPORTED",
-        "server does not offer STARTTLS; refusing to send credentials unencrypted",
-      );
-    }
+    if (!capabilitiesOf(greeting).has("STARTTLS")) throw new NoStartTlsError();
     plain.write("STARTTLS\r\n");
     expectClearOk(await plain.read(), "STARTTLS");
     // Bytes queued behind the STARTTLS reply are unauthenticated: they are dropped unread with this channel, so nothing an

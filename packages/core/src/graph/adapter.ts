@@ -988,6 +988,7 @@ export class GraphAdapter implements BlockAdapter {
   #resolveIntents(
     work: Work,
     listing: GraphRuleList,
+    atRemoval = false,
   ): { changed: boolean; dropped: number; adopted: number } {
     if (work.intent.length === 0) return { changed: false, dropped: 0, adopted: 0 };
     const remote = listing.rules;
@@ -1004,8 +1005,10 @@ export class GraphAdapter implements BlockAdapter {
         );
         if (found === undefined) {
           // It may be the entry the client could not read, which can stay so for good: one round of patience, or an intent would never end. A later
-          // round writes the entries again, and that follow-up is `deferred`.
-          if (waiting && item.waited !== true) undecided.push({ ...item, waited: true });
+          // round writes the entries again, and that follow-up is `deferred`. No round follows a removal, so there it stays and the person is told.
+          if (waiting && (atRemoval || item.waited !== true)) {
+            undecided.push({ ...item, waited: true });
+          }
           dropped += item.entries.length;
           continue;
         }
@@ -1232,7 +1235,7 @@ export class GraphAdapter implements BlockAdapter {
       junkFolderId: current.junkFolderId,
       capacity: current.capacity,
     };
-    this.#resolveIntents(work, listing);
+    this.#resolveIntents(work, listing, true);
     const remote = new Map(listing.rules.map((r) => [r.id, r]));
     const left: RuleRecord[] = [];
     const edited: EditedRule[] = [];

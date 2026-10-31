@@ -435,6 +435,24 @@ describe("GraphAdapter: answers that never came back", () => {
     expect(graphStateHoldsRules(left)).toBe(true);
   });
 
+  it("keeps an intent that already waited at removal, while the list hides a rule", async () => {
+    const r = rig();
+    r.fake.forced.set("POST", [500]);
+    const list = listOf(["a@spam.example"]);
+    const plan = await r.adapter.plan(list, initialGraphState());
+    await expect(r.adapter.apply(plan)).rejects.toBeDefined();
+    const unreadable = { status: 200, body: { value: [{ id: "mine", displayName: 5 }] } };
+    r.fake.forced.set("GET", [unreadable, unreadable]);
+    const first = await r.adapter.apply(await r.adapter.plan(list, r.saved.at(-1) as OpaqueState));
+    expect(intentOf(first.state)).toHaveLength(1);
+    const left = await r.adapter.uninstall(first.state);
+    expect(graphStateHoldsRules(left)).toBe(true);
+    expect(graphStateHoldsDeletable(left)).toBe(false);
+    // Nothing came of the create and the list reads clean: this time there is nothing to keep.
+    const clean = await r.adapter.uninstall(first.state);
+    expect(graphStateHoldsRules(clean)).toBe(false);
+  });
+
   it("drops an intent nothing came of, and writes the entry again", async () => {
     const r = rig();
     r.fake.forced.set("POST", [500]);

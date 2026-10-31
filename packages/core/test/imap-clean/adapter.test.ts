@@ -122,6 +122,8 @@ interface Rig {
   clock: { now: number };
 }
 
+const noSave = (): void => undefined;
+
 function rig(box: FakeBox | null, state: OpaqueState = initialCleanState()): Rig {
   const link = new CleanLink();
   if (box !== null) link.attach(box);
@@ -131,6 +133,7 @@ function rig(box: FakeBox | null, state: OpaqueState = initialCleanState()): Rig
     accountId: "you@example.test",
     link,
     initialState: state,
+    updateState: noSave,
     onClean: (event) => events.push(event),
     now: () => clock.now,
   });
@@ -142,7 +145,7 @@ async function round(adapter: ImapCleanAdapter, list: Blocklist, state: OpaqueSt
 }
 
 const dataOf = (state: OpaqueState) =>
-  state.data as { applied: BlockEntry[]; retro: string[]; pass: unknown };
+  state.data as { applied: BlockEntry[]; retro: string[]; pass: unknown; sweepOwed?: boolean };
 
 describe("ImapCleanAdapter capabilities", () => {
   it("never claims a block on the server", () => {
@@ -496,6 +499,7 @@ describe("clearing past mail", () => {
         accountId: "x",
         link,
         initialState: state,
+        updateState: noSave,
         onRested,
       });
       box.onSearch = () => {
@@ -511,6 +515,75 @@ describe("clearing past mail", () => {
     }
   });
 
+  it("rests when a round stalls past a step it passes again each time, because nothing of it was saved", async () => {
+    vi.useFakeTimers();
+    try {
+      const entries = Array.from({ length: 16 }, (_, at) =>
+        entry(at + 1, `a${String(at)}@blocked.example`),
+      );
+      const box = new FakeBox().fill([[1, "someone@other.example"]]);
+      const state = {
+        adapterId: "imap-clean",
+        data: { applied: entries, retro: entries.map((e) => e.id) },
+      };
+      const link = new CleanLink();
+      link.attach(box);
+      const onRested = vi.fn();
+      const adapter = new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: state,
+        updateState: noSave,
+        onRested,
+      });
+      let searches = 0;
+      box.onSearch = () => {
+        searches += 1;
+        // The first batch answers with nothing and ends; the second is where this server stalls, in every round.
+        if (searches % 2 === 0) throw new Error("socket closed");
+      };
+      for (let i = 0; i < RETRO_ABORTS_MAX; i += 1) {
+        await expect(round(adapter, entries, state)).rejects.toThrow();
+      }
+      expect((await adapter.plan(entries, state)).changes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(RETRO_HOLD_MS);
+      expect(onRested).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts the steps of a round that lost its connection before the abort, so a saved step does not rest", async () => {
+    const entries = Array.from({ length: 16 }, (_, at) =>
+      entry(at + 1, `a${String(at)}@blocked.example`),
+    );
+    const box = new FakeBox().fill([[1, "someone@other.example"]]);
+    const state = {
+      adapterId: "imap-clean",
+      data: { applied: entries, retro: entries.map((e) => e.id) },
+    };
+    const { adapter, link } = rig(box, state);
+    box.onSearch = () => {
+      throw new Error("socket closed");
+    };
+    for (let i = 0; i < RETRO_ABORTS_MAX - 1; i += 1) {
+      await expect(round(adapter, entries, state)).rejects.toThrow();
+    }
+    // The first batch ends and is saved; the connection goes during the second.
+    let searches = 0;
+    box.onSearch = () => {
+      searches += 1;
+      if (searches === 2) {
+        link.detach(box);
+        throw new Error("socket closed");
+      }
+    };
+    const { state: after } = await round(adapter, entries, state);
+    expect(dataOf(after).retro).toHaveLength(8);
+    link.attach(box);
+    expect((await adapter.plan(entries, after)).changes.length).toBeGreaterThan(0);
+  });
+
   it("rests twice as long each time, up to the ceiling, until a read gets somewhere", async () => {
     vi.useFakeTimers();
     try {
@@ -520,7 +593,13 @@ describe("clearing past mail", () => {
       const link = new CleanLink();
       link.attach(box);
       const onRested = vi.fn();
-      const adapter = new ImapCleanAdapter({ accountId: "x", link, initialState: state, onRested });
+      const adapter = new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: state,
+        updateState: noSave,
+        onRested,
+      });
       box.onSearch = () => {
         throw new Error("socket closed");
       };
@@ -568,7 +647,13 @@ describe("clearing past mail", () => {
       const link = new CleanLink();
       link.attach(box);
       const onRested = vi.fn();
-      const adapter = new ImapCleanAdapter({ accountId: "x", link, initialState: state, onRested });
+      const adapter = new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: state,
+        updateState: noSave,
+        onRested,
+      });
       box.onSearch = () => {
         throw new Error("socket closed");
       };
@@ -612,6 +697,124 @@ describe("clearing past mail", () => {
     expect((await adapter.plan([a], first.state)).changes).toHaveLength(1);
   });
 
+  it("saves a sweep it cannot run yet, once, and runs it first after a restart", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    let saved: OpaqueState = { adapterId: "imap-clean", data: { applied: [a], retro: [] } };
+    const updateState = vi.fn((change: (state: OpaqueState) => OpaqueState) => {
+      saved = change(saved);
+    });
+    const start = (): ImapCleanAdapter => {
+      const link = new CleanLink();
+      link.attach(box);
+      return new ImapCleanAdapter({ accountId: "x", link, initialState: saved, updateState });
+    };
+    const first = start();
+    first.sweepAll();
+    expect(dataOf(saved).sweepOwed).toBe(true);
+    saved = (await round(first, [a], saved)).state;
+    expect(dataOf(saved).sweepOwed).toBe(false);
+    expect(updateState).toHaveBeenCalledTimes(1);
+
+    // Inside the hour now: the sweep waits, and a flood of gaps writes the state once.
+    box.fill([[2, "a@blocked.example"]]);
+    first.sweepAll();
+    first.sweepAll();
+    first.sweepAll();
+    expect(first.hasWork).toBe(false);
+    expect(updateState).toHaveBeenCalledTimes(2);
+    first.retire();
+
+    const next = start();
+    expect(next.hasWork).toBe(true);
+    const after = await round(next, [a], saved);
+    expect(dataOf(after.state).sweepOwed).toBe(false);
+    expect(box.moves.flatMap((m) => m.uids)).toContain(2);
+  });
+
+  it("stays owed when a gap comes during the round that took the last request", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    const saved: OpaqueState = {
+      adapterId: "imap-clean",
+      data: { applied: [a], retro: [], sweepOwed: true },
+    };
+    const { adapter } = rig(box, saved);
+    box.onSearch = () => {
+      adapter.sweepAll();
+    };
+    const after = await round(adapter, [a], saved);
+    expect(dataOf(after.state).sweepOwed).toBe(true);
+    adapter.retire();
+  });
+
+  it("counts a sweep that a restart starts against the hourly limit", async () => {
+    const a = entry(1, "a@blocked.example");
+    const saved: OpaqueState = {
+      adapterId: "imap-clean",
+      data: { applied: [a], retro: [], sweepOwed: true },
+    };
+    const { adapter } = rig(new FakeBox().fill([[1, "a@blocked.example"]]), saved);
+    const after = await round(adapter, [a], saved);
+    adapter.sweepAll();
+    expect(adapter.hasWork).toBe(false);
+    expect((await adapter.plan([a], after.state)).changes).toEqual([]);
+    adapter.retire();
+  });
+
+  it("asks again at the next gap when the state could not be saved, and keeps the request", () => {
+    const updateState = vi.fn<(change: (state: OpaqueState) => OpaqueState) => void>();
+    updateState.mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    const link = new CleanLink();
+    link.attach(new FakeBox());
+    const adapter = new ImapCleanAdapter({
+      accountId: "x",
+      link,
+      initialState: initialCleanState(),
+      updateState,
+    });
+    expect(() => {
+      adapter.sweepAll();
+    }).toThrow("disk full");
+    expect(adapter.hasWork).toBe(true);
+    adapter.sweepAll();
+    expect(updateState).toHaveBeenCalledTimes(2);
+    adapter.retire();
+  });
+
+  it("keeps the sweep owed when the round that took it fails", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    const saved: OpaqueState = {
+      adapterId: "imap-clean",
+      data: { applied: [a], retro: [], sweepOwed: true },
+    };
+    const { adapter } = rig(box, saved);
+    box.topUid = () => {
+      throw new AdapterError("TRANSIENT", "refused");
+    };
+    await expect(round(adapter, [a], saved)).rejects.toMatchObject({ code: "TRANSIENT" });
+    box.topUid = () => box.top;
+    const after = await round(adapter, [a], saved);
+    expect(dataOf(after.state).sweepOwed).toBe(false);
+    expect(box.moves.flatMap((m) => m.uids)).toEqual([1]);
+  });
+
+  it("saves no pass past the UID limit: a refused top ends the round with nothing saved", async () => {
+    const a = entry(1, "a@blocked.example");
+    const box = new FakeBox().fill([[1, "a@blocked.example"]]);
+    box.topUid = () => {
+      throw new AdapterError("TRANSIENT", "server reported a UID past the limit");
+    };
+    const { adapter } = rig(box);
+    await expect(round(adapter, [a], initialCleanState())).rejects.toMatchObject({
+      code: "TRANSIENT",
+    });
+    expect(adapter.hasWork).toBe(true);
+  });
+
   it("keeps a request inside the hourly limit for the end of it, as one sweep", async () => {
     vi.useFakeTimers();
     try {
@@ -620,7 +823,13 @@ describe("clearing past mail", () => {
       const link = new CleanLink();
       link.attach(new FakeBox());
       const onRested = vi.fn();
-      const adapter = new ImapCleanAdapter({ accountId: "x", link, initialState: state, onRested });
+      const adapter = new ImapCleanAdapter({
+        accountId: "x",
+        link,
+        initialState: state,
+        updateState: noSave,
+        onRested,
+      });
       adapter.sweepAll();
       const first = await round(adapter, [a], state);
       adapter.sweepAll();
@@ -646,6 +855,7 @@ describe("clearing past mail", () => {
         accountId: "x",
         link,
         initialState: initialCleanState(),
+        updateState: noSave,
         onRested,
       });
       adapter.sweepAll();
@@ -869,7 +1079,7 @@ describe("clearing past mail", () => {
     const { adapter } = rig(box, state);
     const result = await round(adapter, [], state);
     expect(box.moves).toEqual([]);
-    expect(dataOf(result.state)).toEqual({ applied: [], retro: [], pass: null });
+    expect(dataOf(result.state)).toEqual({ applied: [], retro: [], pass: null, sweepOwed: false });
   });
 });
 

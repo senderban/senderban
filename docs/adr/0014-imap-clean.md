@@ -63,7 +63,7 @@ list row and the result toast.
   throttled move counts as refused too.
 - There is no deadline per command, only the engine's 60 s per round. A provider whose SEARCH outlasts it costs the connection, and the
   new session starts the round again. After 3 such rounds in a row past-mail clearing rests for 30 min, wakes by itself, and rests twice
-  as long each time up to 6 h, until a read gets somewhere; rules on new mail go on working. How long SEARCH takes on a real provider
+  as long each time up to 6 h, until a round saves a step; rules on new mail go on working. A step that a cut-off round passed does not count: nothing of it was saved, and the next round passes it again. How long SEARCH takes on a real provider
   is not measured.
 - Three rounds cut off in a row, by a lost connection as well, rest past-mail clearing the same way, so one mail or one bad session
   cannot turn into a login loop.
@@ -76,7 +76,7 @@ list row and the result toast.
 
 - Adding a mailbox clears the last 30 days for the whole list at the next start. The confirmation and the panel say so before the password
   is sent.
-- A sweep of every rule runs at most once an hour; a request inside that hour waits for its end, and all of them are one sweep. A renumbered mailbox voids the saved pass, so it waits 30 min instead.
+- A sweep of every rule runs at most once an hour; a request inside that hour waits for its end, and all of them are one sweep. A renumbered mailbox voids the saved pass, so it waits 30 min instead. The request is saved, because the watcher's cursor has already passed that mail: a restart starts the sweep at the first session.
 
 ## Budget
 

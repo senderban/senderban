@@ -29,7 +29,8 @@ outright.
    domain from elsewhere, no blacklist lane runs for one, and a mail domain hosted elsewhere is not told it needs a key.
 4. **The first step of the check sends nothing of the person's.** `probeManageSieve` runs STARTTLS, verifies the certificate and reads
    the capabilities, then closes. A host without ManageSieve, without STARTTLS, with a bad certificate or without PLAIN answers before
-   any password left the device, each with its own sentence.
+   any password left the device, each with its own sentence. A lane that meets a greeting without STARTTLS sends nothing and tries
+   again: only an unauthenticated greeting says so, and it must not stop the lane.
 5. **Bytes behind the STARTTLS reply are dropped unread, not refused.** Purelymail sends its capabilities in clear right behind the
    reply and nothing after the handshake (3 of 3 connections, 2026-10-31); RFC 5804 §2.2 wants them after TLS. Refusing such bytes was
    stricter than needed: the channel holding them is thrown away with them, so nothing injected reaches the parser, and the password

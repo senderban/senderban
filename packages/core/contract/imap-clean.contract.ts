@@ -48,6 +48,9 @@ async function rig(name: string): Promise<Rig> {
     accountId: user,
     link,
     initialState: state,
+    updateState: (change) => {
+      state = change(state);
+    },
     onClean: (event) => events.push(event),
   });
   const watcher = new AccountWatcher({
