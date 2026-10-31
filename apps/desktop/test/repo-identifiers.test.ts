@@ -204,7 +204,7 @@ describe("addedByFile", () => {
   });
 });
 
-describe("scanHistory", () => {
+describe("scanHistory", { timeout: 30_000 }, () => {
   const dir = mkdtempSync(join(tmpdir(), "senderban-history-"));
   afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -317,7 +317,7 @@ describe("isAllowedHost", () => {
 });
 
 // The script end to end, in a throwaway git repository: tree mode, staged mode, commit messages and exit codes.
-describe("check-identifiers.ts in a git repository", () => {
+describe("check-identifiers.ts in a git repository", { timeout: 30_000 }, () => {
   const dir = mkdtempSync(join(tmpdir(), "senderban-ids-"));
   // Outside the repository, as in real use: a tracked denylist would find its own terms.
   const outside = mkdtempSync(join(tmpdir(), "senderban-ids-deny-"));

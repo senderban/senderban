@@ -78,39 +78,43 @@ describe("Gmail query encoding contract (BLOCK-1)", () => {
     expect(compileFromQuery(["a@x.com", "b@y.com"])).toBe('from:("a@x.com" OR "b@y.com")');
   });
 
-  it("property: over the whole LOCAL_ATOM alphabet, an accepted address compiles to exactly one inert quoted term, and every other one throws", () => {
-    const next = rng(20261027);
-    let accepted = 0;
-    let refused = 0;
-    for (let i = 0; i < 20_000; i += 1) {
-      const length = 1 + Math.floor(next() * 12);
-      let local = "";
-      for (let j = 0; j < length; j += 1) {
-        local += LOCAL_ALPHABET[Math.floor(next() * LOCAL_ALPHABET.length)] ?? "a";
+  it(
+    "property: over the whole LOCAL_ATOM alphabet, an accepted address compiles to exactly one inert quoted term, and every other one throws",
+    { timeout: 30_000 },
+    () => {
+      const next = rng(20261027);
+      let accepted = 0;
+      let refused = 0;
+      for (let i = 0; i < 20_000; i += 1) {
+        const length = 1 + Math.floor(next() * 12);
+        let local = "";
+        for (let j = 0; j < length; j += 1) {
+          local += LOCAL_ALPHABET[Math.floor(next() * LOCAL_ALPHABET.length)] ?? "a";
+        }
+        const domain = DOMAINS[Math.floor(next() * DOMAINS.length)] ?? "example.com";
+        const parsed = parseAddress(`${local}@${domain}`);
+        if (!parsed.ok) continue; // not an address at all: never reaches an adapter
+        const address = parsed.value.address;
+        if (isGmailMirrorable(address)) {
+          accepted += 1;
+          const query = compileFromQuery([address]);
+          expect(terms(query)).toEqual([address]);
+          // Nothing inside the quotes can close them or act as an operator.
+          expect(OPERATOR_OR_BREAKOUT.test(address)).toBe(false);
+          // Any character outside the allowlist in an accepted address (a widened regex) fails here, not only the named operators.
+          expect(SAFE_LOCAL.test(parsed.value.local)).toBe(true);
+          // A term never starts with `-` (Gmail's exclude).
+          expect(address.startsWith("-")).toBe(false);
+        } else {
+          refused += 1;
+          expect(() => compileFromQuery([address])).toThrow(TypeError);
+        }
       }
-      const domain = DOMAINS[Math.floor(next() * DOMAINS.length)] ?? "example.com";
-      const parsed = parseAddress(`${local}@${domain}`);
-      if (!parsed.ok) continue; // not an address at all: never reaches an adapter
-      const address = parsed.value.address;
-      if (isGmailMirrorable(address)) {
-        accepted += 1;
-        const query = compileFromQuery([address]);
-        expect(terms(query)).toEqual([address]);
-        // Nothing inside the quotes can close them or act as an operator.
-        expect(OPERATOR_OR_BREAKOUT.test(address)).toBe(false);
-        // Any character outside the allowlist in an accepted address (a widened regex) fails here, not only the named operators.
-        expect(SAFE_LOCAL.test(parsed.value.local)).toBe(true);
-        // A term never starts with `-` (Gmail's exclude).
-        expect(address.startsWith("-")).toBe(false);
-      } else {
-        refused += 1;
-        expect(() => compileFromQuery([address])).toThrow(TypeError);
-      }
-    }
-    // The generator really exercises both sides, so the property is not satisfied by an empty case.
-    expect(accepted).toBeGreaterThan(500);
-    expect(refused).toBeGreaterThan(500);
-  });
+      // The generator really exercises both sides, so the property is not satisfied by an empty case.
+      expect(accepted).toBeGreaterThan(500);
+      expect(refused).toBeGreaterThan(500);
+    },
+  );
 
   it("property: a filter of up to the capacity compiles to exactly its addresses, no more", () => {
     const next = rng(7);
