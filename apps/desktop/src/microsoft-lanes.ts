@@ -9,6 +9,7 @@ import {
   graphScopeExtras,
   graphStateHoldsDeletable,
   graphStateHoldsRules,
+  icannSuffix,
   isMicrosoftAccount,
 } from "@senderban/core";
 import type {
@@ -130,8 +131,11 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
     const client = createGraphClient({
       getAccessToken,
       ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
-      // Operation, HTTP status and duration only.
+      // Operation, HTTP status and duration only. A delta poll that answered 200 is not written: one line a minute for each account rolls the
+      // 1 MiB log in about three hours at 50 accounts (performance review 2026-11-01 FLAG 1), and the hourly heartbeat counts those polls. Every other
+      // request, and every failed poll, still has its line, as on Gmail.
       onCall: (call: GraphCall) => {
+        if (call.op === "mail-delta" && call.status === 200) return;
         deps.log("graph-http", { account: tag, ...call });
       },
     });
@@ -185,11 +189,12 @@ export function microsoftWideNote(list: Blocklist, target: string, own: OwnMail)
   if (entry === undefined) return "";
   const cover = outlookCover(entry, own);
   if (cover === "no") {
-    return " Not blocked on Outlook: a domain is a text match there, and this one would also catch your own mail, a mail provider or the same name under .com. Block the address instead.";
+    return " Not blocked on Outlook: a domain is a text match there, and this one would also catch your own mail, a mail provider or the same name under a longer top-level domain such as .com. Block the address instead.";
   }
-  return cover === "wide"
-    ? ` On Outlook this is a text match, so it can also catch longer domains that start the same way, such as ${target}.au.`
-    : "";
+  if (cover !== "wide") return "";
+  // A name under one label (`.com`) has a real longer twin under a country (`.com.au`); under two labels (`.co.uk`) it has none worth naming.
+  const example = icannSuffix(target)?.includes(".") === false ? `, such as ${target}.au` : "";
+  return ` On Outlook this is a text match, so it can also catch longer domains that start the same way${example}.`;
 }
 
 const SKIP_TEXT: Record<MicrosoftSkipReason, string> = {

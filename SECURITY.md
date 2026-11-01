@@ -19,6 +19,12 @@ notification action path, and the installer and release pipeline.
 Out of scope: vulnerabilities in a mail provider's own service, and issues that need an attacker
 who already controls the user's operating system account.
 
+## Sign-in
+
+Senderban signs in through your browser and catches the answer itself on this computer. It never asks you
+to copy a sign-in address, a code or a `localhost` link into a page, a chat or a mail. Anyone who asks for
+that is trying to take over your mailbox.
+
 ## Supported versions
 
 Only the latest release and the `main` branch are supported.

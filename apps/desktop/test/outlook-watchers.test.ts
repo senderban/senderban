@@ -175,6 +175,23 @@ describe("createOutlookWatchers", () => {
     expect(text).toContain("outlook-announce");
   });
 
+  it("writes no line for a poll that answered 200, keeps the line of a failed one, and counts the polls in the heartbeat", async () => {
+    const t = setup();
+    await started(t);
+    await tick(5 * MINUTE);
+    const deltaLines = () =>
+      t.logs.filter((l) => l.event === "graph-http" && l.fields["op"] === "mail-delta");
+    expect(deltaLines()).toHaveLength(0);
+    t.answers.push(new Response("{}", { status: 503 }));
+    await tick(2 * MINUTE);
+    expect(deltaLines().map((l) => l.fields["status"])).toEqual([503]);
+    await tick(60 * MINUTE);
+    const beat = t.logs.find((l) => l.event.endsWith("-heartbeat"))?.fields ?? {};
+    expect(beat["polls"]).toBeGreaterThan(50);
+    expect(beat["failed"]).toBe(1);
+    t.watchers.stop();
+  });
+
   it("keeps its place across a restart", async () => {
     const t = setup();
     await started(t);

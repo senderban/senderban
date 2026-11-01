@@ -90,6 +90,9 @@ without signing in, and fills in the right form. DNS can be forged, so a server 
 apart from MXroute's own, is only shown to you: type it yourself if your provider's welcome mail or
 account page names it. Nothing is saved until you add the mailbox ([ADR 0018](docs/adr/0018-provider-detection.md)).
 
+Senderban never asks you to paste a sign-in address, a code or a `localhost` link anywhere. Anyone who asks
+for that is trying to take over your mailbox ([SECURITY.md](SECURITY.md)).
+
 ### Gmail
 
 Open Senderban from the tray, **Accounts**, **Add mailbox**, **Gmail**, **Add Gmail account**, sign in

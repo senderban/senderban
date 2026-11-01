@@ -36,9 +36,9 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
   read back, and removing the account with its rule. A work or school account, a domain block,
   Unblock and several blocks sharing one rule are not measured yet
   ([ADR 0013](docs/adr/0013-graph-adapter.md)).
-- On Outlook, a domain block under `.co`, `.ne`, `.in` or `.bi` is refused, because Outlook matches the
-  text and the rule would also catch the same name under `.com`, `.net`, `.info` or `.biz`. Block the
-  address instead.
+- On Outlook, a domain block right under `.co`, `.ne`, `.in` or `.bi` is refused, because Outlook
+  matches the text and the rule would also catch the same name under `.com`, `.net`, `.info` or
+  `.biz`. Block the address instead. A domain under a longer suffix such as `.co.in` is written.
 - **Other (IMAP)** under **Add mailbox**, for mailboxes with no rule Senderban can write (iCloud, Yahoo,
   AOL, GMX, Web.de). This is cleaning, not a server rule: while Senderban runs it moves a blocked
   sender's new mail to Junk or Trash, and clears the last 30 days of the Inbox when you block someone.

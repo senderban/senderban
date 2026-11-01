@@ -30,7 +30,9 @@ switched off from October 2026 and fully by April 2027
    localhost only, so a literal address may need a fixed port. M2 tests it, and this point follows the result. The listener binds 127.0.0.1 only: a local process on
    `[::1]` could end the sign-in but holds no PKCE verifier. One sign-in at a
    time across all providers.
-4. **The client ID ships empty** until Senderban's app registration exists. Empty, the button stays off and the page says why.
+4. **The app ships Senderban's registration** (2026-11-01): a public client, so the Application (client) ID is a GUID in the source and there is no secret.
+   It takes personal accounts and any organization, with the localhost and native client redirects. A build with the ID empty keeps the button off and
+   the page says why.
 5. **Refresh tokens replace themselves** ([refresh-tokens](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)): the new one is
    encrypted and stored, and a failed save keeps the old one, which Microsoft does not revoke on use. They last 90 days. A mailbox with no block
    for 90 days answers `invalid_grant`, and the person signs in again.
@@ -55,13 +57,14 @@ switched off from October 2026 and fully by April 2027
 10. **A domain whose text match would reach the person's mail is not written.** `@contoso.co` matches `@contoso.com`, `@gmail.co` every Gmail sender and `.gov.u` every
     `*.gov.uk`, while the guards at the list compare labels and see none of them. The lane refuses a domain whose last label is no delegated top-level domain (a forged name, and likely a cut of a
     real one; country codes are not all two letters, `.срб` is `xn--90a3ac`) and one that, or a parent of which, is a label-boundary prefix of a domain the person owns, of a listed mail provider or of a provider that sends account
-    alerts (a look-alike blocked after a phishing mail would silence the real alerts). The list says **Outlook: not applied** and the result toast says why; one already in a rule is taken out.
+    alerts (a look-alike blocked after a phishing mail would silence the real alerts). It also refuses a name right under `.co`, `.ne`, `.in` or `.bi`
+    (`@paypal.co` is also `@paypal.com`, red team KC-3), and such a suffix on its own; a name under a longer suffix there (`@spam.co.in`) is written. The list says **Outlook: not applied** and the result toast says why; one already in a rule is taken out.
 
 ## Known limits
 
-- **A domain is a text match.** `senderContains: "@bank.co"` also catches `@bank.com`: Graph has no exact-domain condition. The adapter declares
+- **A domain is a text match.** `senderContains: "@bank.com"` also catches `@bank.com.tr`: Graph has no exact-domain condition. The adapter declares
   `exactDomain: false`, the list and the result toast say so, and the mail stays reversible in Junk or Deleted Items. Point 10 guards the person's own mail, listed providers, the
-  account-alert providers and whole countries, not every other domain that starts the same way, and not a local part: the text of a domain also matches a dotted local part at any domain. Whether it also reads the display name is not documented.
+  account-alert providers, whole countries and the same name under .com, .net, .info and .biz, not every other domain that starts the same way (`.com` reaches `.com.tr`, `.ba` reaches `.bank`; accepted 2026-11-01 after the security review: refusing every top-level domain that starts another refuses most domain blocks, the toast names the limit and the mail stays in Junk or Deleted Items), and not a local part: the text of a domain also matches a dotted local part at any domain. Whether it also reads the display name is not documented.
 - **A rule only acts on mail arriving in the Inbox.** Mail already there stays, and retroactive cleaning is not offered.
 - **A work or school account may need approval.** Microsoft's default consent policy excludes `MailboxSettings.ReadWrite` and `Mail.ReadBasic` for all but listed mail clients.
   Sign-in then reports that the organization must approve Senderban, and the Accounts page gives a link for the administrator
@@ -81,7 +84,7 @@ switched off from October 2026 and fully by April 2027
     `changeType=created` and `$filter=receivedDateTime ge <now>`; the token keeps them. The link is opaque and stored whole, and it is held to Graph's host and version when
     read from disk as well, because the token follows it.
 13. **What the documents warn about, and the answer to each.** A filtered delta returns at most 5,000 messages, not said whether per read or per link, and a token's life on
-    Outlook is not fixed, so a round lasts seven days and the next starts from the newest mail seen. Read-state changes and `@removed` entries come through even when asked
+    Outlook is not fixed, so a round lasts seven days and the next starts from the newest mail seen; that mail comes back (`ge`) and is not told again. Read-state changes and `@removed` entries come through even when asked
     for new mail only, and the same change can come twice, so an entry without `receivedDateTime` or with `@removed` is skipped, mail more than an hour older than the newest
     seen is not new, and ids are remembered (500). A `410`, a `404` on a stored link or an error code naming the sync state starts a new round from the newest mail seen, so a
     lost token loses no mail. A page over the read cap starts from now and says so.
@@ -99,7 +102,11 @@ per account, 100,000 a day for all accounts. After a 429 or a 503 the lane sends
 New mail: one request a poll, 1,440 a day per account, 72,000 at 50 accounts, which is 10 in ten minutes against Outlook's 10,000 per mailbox. Its own lines: 3,000 a day per
 account and 200,000 for all, so a poll cannot eat a block's budget; the minute line and the wait after a `Retry-After` are shared, because Outlook's limit is per app and mailbox.
 Five polls at once on a gate of their own. A running watcher renews the access token about hourly, so each account writes accounts.json about once an hour, and a mailbox no
-longer loses its sign-in after 90 days without a block. One log line a poll (`graph-http`), one heartbeat an hour.
+longer loses its sign-in after 90 days without a block. A poll that answered 200 writes no line (118 bytes a minute per account would roll the 1 MiB log in about three hours at 50 accounts); a failed poll and every other request do, and one heartbeat an hour counts the polls.
+
+One registration for every install: Microsoft also counts 130,000 requests per 10 seconds per app across all tenants
+([limits](https://learn.microsoft.com/en-us/graph/throttling-limits)). One account polls 0.17 times per 10 seconds, so about 780,000 accounts polling at once reach it. Re-read this line at
+100,000 accounts; the lever is a longer poll in a new build. Every client already goes quiet for `Retry-After`.
 
 A block costs one list and one write, an Unblock two lists and one write (the read-back). Graph lanes have a gate of their own: their outage must not hold Gmail and
 MXroute lanes. A list is worked out once for all lanes (keyed by the list object and the own-mail test), and a state write that changes nothing writes nothing.

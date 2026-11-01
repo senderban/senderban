@@ -177,6 +177,11 @@ export function isPublicSuffix(domain: string): boolean {
   return getPublicSuffix(domain, SUFFIX_OPTIONS) === domain;
 }
 
+/** The ICANN public suffix a domain sits under (`co` for `@paypal.co`, its last two labels for `@spam.co.in`), private entries left out: a private one is still someone's name. */
+export function icannSuffix(domain: string): string | null {
+  return parse(domain, { ...SUFFIX_OPTIONS, allowPrivateDomains: false }).publicSuffix;
+}
+
 /** Names reserved for tests and documentation (RFC 2606, RFC 6761): no real sender, but no cut of anything either. */
 const RESERVED_TOPS: ReadonlySet<string> = new Set(["example", "invalid", "test", "localhost"]);
 

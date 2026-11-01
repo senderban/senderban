@@ -563,6 +563,28 @@ describe("the notes", () => {
     expect(note).toContain("Block the address instead");
   });
 
+  it("writes a domain under a longer suffix, and names a longer domain it can also catch", () => {
+    const own = { domains: new Set<string>(), addresses: new Set<string>() };
+    for (const [value, example] of [
+      ["example.com", `, such as ${["example.com", "au"].join(".")}`],
+      [["spam", "co", "in"].join("."), ""],
+    ] as const) {
+      const list = [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          match: "subdomains" as const,
+          value,
+          action: "junk" as const,
+          createdAt: "2026-10-31T00:00:00.000Z",
+        },
+      ];
+      expect(outlookCover(list[0] as never, own)).toBe("wide");
+      expect(microsoftWideNote(list, value, own)).toBe(
+        ` On Outlook this is a text match, so it can also catch longer domains that start the same way${example}.`,
+      );
+    }
+  });
+
   it("names a skipped account and counts the rest", () => {
     const skipped = ["a", "b", "c"].map((name) => ({
       accountId: name,

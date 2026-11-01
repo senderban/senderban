@@ -12,7 +12,7 @@ import {
 } from "../adapter.js";
 import { checkEntry, folderAction } from "../blocklist.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
-import { freemailDomains, hasKnownTop, isPublicSuffix } from "../freemail.js";
+import { freemailDomains, hasKnownTop, icannSuffix, isPublicSuffix } from "../freemail.js";
 import type { OwnMail } from "../notify/block-action.js";
 import { GRAPH_ID, RuleRefusedError, RuleSpaceError } from "./client.js";
 import type {
@@ -266,7 +266,8 @@ function reachesGuarded(
   const labels = entry.value.split(".");
   // A last label that is no top-level domain is a forged name, likely a cut of a real one: its text match reaches everything under that suffix.
   if (!hasKnownTop(entry.value)) return true;
-  if (BUSY_TOP_PREFIXES.has(labels.at(-1) ?? "")) return true;
+  // Only a name right under the bare top-level domain: `@spam.co.in` reaches `@spam.co.info`, a name nobody's real mail comes from. A suffix on its own stays refused.
+  if (BUSY_TOP_PREFIXES.has(labels.at(-1) ?? "") && !underLongerSuffix(entry.value)) return true;
   // A parent that is a public suffix is not a value: `co.uk` under a name there says nothing about the sender.
   const values = labels
     .slice(0, -1)
@@ -276,6 +277,12 @@ function reachesGuarded(
     const needle = `.${value}`;
     return guarded.some((domain) => domain.includes(needle));
   });
+}
+
+/** True when the value is a name under an ICANN suffix of two or more labels: `@spam.co.in`, `@spam.com.co`, not `@paypal.co`, `@mail.paypal.co` or `.co.in`. */
+function underLongerSuffix(value: string): boolean {
+  const suffix = icannSuffix(value);
+  return suffix !== null && suffix.includes(".") && value.length > suffix.length;
 }
 
 const ruleName = (nonce: string): string => `Senderban ${nonce}`;

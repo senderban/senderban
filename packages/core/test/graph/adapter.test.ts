@@ -922,7 +922,28 @@ describe("graphMatchReaches: a text match against the person's own mail", () => 
     dot("spam", "io"),
   ])("still blocks %s: its top-level domain starts no busier one", (value) => {
     expect(graphMatchReaches(domain(value), own)).toBe(false);
+    expect(graphMatchReaches(domain(value, "exactDomain"), own)).toBe(false);
   });
+
+  // Code review 2026-11-01 F2: under a longer suffix the text match reaches only names like `@spam.co.info`, where no real sender lives.
+  it.each([dot("spam", "co", "in"), dot("spam", "gov", "in"), dot("spam", "com", "co")])(
+    "still blocks %s: it sits under a longer suffix, not right under the busy one",
+    async (value) => {
+      expect(graphMatchReaches(domain(value), own)).toBe(false);
+      expect(graphMatchReaches(domain(value, "exactDomain"), own)).toBe(false);
+      const r = rig({ reaches: () => graphReachTest(own) });
+      await settle(r, [entry(value, "junk", "subdomains")], initialGraphState());
+      expect(r.fake.rules.size).toBe(1);
+    },
+  );
+
+  it.each([dot("co", "in"), dot("com", "co"), dot("a", "b", "co"), dot("x", "y", "in")])(
+    "refuses %s: a suffix on its own, or a name right under the busy one",
+    (value) => {
+      expect(graphMatchReaches(domain(value), own)).toBe(true);
+      expect(graphMatchReaches(domain(value, "exactDomain"), own)).toBe(true);
+    },
+  );
 
   it.each(["gov.u", "co.k", "co.i", "com.c", "com.m", "edu.a", "gov.t"])(
     "refuses %s: no top-level domain has one letter, and it is a cut of a country's",
