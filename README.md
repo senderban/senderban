@@ -152,16 +152,17 @@ user name and API key once (it covers every mailbox and domain on your MXroute a
 
 ## Provider support
 
-| Provider                          | Mechanism                                          | Target | Evidence                                 |
-| --------------------------------- | -------------------------------------------------- | ------ | ---------------------------------------- |
-| MXroute                           | Sieve (ManageSieve) + blacklist API                | v0.1   | measured 2026-10-30                      |
-| Gmail / Workspace                 | Gmail filters (own OAuth client)                   | v0.1   | measured 2026-10-30, Gmail only          |
-| Migadu                            | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
-| mailbox.org                       | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
-| Purelymail                        | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider |
-| Other ManageSieve server          | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot 2026-10-31           |
-| Outlook / Hotmail / Microsoft 365 | Graph message rules, delta for new mail            | v0.2   | documented, not yet measured             |
-| iCloud, Yahoo, AOL, GMX, Web.de   | Other (IMAP): cleans on arrival, not a server rule | v0.2   | measured on Dovecot, not on the provider |
+| Provider                          | Mechanism                                          | Target | Evidence                                   |
+| --------------------------------- | -------------------------------------------------- | ------ | ------------------------------------------ |
+| MXroute                           | Sieve (ManageSieve) + blacklist API                | v0.1   | measured 2026-10-30                        |
+| Gmail / Workspace                 | Gmail filters (own OAuth client)                   | v0.1   | measured 2026-10-30, Gmail only            |
+| Migadu                            | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider   |
+| mailbox.org                       | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider   |
+| Purelymail                        | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot, not on the provider   |
+| Other ManageSieve server          | Sieve (ManageSieve)                                | v0.2   | measured on Dovecot 2026-10-31             |
+| Outlook / Hotmail / Microsoft 365 | Graph message rules, delta for new mail            | v0.2   | measured 2026-11-01, personal account only |
+| iCloud                            | Other (IMAP): cleans on arrival, not a server rule | v0.2   | measured 2026-11-01                        |
+| Yahoo, AOL, GMX, Web.de           | Other (IMAP): cleans on arrival, not a server rule | v0.2   | measured on Dovecot, not on the provider   |
 
 "Documented" means read in the provider's official documentation. It is not a claim that it works.
 "Measured" means it ran against a real account. "Measured on Dovecot, not on the provider" means
@@ -169,6 +170,10 @@ the same code ran against a local Dovecot + Pigeonhole on 2026-10-31, and the pr
 ManageSieve port answered with the right abilities without a sign-in. No rule was written and no
 mail filtered at that provider ([ADR 0012](docs/adr/0012-generic-managesieve.md)). On the Other (IMAP)
 row it means the local Dovecot only ([ADR 0014](docs/adr/0014-imap-clean.md)).
+On iCloud, one address block moved two earlier mails and one new mail out of the Inbox with no
+failure. On a personal Outlook.com account, sign-in, the new-mail notification, an address block
+written as a rule and read back, and removing the account with its rule ran; a work or school
+account, a domain block, Unblock and several blocks sharing one rule did not.
 Not yet measured on MXroute: adding the `include` to a user's already-active Sieve script, and an
 envelope-sender match on its own (the test mail had the same From and envelope address).
 
