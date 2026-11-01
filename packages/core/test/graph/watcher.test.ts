@@ -295,6 +295,17 @@ describe("OutlookWatcher", () => {
     expect(t.cursor()).toMatchObject({ newestMs, roundMs: NOW });
   });
 
+  it("does not tell again the newest mail a lost link brings back, after a restart", async () => {
+    const newestMs = NOW - MINUTE;
+    const t = setup({ stored: stored({ newestMs }) });
+    t.script.push(new DeltaExpiredError());
+    t.script.push(page([mail("newest", newestMs), mail("later", newestMs + 1_000)], 1));
+    t.watcher.start();
+    await tick(0);
+    expect(t.asked[1]).toEqual({ sinceMs: newestMs });
+    expect(t.told.map((m) => m.id)).toEqual(["later"]);
+  });
+
   it("does not tell again the newest mail a new round brings back, after a restart", async () => {
     const newestMs = NOW - 3 * 24 * 60 * MINUTE;
     const t = setup({ stored: stored({ newestMs, roundMs: NOW - OUTLOOK_ROUND_MS - 1_000 }) });

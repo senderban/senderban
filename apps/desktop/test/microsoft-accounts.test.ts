@@ -568,6 +568,7 @@ describe("the notes", () => {
     for (const [value, example] of [
       ["example.com", `, such as ${["example.com", "au"].join(".")}`],
       [["spam", "co", "in"].join("."), ""],
+      [["spam", "de"].join("."), ""],
     ] as const) {
       const list = [
         {

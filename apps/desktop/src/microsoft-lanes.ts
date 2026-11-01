@@ -183,6 +183,9 @@ export function outlookCover(
   return graphMatchReaches(entry, own) ? "no" : "wide";
 }
 
+/** Top-level domains that countries repeat under themselves (`.com.au`, `.org.uk`, `.gov.tr`). */
+const TWINNED_TOPS: ReadonlySet<string> = new Set(["com", "net", "org", "edu", "gov"]);
+
 /** What the result toast adds after a block of a domain when a Microsoft account is set up. */
 export function microsoftWideNote(list: Blocklist, target: string, own: OwnMail): string {
   const entry = list.find((e) => e.value === target);
@@ -192,8 +195,8 @@ export function microsoftWideNote(list: Blocklist, target: string, own: OwnMail)
     return " Not blocked on Outlook: a domain is a text match there, and this one would also catch your own mail, a mail provider or the same name under a longer top-level domain such as .com. Block the address instead.";
   }
   if (cover !== "wide") return "";
-  // A name under one label (`.com`) has a real longer twin under a country (`.com.au`); under two labels (`.co.uk`) it has none worth naming.
-  const example = icannSuffix(target)?.includes(".") === false ? `, such as ${target}.au` : "";
+  // Only these have a twin under a country (`.com.au`); a name under `.de` or `.co.uk` has none worth naming.
+  const example = TWINNED_TOPS.has(icannSuffix(target) ?? "") ? `, such as ${target}.au` : "";
   return ` On Outlook this is a text match, so it can also catch longer domains that start the same way${example}.`;
 }
 

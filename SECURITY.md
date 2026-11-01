@@ -21,7 +21,8 @@ who already controls the user's operating system account.
 
 ## Sign-in
 
-Senderban signs in through your browser and catches the answer itself on this computer. It never asks you
+For Gmail and Outlook, Senderban signs in through your browser and catches the answer itself on this
+computer. A mail server account takes a password or key you type into Senderban only. It never asks you
 to copy a sign-in address, a code or a `localhost` link into a page, a chat or a mail. Anyone who asks for
 that is trying to take over your mailbox.
 

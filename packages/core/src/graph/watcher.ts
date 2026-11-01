@@ -235,11 +235,18 @@ export class OutlookWatcher {
     context: PollContext,
     start: GraphDeltaFrom,
     newestMs: number,
-  ): Promise<{ mail: GraphMail[]; unreadable: number; pages: number; link: string } | null> {
+  ): Promise<{
+    mail: GraphMail[];
+    unreadable: number;
+    pages: number;
+    link: string;
+    fromNewest: boolean;
+  } | null> {
     const mail: GraphMail[] = [];
     let unreadable = 0;
     let pages = 0;
     let from = start;
+    let fromNewest = "sinceMs" in start;
     for (;;) {
       let page;
       try {
@@ -247,6 +254,7 @@ export class OutlookWatcher {
       } catch (error) {
         if (!(error instanceof DeltaExpiredError) || !("link" in from)) throw error;
         from = { sinceMs: newestMs };
+        fromNewest = true;
         mail.length = 0;
         unreadable = 0;
         continue;
@@ -257,7 +265,7 @@ export class OutlookWatcher {
       mail.push(...page.mail);
       unreadable += page.unreadable;
       if (!page.more || pages >= OUTLOOK_MAX_PAGES) {
-        return { mail, unreadable, pages, link: page.link };
+        return { mail, unreadable, pages, link: page.link, fromNewest };
       }
       from = { link: page.link };
     }
@@ -289,9 +297,10 @@ export class OutlookWatcher {
     if (read === null)
       return { outcome: "ok", pages: 0, found: 0, announced: 0, consumerErrors: 0 };
 
-    // A new round asks `ge` the newest mail seen, so that mail comes back, and a fresh process no longer knows its id: what is not newer was told before
-    // (performance review 2026-11-01 FLAG 2). The price is a mail of the same second that the last round did not see, which gets no notification; its block still holds.
-    const floor = rounded && known !== undefined ? newestMs + 1 : newestMs - OUTLOOK_LATE_MS;
+    // A new round, or a lost link, asks `ge` the newest mail seen, so that mail comes back, and a fresh process no longer knows its id: what is not newer
+    // was told before. The price is a mail of the same second that the last round did not see, which gets no notification; its block still holds.
+    const floor =
+      read.fromNewest && known !== undefined ? newestMs + 1 : newestMs - OUTLOOK_LATE_MS;
     // Ids repeat within a poll too: Microsoft says one change can come more than once.
     const byId = new Map<string, GraphMail>();
     for (const mail of read.mail) {

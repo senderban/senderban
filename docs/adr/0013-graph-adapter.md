@@ -84,7 +84,7 @@ switched off from October 2026 and fully by April 2027
     `changeType=created` and `$filter=receivedDateTime ge <now>`; the token keeps them. The link is opaque and stored whole, and it is held to Graph's host and version when
     read from disk as well, because the token follows it.
 13. **What the documents warn about, and the answer to each.** A filtered delta returns at most 5,000 messages, not said whether per read or per link, and a token's life on
-    Outlook is not fixed, so a round lasts seven days and the next starts from the newest mail seen; that mail comes back (`ge`) and is not told again. Read-state changes and `@removed` entries come through even when asked
+    Outlook is not fixed, so a round lasts seven days and the next starts from the newest mail seen; that mail comes back (`ge`) and is not told again, also after a lost link, unless this device's clock was behind its time. Read-state changes and `@removed` entries come through even when asked
     for new mail only, and the same change can come twice, so an entry without `receivedDateTime` or with `@removed` is skipped, mail more than an hour older than the newest
     seen is not new, and ids are remembered (500). A `410`, a `404` on a stored link or an error code naming the sync state starts a new round from the newest mail seen, so a
     lost token loses no mail. A page over the read cap starts from now and says so.
