@@ -14,9 +14,9 @@ import type { MicrosoftRuleLifecycle } from "./microsoft-lanes.js";
 
 /**
  * Senderban's app registration (public client: "Personal Microsoft accounts and any organization", redirects `http://localhost` and Microsoft's native client page, 008 §Microsoft).
- * An Application (client) ID is not a secret. Empty until the registration exists: the button then stays off and says why.
+ * An Application (client) ID is not a secret. Registered 2026-11-01 in the Senderban tenant; an empty value turns the button off and says why.
  */
-export const MICROSOFT_CLIENT_ID = "";
+export const MICROSOFT_CLIENT_ID = "a506d10c-8149-40c4-9e38-a3bea776c0e2";
 
 /** The client ID to sign in with, or null while none is set. */
 export function microsoftClientId(value: string = MICROSOFT_CLIENT_ID): string | null {

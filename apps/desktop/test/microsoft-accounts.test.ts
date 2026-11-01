@@ -87,9 +87,12 @@ const withAccount = async (id = "ms-1", email = EMAIL) => {
 };
 
 describe("the client ID", () => {
-  it("ships empty, so the button is off until Senderban's registration exists", () => {
-    expect(MICROSOFT_CLIENT_ID).toBe("");
-    expect(microsoftClientId()).toBeNull();
+  it("ships Senderban's registration, so the button is on", () => {
+    expect(microsoftClientId()).toBe(MICROSOFT_CLIENT_ID);
+  });
+
+  it("is off when the value is empty", () => {
+    expect(microsoftClientId("")).toBeNull();
   });
 
   it("takes only a GUID", () => {
