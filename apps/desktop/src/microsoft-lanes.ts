@@ -169,7 +169,7 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
 
 /**
  * What a Microsoft account does with one list entry (ADR 0013): "exact" for a single address, "wide" for a domain, which is a text match there, "no" for a
- * domain whose text match would also reach the person's own mail or a mail provider. Cheap: the window asks for the whole list on every change.
+ * domain whose text match would also reach the person's own mail, a mail provider or the same name under .com. Cheap: the window asks for the whole list on every change.
  */
 export function outlookCover(
   entry: Pick<BlockEntry, "match" | "value">,
@@ -185,10 +185,10 @@ export function microsoftWideNote(list: Blocklist, target: string, own: OwnMail)
   if (entry === undefined) return "";
   const cover = outlookCover(entry, own);
   if (cover === "no") {
-    return " Not blocked on Outlook: a domain is a text match there, and this one would also catch your own mail or a mail provider.";
+    return " Not blocked on Outlook: a domain is a text match there, and this one would also catch your own mail, a mail provider or the same name under .com. Block the address instead.";
   }
   return cover === "wide"
-    ? " On Outlook this is a text match, so it can also catch longer domains that start the same way."
+    ? ` On Outlook this is a text match, so it can also catch longer domains that start the same way, such as ${target}.au.`
     : "";
 }
 

@@ -542,6 +542,24 @@ describe("the notes", () => {
     expect(microsoftWideNote(list, "spam.example", own)).toContain("Not blocked on Outlook");
   });
 
+  it("names .com when a look-alike is not written, and points to the address", () => {
+    const own = { domains: new Set<string>(), addresses: new Set<string>() };
+    const value = ["paypal", "co"].join(".");
+    const list = [
+      {
+        id: "00000000-0000-4000-8000-000000000001",
+        match: "subdomains" as const,
+        value,
+        action: "junk" as const,
+        createdAt: "2026-10-31T00:00:00.000Z",
+      },
+    ];
+    expect(outlookCover(list[0] as never, own)).toBe("no");
+    const note = microsoftWideNote(list, value, own);
+    expect(note).toContain(".com");
+    expect(note).toContain("Block the address instead");
+  });
+
   it("names a skipped account and counts the rest", () => {
     const skipped = ["a", "b", "c"].map((name) => ({
       accountId: name,

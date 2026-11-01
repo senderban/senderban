@@ -219,7 +219,16 @@ export function graphStateHoldsDeletable(state: OpaqueState): boolean {
 const IDENTITY_DOMAINS = ["google", "microsoft", "apple"].map((name) => `${name}.com`);
 
 /**
- * Whether a text match of this domain would also reach the person's own mail, a mail provider or a whole country. `senderContains` is a substring:
+ * Delegated top-level domains that start a busier one: `@paypal.co` is also `@paypal.com` and `@paypal.co.uk`, `.ne` is `.net`, `.in` is `.info`, `.bi` is
+ * `.biz`. A look-alike under one of these is the ordinary phishing case, and the real sender lives at the longer name (red team 2026-11-01 KC-3). Only
+ * prefixes of com, net, org, info and biz: every top-level domain that starts another would be 134 of 248 country codes (IANA list 2026110100), and `.de`
+ * reaching `.dev` is not where the real alerts come from. A longer name under any other top-level domain stays a known limit, named in the toast.
+ */
+const BUSY_TOP_PREFIXES: ReadonlySet<string> = new Set(["co", "ne", "in", "bi"]);
+
+/**
+ * Whether a text match of this domain would also reach the person's own mail, a mail provider, a whole country or the same name under a busier top-level
+ * domain (`BUSY_TOP_PREFIXES`). `senderContains` is a substring:
  * `@contoso.co` and `.contoso.co` match `@contoso.com`, `@gmail.co` every Gmail sender, `.gov.u` every `*.gov.uk`. The guards at the list work on labels and
  * cannot see that, so such a domain is refused on Outlook. Every parent of the value is tried too: a subdomain of a look-alike reaches the same subdomain of the real name.
  */
@@ -257,6 +266,7 @@ function reachesGuarded(
   const labels = entry.value.split(".");
   // A last label that is no top-level domain is a forged name, likely a cut of a real one: its text match reaches everything under that suffix.
   if (!hasKnownTop(entry.value)) return true;
+  if (BUSY_TOP_PREFIXES.has(labels.at(-1) ?? "")) return true;
   // A parent that is a public suffix is not a value: `co.uk` under a name there says nothing about the sender.
   const values = labels
     .slice(0, -1)

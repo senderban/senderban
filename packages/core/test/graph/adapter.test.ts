@@ -885,12 +885,44 @@ describe("graphMatchReaches: a text match against the person's own mail", () => 
     expect(graphMatchReaches(domain(value, "exactDomain"), own)).toBe(true);
   });
 
-  it.each(["spam.example", dot("not" + LOOK_ALIKE), dot(LOOK_ALIKE, "uk")])(
+  // The look-alike with a prefix is refused since KC-3 for its own `.co`; the same name under `.de` keeps what this row meant: contains the text, reaches nothing guarded.
+  it.each(["spam.example", dot("notcontoso", "de"), dot(LOOK_ALIKE, "uk")])(
     "lets %s through",
     (value) => {
       expect(graphMatchReaches(domain(value), own)).toBe(false);
     },
   );
+
+  // Red team 2026-11-01 KC-3: a look-alike under a top-level domain that starts a busier one reaches the real sender there.
+  it.each([
+    [dot("paypal", "co"), dot("paypal", "com")],
+    [dot("chase", "co"), dot("chase", "com")],
+    [dot("amazon", "co"), dot("amazon", "co", "uk")],
+    [dot("linkedin", "co"), dot("linkedin", "com")],
+    [dot("github", "co"), dot("github", "com")],
+    [dot("stripe", "co"), dot("stripe", "com")],
+    [dot("docusign", "ne"), dot("docusign", "net")],
+    [dot("bank", "in"), dot("bank", "info")],
+    [dot("shop", "bi"), dot("shop", "biz")],
+    [dot("mail", "paypal", "co"), dot("mail", "paypal", "com")],
+  ])("refuses %s, whose text match is also %s", async (value, real) => {
+    expect(real.startsWith(value)).toBe(true);
+    expect(graphMatchReaches(domain(value), own)).toBe(true);
+    expect(graphMatchReaches(domain(value, "exactDomain"), own)).toBe(true);
+    const r = rig({ reaches: () => graphReachTest(own) });
+    await settle(r, [entry(value, "junk", "subdomains")], initialGraphState());
+    expect(r.fake.rules.size).toBe(0);
+  });
+
+  it.each([
+    dot("paypal", "com"),
+    dot("spam", "de"),
+    dot("spam", "com", "tr"),
+    dot("spam", "co", "uk"),
+    dot("spam", "io"),
+  ])("still blocks %s: its top-level domain starts no busier one", (value) => {
+    expect(graphMatchReaches(domain(value), own)).toBe(false);
+  });
 
   it.each(["gov.u", "co.k", "co.i", "com.c", "com.m", "edu.a", "gov.t"])(
     "refuses %s: no top-level domain has one letter, and it is a cut of a country's",
