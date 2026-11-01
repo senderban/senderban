@@ -446,6 +446,171 @@ details p {
   max-width: 36rem;
 }
 
+/* Engineering page */
+.site-header nav a[aria-current="page"] {
+  color: var(--fg);
+}
+.page-head {
+  padding-top: 4rem;
+  padding-bottom: 3rem;
+}
+.page-head .lead {
+  max-width: 42rem;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.facts li {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+.facts strong {
+  display: block;
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+}
+.facts span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.arch {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.arch-layer {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+  padding: 1rem 1.25rem;
+}
+.arch-layer + .arch-layer::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(-0.75rem - 1px);
+  height: 0.75rem;
+  border-left: 2px solid var(--accent);
+}
+.arch-server {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.arch-name {
+  margin: 0 0 0.6rem;
+  font-weight: 600;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.arch-name small {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 0.4rem;
+}
+.arch-boxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.arch-boxes span {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.9rem;
+}
+.spec {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.spec > div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.spec > div:last-child {
+  border-bottom: 0;
+}
+.spec dt {
+  font-weight: 600;
+}
+.spec dd {
+  margin: 0;
+  color: var(--muted);
+}
+code,
+pre {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.88em;
+}
+:not(pre) > code {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+pre {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: stage;
+}
+.pipeline li {
+  counter-increment: stage;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem 0.35rem 0.45rem;
+  font-size: 0.92rem;
+}
+.pipeline li::before {
+  content: counter(stage);
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.adr-list {
+  columns: 2;
+  column-gap: 2.5rem;
+  margin: 0;
+  padding-left: 2.25rem;
+}
+.adr-list li {
+  break-inside: avoid;
+  padding: 0.2rem 0;
+}
+.adr-list li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Footer */
 .site-footer {
   border-top: 1px solid var(--line);
@@ -479,6 +644,16 @@ details p {
   .steps,
   .cards {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .spec > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+  .adr-list {
+    columns: 1;
   }
 }
 @media (max-width: 36rem) {

@@ -64,6 +64,8 @@ const PUBLIC_ZONES = [
 export const EXACT_HOSTS: readonly string[] = [
   // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0013).
   "account.live.com",
+  // The author's public profile, linked from the site (docs/index.html, docs/engineering/).
+  "www.linkedin.com",
   "a.co",
   "b.com",
   "c.com",

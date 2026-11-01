@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How Senderban is built</title>
+    <meta
+      name="description"
+      content="The architecture, security model, scale budget and decision records behind Senderban, a desktop app that writes block rules to your mail server."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a class="keep" href="/engineering/" aria-current="page">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap page-head">
+        <p class="eyebrow">Engineering</p>
+        <h1>How Senderban is built</h1>
+        <p class="lead">
+          A small tool that holds mail passwords and writes rules into your mailbox has to be
+          careful. These are the decisions behind it, each one written down before the code, with
+          the reasoning and the cost.
+        </p>
+        <ul class="facts" aria-label="At a glance">
+          <li><strong>TypeScript</strong><span>strict, Node 24, Electron</span></li>
+          <li><strong>5 adapters</strong><span>Gmail, Graph, ManageSieve, MXroute, IMAP</span></li>
+          <li><strong>18 ADRs</strong><span>one per decision</span></li>
+          <li><strong>0 servers</strong><span>runs on your device only</span></li>
+        </ul>
+      </div>
+
+      <section id="architecture">
+        <div class="wrap">
+          <h2>Architecture</h2>
+          <p class="section-lead">
+            Two packages. The core knows nothing about Electron or Windows; the desktop app knows
+            nothing about any one provider. A provider is an adapter behind one interface.
+          </p>
+          <div
+            class="arch"
+            role="img"
+            aria-label="Layers: the desktop app on top of the core, the core talking to providers through five adapters, each provider keeping the rule on its own server."
+          >
+            <div class="arch-layer">
+              <p class="arch-name">apps/desktop <small>Electron</small></p>
+              <div class="arch-boxes">
+                <span>Tray</span><span>Windows notification</span><span>Blocked senders window</span
+                ><span>Installer</span>
+              </div>
+            </div>
+            <div class="arch-layer">
+              <p class="arch-name">packages/core <small>no Electron, no OS</small></p>
+              <div class="arch-boxes">
+                <span>Block list</span><span>Sync engine and gates</span
+                ><span>New-mail watchers</span><span>Provider detection</span
+                ><span>Local store (node:sqlite)</span>
+              </div>
+            </div>
+            <div class="arch-layer">
+              <p class="arch-name">Adapters <small>one interface: plan, apply, verify</small></p>
+              <div class="arch-boxes">
+                <span>Gmail API filters</span><span>Graph message rules</span
+                ><span>ManageSieve</span><span>MXroute API</span><span>IMAP move</span>
+              </div>
+            </div>
+            <div class="arch-layer arch-server">
+              <p class="arch-name">Your mail provider</p>
+              <div class="arch-boxes">
+                <span>The rule lives here, so it holds on every device</span>
+              </div>
+            </div>
+          </div>
+          <div class="cards">
+            <div>
+              <h3>Write, then read back</h3>
+              <p>
+                Every block is planned, applied and then read back from the server. A rule that did
+                not land is reported, never assumed.
+              </p>
+            </div>
+            <div>
+              <h3>Only its own rules</h3>
+              <p>
+                Senderban writes rules marked as its own and leaves yours alone. A Sieve script it
+                did not write and cannot parse is never edited.
+              </p>
+            </div>
+            <div>
+              <h3>Headers only</h3>
+              <p>
+                A new mail costs one fetch of From and Subject, plus the spam score where the server
+                adds one. There is no sync and no message body.
+              </p>
+            </div>
+            <div>
+              <h3>Finds the way in</h3>
+              <p>
+                From an address alone it reads MX and SRV records (RFC 6186) through the system
+                resolver, drops private and loopback addresses, and fills in the server.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="security">
+        <div class="wrap">
+          <h2>Security model</h2>
+          <p class="section-lead">
+            Every byte that arrives from a mail server, a sender, a file or the window is treated as
+            hostile until it is parsed.
+          </p>
+          <dl class="spec">
+            <div>
+              <dt>Window</dt>
+              <dd>
+                Renderer runs with <code>sandbox</code>, <code>contextIsolation</code> and no Node
+                integration. CSP is <code>default-src 'none'</code> with local scripts and styles
+                only. New windows and navigation are refused.
+              </dd>
+            </div>
+            <div>
+              <dt>IPC</dt>
+              <dd>
+                Each handler first checks the message came from our own window and frame, then
+                parses its input with a strict Zod schema. Unknown fields are rejected.
+              </dd>
+            </div>
+            <div>
+              <dt>Input limits</dt>
+              <dd>
+                Bounds come from the meaning of a value, not a character cap: an address follows RFC
+                5321 (local part 64, domain 253, whole 254), a time is in seconds with a minimum and
+                a maximum, and the same number holds in the window, the schema and the store.
+              </dd>
+            </div>
+            <div>
+              <dt>Secrets</dt>
+              <dd>
+                Passwords and tokens are encrypted with the operating system's key through Electron
+                <code>safeStorage</code>. If encryption is not available, Senderban does not store
+                the secret.
+              </dd>
+            </div>
+            <div>
+              <dt>Sign-in</dt>
+              <dd>
+                Gmail and Outlook use OAuth with PKCE, <code>state</code> and a loopback redirect
+                (RFC 8252). Scopes are the least that work: Gmail <code>gmail.metadata</code> and
+                <code>gmail.settings.basic</code>; Microsoft <code>Mail.ReadBasic</code> and
+                <code>MailboxSettings.ReadWrite</code>.
+              </dd>
+            </div>
+            <div>
+              <dt>Fail closed</dt>
+              <dd>
+                When a server answers with something Senderban cannot read, it stops and says so. It
+                does not guess, retry blindly or delete.
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section id="scale">
+        <div class="wrap">
+          <h2>Scale budget</h2>
+          <p class="section-lead">
+            Written before the code: what one account costs, and what 10 and 50 cost. Cost grows
+            with accounts, never with mail volume. Shared resources go through one gate each, and
+            every gated job has a deadline, so one stuck account cannot hold the others.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Quantity</th>
+                  <th scope="col">1 account</th>
+                  <th scope="col">10</th>
+                  <th scope="col">50</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Persistent IMAP connections</td>
+                  <td>1</td>
+                  <td>10</td>
+                  <td>50</td>
+                </tr>
+                <tr>
+                  <td>Logins in flight after resume</td>
+                  <td>1</td>
+                  <td>5</td>
+                  <td>5 <small>(gate, tested)</small></td>
+                </tr>
+                <tr>
+                  <td>ManageSieve commands per block</td>
+                  <td>10</td>
+                  <td>64</td>
+                  <td>304 <small>(measured)</small></td>
+                </tr>
+                <tr>
+                  <td>Rules script, 1,000 entries</td>
+                  <td colspan="3">53 KB <small>(measured)</small></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            Every number is tagged measured, derived or unmeasured. Full table and known costs:
+            <a href="https://github.com/senderban/senderban/blob/main/docs/adr/0006-scale-budget.md"
+              >ADR 0006</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section id="quality">
+        <div class="wrap">
+          <h2>How it is checked</h2>
+          <p class="section-lead">
+            Every push runs the same pipeline, and the release is built only from a version tag.
+          </p>
+          <ol class="pipeline">
+            <li>Type check</li>
+            <li>Build</li>
+            <li>Lint</li>
+            <li>Format</li>
+            <li>Tests</li>
+            <li>Identifier check</li>
+            <li>Secret scan of the whole history</li>
+          </ol>
+          <div class="cards">
+            <div>
+              <h3>Measured, not claimed</h3>
+              <p>
+                A provider is marked tested only after it ran against a real account. Everything
+                else says what it was tested on.
+              </p>
+            </div>
+            <div>
+              <h3>Release provenance</h3>
+              <p>
+                The installer is built by the release workflow and gets a signed build attestation.
+                The job that signs never runs dependency code.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="verify">
+        <div class="wrap prose">
+          <h2>Verify a download</h2>
+          <p>
+            Compare the hash with <code>SHA256SUMS</code> on the release, then prove the file came
+            from the tag's release workflow (needs the GitHub CLI):
+          </p>
+          <pre><code>Get-FileHash .\Senderban-Setup-X.Y.Z.exe -Algorithm SHA256
+
+gh attestation verify .\Senderban-Setup-X.Y.Z.exe --repo senderban/senderban `
+  --signer-workflow senderban/senderban/.github/workflows/release.yml `
+  --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners</code></pre>
+        </div>
+      </section>
+
+      <section id="decisions">
+        <div class="wrap">
+          <h2>Decision records</h2>
+          <p class="section-lead">
+            Each one names the problem, the options, the choice and what it costs.
+          </p>
+          <ol class="adr-list">
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0001-stack-and-toolchain.md"
+                >Stack and toolchain</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0002-local-store-sqlite.md"
+                >Local store: node:sqlite</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0003-desktop-shell.md"
+                >Desktop shell: tray, IMAP IDLE watcher, notification</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0004-notification-popup.md"
+                >Notification popup replaces the native toast</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0005-manage-window.md"
+                >Blocked senders window, settings and unblock</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0006-scale-budget.md"
+                >Scale budget: what one device costs per account</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0007-native-toasts.md"
+                >Native Windows toasts instead of our own popup</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0008-reject-action.md"
+                >Reject: refuse a sender at the mail server</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0009-gmail-account.md"
+                >Gmail account: sign-in, storage, filters, watcher</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0010-windows-installer.md"
+                >Windows installer and toast identity</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0011-mxroute-key-apart-from-mailbox.md"
+                >The MXroute API key lives apart from the mailbox</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0012-generic-managesieve.md"
+                >Any ManageSieve server, not only MXroute</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
+                >Outlook and Microsoft 365 through Graph rules</a
+              >
+            </li>
+            <li>
+              <a href="https://github.com/senderban/senderban/blob/main/docs/adr/0014-imap-clean.md"
+                >Cleaning over IMAP where no rule can be written</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0015-settings-page.md"
+                >Settings page</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0016-dont-ask-again.md"
+                >Don't ask again</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0017-spam-filter.md"
+                >A spam filter per mailbox</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0018-provider-detection.md"
+                >Finding who runs a mailbox from its address</a
+              >
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section id="author">
+        <div class="wrap">
+          <div class="support">
+            <div>
+              <h2>Built by Alim Köse</h2>
+              <p>
+                Senderban is designed and built by Alim Köse. For bugs, open an issue; for security,
+                use private vulnerability reporting; for anything else, LinkedIn.
+              </p>
+            </div>
+            <div class="actions">
+              <a class="button primary" href="https://www.linkedin.com/in/alim-kose-544801ab/"
+                >LinkedIn</a
+              >
+              <a class="button" href="https://github.com/AlimKose">GitHub</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>Senderban · Apache-2.0</span>
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

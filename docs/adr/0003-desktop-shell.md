@@ -75,7 +75,7 @@ the store, never plaintext, never logs.
 3. ~~Clicking the button calls `handleActivation` with `type: 'action'`, `actionIndex: 0`~~ — **MEASURED 2026-10-24**: `{"type":"action","arguments":"type=action&action=0&tag=spike-A-native","actionIndex":0}` while the app was running. **One click produced two `handleActivation` calls ~60 ms apart** (and the instance `action` event fired twice too). The handler must be idempotent: consume the pending id once.
 4. Same click after the app was quit and relaunched by the toast (activation-launch path). **NOT measured.**
 5. ~~A custom id in the notification reaches `ActivationArguments.arguments`~~ — **MEASURED 2026-10-24 for the native path**: the `Notification` `id` arrives as `tag=<id>` inside `arguments`, so `toastXml` is not needed to carry our pending id. `toastXml` (`launch=`/`<action arguments=>`) was shown in the same run but produced no activation record; **not measured**, not needed. Parse `arguments` with `URLSearchParams`, treat it as untrusted, and look the id up in the bounded pending map.
-6. IDLE `exists` event on contact@senderban.com delivers a notification within seconds; survives 29-min renewal and a sleep/resume.
+6. IDLE `exists` event on a real MXroute test mailbox delivers a notification within seconds; survives 29-min renewal and a sleep/resume.
 7. Installer: which tool creates the shortcut with AUMID + ToastActivatorCLSID (Squirrel sets it automatically per the tutorial; other tools do not). Chosen after 2–5, recorded in a new ADR.
 
 ## Build and wiring (2026-10-25)
