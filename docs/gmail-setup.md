@@ -35,7 +35,8 @@ Open **Google Auth Platform** in the same project.
 3. Press **Add Gmail account** and sign in in your browser.
 4. Google shows "Google hasn't verified this app". That is expected: the app is your own project.
    Continue.
-5. Senderban restarts on its own and opens **Accounts** again.
+5. Senderban restarts on its own and opens **Accounts** again. While watching is paused, click
+   **Restart now** instead.
 
 A mail that arrives after that shows a notification with **Move this sender to Trash**.
 

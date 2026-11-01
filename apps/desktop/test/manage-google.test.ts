@@ -59,12 +59,14 @@ const call = (channel: string, event: unknown, payload?: unknown) => {
   return Promise.resolve(handler(event, payload));
 };
 
+let window: InstanceType<typeof ManageWindow>;
 let googleState: ReturnType<typeof vi.fn>;
 let googleSaveClient: ReturnType<typeof vi.fn>;
 let googleSignIn: ReturnType<typeof vi.fn>;
 let googleCancel: ReturnType<typeof vi.fn>;
 let googleRemove: ReturnType<typeof vi.fn>;
 let restart: ReturnType<typeof vi.fn>;
+let noRestart: ReturnType<typeof vi.fn>;
 let unblock: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 let status: ReturnType<typeof vi.fn>;
@@ -83,12 +85,13 @@ beforeEach(() => {
   googleCancel = vi.fn();
   googleRemove = vi.fn(() => Promise.resolve("removed"));
   restart = vi.fn();
+  noRestart = vi.fn();
   status = vi.fn(() =>
     Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
   );
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "" }));
   onError = vi.fn();
-  new ManageWindow("assets", {
+  window = new ManageWindow("assets", {
     list: () => [],
     unblock,
     googleState,
@@ -97,9 +100,11 @@ beforeEach(() => {
     googleCancel,
     googleRemove,
     restart,
+    noRestart,
     status,
     onError,
-  } as never).show();
+  } as never);
+  window.show();
 });
 
 describe("a restart after a sign-in", () => {
@@ -151,7 +156,8 @@ describe("the restart on its own after a sign-in", () => {
     expect(restart).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(restart).toHaveBeenCalledTimes(1);
-    expect(restart).toHaveBeenCalledWith();
+    expect(restart).toHaveBeenCalledWith({ by: "auto", waitedMs: RESTART_AFTER_ADD_MS });
+    expect(noRestart).not.toHaveBeenCalled();
   });
 
   it("does not come after a sign-in that did not finish", async () => {
@@ -178,6 +184,24 @@ describe("the restart on its own after a sign-in", () => {
     await held.step;
     await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
     expect(restart).toHaveBeenCalledTimes(1);
+    expect(restart).toHaveBeenCalledWith({ by: "auto", waitedMs: RESTART_AFTER_ADD_MS * 4 });
+  });
+
+  it("waits for a click on a notification held as a step", async () => {
+    await call("manage:google-sign-in", trusted, undefined);
+    let finish: () => void = () => undefined;
+    const click = window.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS * 2);
+    expect(restart).not.toHaveBeenCalled();
+    finish();
+    await click;
+    await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+    expect(restart).toHaveBeenCalledTimes(1);
   });
 
   it("leaves the restart to the person while watching is paused, since a restart would resume it", async () => {
@@ -185,6 +209,7 @@ describe("the restart on its own after a sign-in", () => {
     await call("manage:google-sign-in", trusted, undefined);
     await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS);
     expect(restart).not.toHaveBeenCalled();
+    expect(noRestart).toHaveBeenCalledExactlyOnceWith("paused");
   });
 
   it("logs a restart that throws and keeps the bar", async () => {
@@ -207,6 +232,7 @@ describe("the restart on its own after a sign-in", () => {
     await held.step;
     await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS);
     expect(restart).not.toHaveBeenCalled();
+    expect(noRestart).toHaveBeenCalledExactlyOnceWith("busy-timeout");
     const status = (await call("manage:status", trusted)) as { restartPending: boolean };
     expect(status.restartPending).toBe(true);
   });
@@ -311,7 +337,7 @@ describe("manage:google-state, -remove and -cancel", () => {
     expect(restart).not.toHaveBeenCalled();
     expect(await call("manage:restart", trusted, "anything")).toBe("restarting");
     expect(restart).toHaveBeenCalledTimes(1);
-    expect(restart).toHaveBeenCalledWith();
+    expect(restart).toHaveBeenCalledWith({ by: "bar", waitedMs: 0 });
   });
 
   it.each([

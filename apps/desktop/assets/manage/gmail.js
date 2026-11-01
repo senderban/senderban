@@ -26,7 +26,7 @@ const G_PERMISSIONS =
 const G_SIGN_IN_REPLY = {
   "signed-in": [
     "ok",
-    "Signed in. Senderban restarts in a moment to start blocking on this account.",
+    "Signed in. Senderban restarts in a moment to start blocking on this account; while watching is paused, use Restart now.",
   ],
   "no-client": ["error", "Save your Google client first."],
   "unknown-account": ["error", "That account is no longer set up."],

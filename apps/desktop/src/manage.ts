@@ -54,6 +54,7 @@ import type {
 } from "./microsoft-accounts.js";
 import type { MxroutePage, MxrouteSaveResult } from "./mxroute-settings.js";
 import type { AccountRemoveResult } from "./remove-account.js";
+import type { NoRestart, RestartWhy } from "./restart.js";
 
 const PAGE = "manage/manage.html";
 
@@ -191,7 +192,9 @@ export interface ManageHandlers {
   readonly microsoftSignIn: (request: { accountId?: string }) => Promise<MicrosoftSignInReply>;
   readonly microsoftRemove: (accountId: string) => Promise<MicrosoftRemoveReply>;
   /** Quits the way the tray's Quit does, then starts Senderban again (a Gmail sign-in is picked up at start). */
-  readonly restart: () => void;
+  readonly restart: (why: RestartWhy) => void;
+  /** A restart after an add gave up; the reason goes to the log, so "it did not restart" leaves evidence. */
+  readonly noRestart: (reason: NoRestart) => void;
   /** The mailboxes and what their watchers are doing. Reads no provider. */
   readonly status: () => Promise<WatchStatus>;
   /** Pauses or resumes every watcher, as the tray's menu does. */
@@ -860,7 +863,7 @@ export class ManageWindow {
   #restart(event: IpcMainInvokeEvent): RestartReply {
     if (!this.#trusted(event)) return "denied";
     if (this.#steps > 0) return "busy";
-    this.#handlers.restart();
+    this.#handlers.restart({ by: "bar", waitedMs: 0 });
     return "restarting";
   }
 
@@ -880,13 +883,17 @@ export class ManageWindow {
       const idle = () => this.#steps === 0;
       try {
         if (idle()) {
-          if ((await this.#handlers.status()).paused) return;
+          if ((await this.#handlers.status()).paused) {
+            this.#handlers.noRestart("paused");
+            return;
+          }
           if (idle()) {
-            this.#handlers.restart();
+            this.#handlers.restart({ by: "auto", waitedMs: Date.now() - started });
             return;
           }
         }
         again = Date.now() - started < RESTART_WAIT_MAX_MS;
+        if (!again) this.#handlers.noRestart("busy-timeout");
       } catch (error) {
         this.#handlers.onError("manage:auto-restart", error);
       } finally {
@@ -895,6 +902,11 @@ export class ManageWindow {
       }
     };
     setTimeout(() => void tick(), RESTART_AFTER_ADD_MS);
+  }
+
+  /** Work started outside the window (a click on a notification) that a restart after an add must not cut off. */
+  hold<T>(work: () => Promise<T>): Promise<T> {
+    return this.#step(work);
   }
 
   async #step<T>(work: () => Promise<T>): Promise<T> {

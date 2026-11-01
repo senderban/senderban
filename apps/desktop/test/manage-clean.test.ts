@@ -64,6 +64,7 @@ let cleanAdd: ReturnType<typeof vi.fn>;
 let accountRemove: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 let restart: ReturnType<typeof vi.fn>;
+let noRestart: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   handlers.clear();
@@ -77,11 +78,13 @@ beforeEach(() => {
   );
   onError = vi.fn();
   restart = vi.fn();
+  noRestart = vi.fn();
   const window = new ManageWindow("assets", {
     cleanAdd,
     accountRemove,
     onError,
     restart,
+    noRestart,
     status: () => Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
     mxrouteList: () =>
       Promise.resolve({

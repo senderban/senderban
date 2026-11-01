@@ -96,6 +96,7 @@ beforeEach(() => {
     accountRemove,
     googleCancel: () => undefined,
     restart: () => undefined,
+    noRestart: () => undefined,
     onError,
   } as never).show();
 });

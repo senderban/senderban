@@ -96,7 +96,8 @@ for that is trying to take over your mailbox ([SECURITY.md](SECURITY.md)).
 ### Gmail
 
 Open Senderban from the tray, **Accounts**, **Add mailbox**, **Gmail**, **Add Gmail account**, sign in
-with your Google account in your browser. Senderban restarts on its own and opens **Accounts** again.
+with your Google account in your browser. Senderban restarts on its own and opens **Accounts** again
+(while watching is paused, click **Restart now**).
 There is nothing to set up.
 
 Google has not verified Senderban yet, so the sign-in page shows "Google hasn't verified this app"
@@ -106,7 +107,8 @@ and the app is limited to 100 users. To sign in through a Google Cloud project y
 ### MXroute and other mail servers
 
 Open Senderban from the tray, **Accounts**, **Add mailbox**, **Mail server**, pick your provider,
-enter the mail address and password, **Add mailbox**; Senderban restarts on its own. For MXroute also enter the
+enter the mail address and password, **Add mailbox**; Senderban restarts on its own (while watching is
+paused, click **Restart now**). For MXroute also enter the
 server (it is in your MXroute welcome mail). Senderban asks you to confirm the server, checks that
 it speaks ManageSieve before any password leaves your device, signs in over IMAP and ManageSieve and
 stores nothing unless both work. The password is stored encrypted on this device.

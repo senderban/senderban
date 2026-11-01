@@ -33,6 +33,8 @@ export interface ToastHandlers {
   readonly onRefused: () => void;
   /** A handler threw: the log gets the channel and a sanitised message, the person a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
+  /** Runs a click as a step of the window, so a restart after an add waits for it as it waits for the window's own steps. */
+  readonly hold: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 /**
@@ -122,10 +124,11 @@ export class Toasts {
     this.#live.delete(id);
     let result: ToastResult;
     try {
-      result =
+      result = await this.#handlers.hold(() =>
         action === QUIET_CHOICE
-          ? await this.#handlers.quiet(id, scope)
-          : await this.#handlers.choose(id, scope, action);
+          ? this.#handlers.quiet(id, scope)
+          : this.#handlers.choose(id, scope, action),
+      );
     } catch (error) {
       this.#handlers.onError("toast:choose", error);
       result = { tone: "error", text: "Something went wrong. See the log." };

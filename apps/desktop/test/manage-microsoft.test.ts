@@ -56,6 +56,7 @@ let microsoftSignIn: ReturnType<typeof vi.fn>;
 let microsoftRemove: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
 let restart: ReturnType<typeof vi.fn>;
+let noRestart: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   handlers.clear();
@@ -64,12 +65,14 @@ beforeEach(() => {
   microsoftRemove = vi.fn(() => Promise.resolve("removed"));
   onError = vi.fn();
   restart = vi.fn();
+  noRestart = vi.fn();
   new ManageWindow("assets", {
     list: () => [],
     microsoftState,
     microsoftSignIn,
     microsoftRemove,
     restart,
+    noRestart,
     googleCancel: () => undefined,
     status: () => Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
     onError,

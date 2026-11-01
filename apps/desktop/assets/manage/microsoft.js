@@ -20,7 +20,7 @@ const MS_MAY_NEED_APPROVAL = new Set(["needs-approval", "cancelled", "timeout"])
 const MS_SIGN_IN_REPLY = {
   "signed-in": [
     "ok",
-    "Signed in. Senderban restarts in a moment to start blocking on this account.",
+    "Signed in. Senderban restarts in a moment to start blocking on this account; while watching is paused, use Restart now.",
   ],
   "no-client": ["error", "Microsoft sign-in is not set up in this version of Senderban."],
   "unknown-account": ["error", "That account is no longer set up."],

@@ -62,10 +62,12 @@ describe("the person's settings", () => {
     const choose = vi.fn(() => Promise.resolve({ tone, text: "done" }));
     const quiet = vi.fn(() => Promise.resolve({ tone, text: "quiet done" }));
     const onRefused = vi.fn();
+    const held: string[] = [];
     return {
       choose,
       quiet,
       onRefused,
+      held,
       toasts: new Toasts({
         settings: () => settings,
         spamStrips: STRIPS,
@@ -75,6 +77,12 @@ describe("the person's settings", () => {
         onIgnored: () => undefined,
         onRefused,
         onError: () => undefined,
+        hold: async <T>(work: () => Promise<T>): Promise<T> => {
+          held.push("start");
+          const value = await work();
+          held.push("end");
+          return value;
+        },
       }),
     };
   };
@@ -133,6 +141,14 @@ describe("the person's settings", () => {
     expect(choose).not.toHaveBeenCalled();
   });
 
+  it("runs a block and a Don't ask again click as a held step, so a restart after an add waits for both", async () => {
+    const { held } = make("ok");
+    await click();
+    activate.click({ arguments: `act=sender;id=${ID}`, userInputs: { target: "quiet" } });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(held).toEqual(["start", "end", "start", "end"]);
+  });
+
   it("reports a toast Windows refused, and stops tracking it", () => {
     const { toasts, onRefused } = make("ok");
     toasts.show(toast(1));
@@ -174,6 +190,7 @@ describe("Toasts tracking", () => {
       onIgnored: () => undefined,
       onRefused: () => undefined,
       onError: () => undefined,
+      hold: (work) => work(),
     });
     for (let n = 0; n < 60; n += 1) toasts.show(toast(n));
     expect(created).toHaveLength(60);

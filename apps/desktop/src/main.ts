@@ -116,7 +116,7 @@ import {
   removeImapAccount,
 } from "./remove-account.js";
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
-import { REOPEN_MANAGE_ARG, relaunchArgs, restartApp } from "./restart.js";
+import { relaunchArgs, reopenAfterStart, restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import type { MailWatchers } from "./mail-watchers.js";
 import { createOutlookWatchers } from "./outlook-watchers.js";
@@ -1371,6 +1371,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onRefused: () => {
         log("toast-refused");
       },
+      hold: (work) => (manage === null ? work() : manage.hold(work)),
       quiet: async (id, scope) => {
         const { pending, own } = await ready.promise;
         const target = quietTarget(pending, id, scope, own.get());
@@ -1745,21 +1746,29 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         await settings.save(next);
         log("settings", next);
       },
-      restart: () => {
-        restartApp({
-          isQuitting: () => quitting,
-          log,
-          releaseLock: () => {
-            app.releaseSingleInstanceLock();
+      noRestart: (reason) => {
+        log("restart-skipped", { reason });
+      },
+      restart: (why) => {
+        restartApp(
+          {
+            isQuitting: () => quitting,
+            log: (event, fields) => {
+              log(event, { ...fields });
+            },
+            releaseLock: () => {
+              app.releaseSingleInstanceLock();
+            },
+            relaunch: () => {
+              // The window asks for every restart; the new process opens it again only if it is still open.
+              app.relaunch({ args: relaunchArgs(process.argv, manage?.isOpen() ?? false) });
+            },
+            quit: () => {
+              app.quit();
+            },
           },
-          relaunch: () => {
-            // The window asks for every restart; the new process opens it again only if it is still open.
-            app.relaunch({ args: relaunchArgs(process.argv, manage?.isOpen() ?? false) });
-          },
-          quit: () => {
-            app.quit();
-          },
-        });
+          why,
+        );
       },
       microsoftState: () => microsoftState(microsoftDeps),
       microsoftSignIn: async (request) => {
@@ -1836,13 +1845,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     });
     updateTray();
     start().then(ready.resolve, ready.reject);
-    // After start, so the page reads the accounts it is about to show. A start that failed opens the window without the notice.
-    if (process.argv.includes(REOPEN_MANAGE_ARG)) {
-      ready.promise.then(
-        () => manage?.showAfterRestart(),
-        () => manage?.show(),
-      );
-    }
+    reopenAfterStart(process.argv, ready.promise, () => manage);
     void ready.promise.then((current) => {
       runtime = current;
       updateTray();

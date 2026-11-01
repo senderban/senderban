@@ -39,10 +39,13 @@ const acEls = {
 
 // Replies of the main process, as sentences. The input is never echoed.
 const AC_REPLY = {
-  saved: ["ok", "Added. Senderban restarts in a moment to start blocking on this account."],
+  saved: [
+    "ok",
+    "Added. Senderban restarts in a moment to start blocking on this account; while watching is paused, use Restart now.",
+  ],
   "saved-own-entries": [
     "warn",
-    "Added. Blocks on your list for this mail domain no longer apply, because it now counts as your own. Senderban restarts in a moment to start blocking on this account.",
+    "Added. Blocks on your list for this mail domain no longer apply, because it now counts as your own. Senderban restarts in a moment to start blocking on this account; while watching is paused, use Restart now.",
   ],
   exists: ["error", "This mailbox is already set up."],
   limit: ["error", "Senderban cannot hold more accounts."],

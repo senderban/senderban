@@ -105,6 +105,23 @@ Open, bounded by `MAX_ACCOUNTS` and constants, none measured on a real disk or p
 - The Accounts page reads every Microsoft lane's state in one tick: 0.5-1.9 s at 50.
 - The `sync` log line has no duration or gate wait, so a slow click cannot be read from a person's log.
 
+## Restart after an add (2026-11-01)
+
+A lane and its watcher are built at start, so an add or sign-in that worked restarts Senderban (`manage.ts` `#restartAfterAdd`).
+
+- Unit: one completed add or sign-in, paced by a person. Restarts per day = adds per day; nothing at start asks for one, so no loop.
+- Timer: first check 2 s after the add, then every 2 s while a step of the window or a click on a notification runs, at most 30 checks
+  (60 s). At most one timer waits; adds inside that window share it. Each check is an in-memory count plus one local status read.
+- Cost of one restart: quit up to 6 s (`SHUTDOWN_CAP_MS`), then every account reconnects. IMAP logins go through the gate of 5:
+  about 2 / 4 / 20 s at 1 / 10 / 50 IMAP accounts (one login measured at 1.8-2.2 s on MXroute, 2026-10-24; 50 at once not measured).
+  Gmail and Outlook: one token request each, first poll spread over 0-30 s. Toasts on screen close and are not shown again.
+- Measured on a personal Outlook account (2026-11-01): sign-in to restart 2.01 s, restart to start 1.37 s, start to watching 20.57 s,
+  of which the start spread is about 86%.
+- Log: `restart` with `by` (`auto` or `bar`) and `waitedMs`; `restart-skipped` with `paused` or `busy-timeout` when the bar is left.
+- Known cost: K accounts added one at a time, each more than 2 s apart, cost K restarts, so K × (all lanes reconnect): 15, 55 and
+  1,275 IMAP logins for 5, 10 and 50 accounts against 5, 10 and 50 with one restart. The 0-30 s spread was sized for 50 accounts and
+  applies with one. Both go away with adding an account without a restart (0.3).
+
 ## Not done here (tracked in `.task/performance-review-baseline-2026-10-25.md`)
 
 Auth-throttle replies treated as a wrong password (W2), `list()` read per account
