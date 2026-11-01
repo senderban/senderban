@@ -12,7 +12,11 @@ function deps(quitting: boolean) {
       isQuitting: () => quitting,
       log: vi.fn(mark("log")),
       releaseLock: mark("releaseLock"),
-      relaunch: mark("relaunch"),
+      isOpen: vi.fn(() => {
+        calls.push("isOpen");
+        return true;
+      }),
+      relaunch: vi.fn(mark("relaunch")),
       quit: mark("quit"),
     },
   };
@@ -22,7 +26,8 @@ describe("restartApp", () => {
   it("frees the lock and registers the new start before the quit begins", () => {
     const { calls, value } = deps(false);
     expect(restartApp(value, { by: "bar", waitedMs: 0 })).toBe(true);
-    expect(calls).toEqual(["log", "releaseLock", "relaunch", "quit"]);
+    expect(calls).toEqual(["log", "releaseLock", "isOpen", "relaunch", "quit"]);
+    expect(value.relaunch).toHaveBeenCalledWith(true);
     expect(value.log).toHaveBeenCalledWith("restart", { by: "bar", waitedMs: 0 });
   });
 

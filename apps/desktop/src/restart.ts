@@ -33,7 +33,7 @@ export function reopenAfterStart(
   );
 }
 
-/** Who asked for a restart and how long the window waited for its steps first (unit: milliseconds): the log line that tells them apart. */
+/** Who asked for a restart and, for `auto`, the time since the add that armed the timer (unit: milliseconds; `bar` is 0). */
 export interface RestartWhy {
   readonly by: "auto" | "bar";
   readonly waitedMs: number;
@@ -49,8 +49,10 @@ export interface RestartDeps {
   readonly log: (event: "restart", fields: RestartWhy) => void;
   /** Frees the single-instance lock, so the new process does not find the old one still holding it and quit silently. */
   readonly releaseLock: () => void;
-  /** Registers the start of a new process for when this one exits; it does not quit. */
-  readonly relaunch: () => void;
+  /** Whether the window is open now: read before the quit closes it, so the new process knows to open it again. */
+  readonly isOpen: () => boolean;
+  /** Registers the start of a new process for when this one exits, with the window flag; it does not quit. */
+  readonly relaunch: (reopen: boolean) => void;
   /** Starts the normal quit (`before-quit` runs the shutdown, then the process exits). */
   readonly quit: () => void;
 }
@@ -63,7 +65,7 @@ export function restartApp(deps: RestartDeps, why: RestartWhy): boolean {
   if (deps.isQuitting()) return false;
   deps.log("restart", why);
   deps.releaseLock();
-  deps.relaunch();
+  deps.relaunch(deps.isOpen());
   deps.quit();
   return true;
 }

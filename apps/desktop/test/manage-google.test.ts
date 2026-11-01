@@ -187,6 +187,22 @@ describe("the restart on its own after a sign-in", () => {
     expect(restart).toHaveBeenCalledWith({ by: "auto", waitedMs: RESTART_AFTER_ADD_MS * 4 });
   });
 
+  it("answers busy on the bar while a click on a notification is held, then restarts", async () => {
+    let finish: () => void = () => undefined;
+    const click = window.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    expect(await call("manage:restart", trusted)).toBe("busy");
+    expect(restart).not.toHaveBeenCalled();
+    finish();
+    await click;
+    expect(await call("manage:restart", trusted)).toBe("restarting");
+    expect(restart).toHaveBeenCalledExactlyOnceWith({ by: "bar", waitedMs: 0 });
+  });
+
   it("waits for a click on a notification held as a step", async () => {
     await call("manage:google-sign-in", trusted, undefined);
     let finish: () => void = () => undefined;

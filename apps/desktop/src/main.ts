@@ -1759,9 +1759,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
             releaseLock: () => {
               app.releaseSingleInstanceLock();
             },
-            relaunch: () => {
-              // The window asks for every restart; the new process opens it again only if it is still open.
-              app.relaunch({ args: relaunchArgs(process.argv, manage?.isOpen() ?? false) });
+            isOpen: () => manage?.isOpen() ?? false,
+            relaunch: (reopen) => {
+              app.relaunch({ args: relaunchArgs(process.argv, reopen) });
             },
             quit: () => {
               app.quit();
