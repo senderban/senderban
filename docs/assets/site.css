@@ -9,6 +9,8 @@
   --accent: #0b5fff;
   --accent-fg: #ffffff;
   --accent-soft: #e8f0ff;
+  /* Accent text on --accent-soft: #0b5fff there is 4.48:1, under WCAG's 4.5 (Lighthouse 13.6, 2026-11-02); this is 5.66:1. */
+  --accent-on-soft: #0a52db;
   --ban: #cf222e;
   --toast-bg: #f3f3f3;
   --toast-fg: #1a1a1a;
@@ -29,6 +31,7 @@
     --accent: #4c8dff;
     --accent-fg: #0b0d10;
     --accent-soft: #172440;
+    --accent-on-soft: #4c8dff;
     --ban: #ff7b72;
     --toast-bg: #2b2b2b;
     --toast-fg: #ffffff;
@@ -60,7 +63,9 @@ a {
   text-underline-offset: 0.15em;
 }
 a:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+.table-scroll:focus-visible,
+pre:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
@@ -136,7 +141,7 @@ summary:focus-visible {
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-on-soft);
   font-size: 0.85rem;
   font-weight: 600;
 }
