@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   EXACT_HOSTS,
+  SITE_HOSTS,
   LINE_MAX_CHARS,
   decode,
   isAllowedHost,
@@ -321,6 +322,14 @@ describe("isAllowedHost", () => {
   it("keeps the exact-only list from growing (new tests use reserved names)", () => {
     // 23 test names, and one host the app itself names to people (ADR 0013).
     expect(EXACT_HOSTS.length).toBeLessThanOrEqual(24);
+  });
+
+  it("passes the site's hosts as exactly themselves, not their domains", () => {
+    expect(SITE_HOSTS.length).toBeLessThanOrEqual(3);
+    expect(isAllowedHost(host("www", "linkedin", "com"))).toBe(true);
+    expect(isAllowedHost(host("linkedin", "com"))).toBe(false);
+    expect(isAllowedHost(host("mail", "linkedin", "com"))).toBe(false);
+    expect(isAllowedHost(host("sitemaps", "org"))).toBe(false);
   });
 });
 

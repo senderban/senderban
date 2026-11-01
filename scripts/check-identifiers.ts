@@ -61,11 +61,16 @@ const PUBLIC_ZONES = [
  * somebody's real domain. Registrable test strings written before the reserved-name rule (2026-10-27; none is a maintainer's),
  * public suffixes the address parser is tested on, and single public hosts. New tests use reserved names; this list does not grow.
  */
+/**
+ * Hosts the website links or names, each as exactly itself: a zone here would also pass any address at that domain. Kept apart from
+ * EXACT_HOSTS, whose cap guards test names. The author's public profile (docs/index.html, docs/engineering/, docs/work/), the JSON-LD
+ * `@context` vocabulary (docs/) and the sitemap namespace (docs/sitemap.xml).
+ */
+export const SITE_HOSTS: readonly string[] = ["www.linkedin.com", "schema.org", "www.sitemaps.org"];
+
 export const EXACT_HOSTS: readonly string[] = [
   // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0013).
   "account.live.com",
-  // The author's public profile, linked from the site (docs/index.html, docs/engineering/).
-  "www.linkedin.com",
   "a.co",
   "b.com",
   "c.com",
@@ -212,7 +217,7 @@ export function isAllowedHost(host: string, exact: ReadonlySet<string> = new Set
   if (RESERVED_TLDS.has(labels[labels.length - 1] ?? "")) return true;
   if (RESERVED_DOMAINS.some((d) => within(h, d)) || PUBLIC_ZONES.some((d) => within(h, d)))
     return true;
-  return EXACT_HOSTS.includes(h) || exact.has(h);
+  return EXACT_HOSTS.includes(h) || SITE_HOSTS.includes(h) || exact.has(h);
 }
 
 /** Every allowlist miss and denylist hit in one text. `binary` skips the allowlist (it reads the denylist only). */

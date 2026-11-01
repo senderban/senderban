@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Work with me - Alim Köse</title>
+    <meta
+      name="description"
+      content="Alim Köse builds desktop apps, mail and OAuth integrations, and security and scale reviews. Senderban is the evidence: every claim here links to its code, decision records or releases."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta property="og:title" content="Work with me - Alim Köse" />
+    <meta
+      property="og:description"
+      content="Alim Köse builds desktop apps, mail and OAuth integrations, and security and scale reviews. Senderban is the evidence: every claim here links to its code, decision records or releases."
+    />
+    <meta property="og:url" content="https://senderban.com/work/" />
+    <meta property="og:image" content="https://senderban.com/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Senderban: block a sender once, on every account, on every device."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": "Alim Köse",
+        "url": "https://senderban.com/work/",
+        "sameAs": ["https://www.linkedin.com/in/alim-kose-544801ab/", "https://github.com/AlimKose"]
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/work/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/">Writing</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap page-head">
+        <p class="eyebrow">Work with me</p>
+        <h1>Alim Köse</h1>
+        <p class="lead">
+          I design and build software that has to be careful: it holds credentials, talks to other
+          companies' APIs and runs on people's own machines. Senderban is the public evidence. Each
+          item below links to its code, its decision records or its attested releases.
+        </p>
+        <div class="actions">
+          <a class="button primary" href="https://www.linkedin.com/in/alim-kose-544801ab/"
+            >Contact on LinkedIn</a
+          >
+          <a class="button" href="https://github.com/AlimKose">GitHub</a>
+        </div>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <h2>What I can do for you</h2>
+          <div class="cards">
+            <div>
+              <h3>Desktop apps on Electron</h3>
+              <p>
+                A tray app with sandboxed windows, a strict content security policy, IPC that checks
+                which frame is calling, and secrets kept with the operating system's own protection.
+                Released from CI with a build provenance attestation you can verify, unsigned for
+                now.
+                <a href="/engineering/#security">Security model</a> ·
+                <a href="/engineering/#verify">verify a download</a>
+              </p>
+            </div>
+            <div>
+              <h3>Mail and OAuth integrations</h3>
+              <p>
+                Gmail API under Google's Limited Use rules, Microsoft Graph, IMAP and ManageSieve,
+                with sign-in through PKCE and a loopback redirect and the least permissions that
+                work.
+                <a href="/#providers">What is tested where</a> ·
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
+                  >Outlook decision record</a
+                >
+              </p>
+            </div>
+            <div>
+              <h3>Security reviews</h3>
+              <p>
+                A defensive review and an attacker's pass before a release, as for Senderban 0.2.0,
+                with every finding fixed or written down with its reason. Two of the notes come from
+                such findings.
+                <a href="/writing/outlook-domain-text-match/">The Outlook look-alike</a> ·
+                <a href="/writing/provider-from-address/">forged DNS and passwords</a>
+              </p>
+            </div>
+            <div>
+              <h3>Scale and performance</h3>
+              <p>
+                A budget written before the code: the unit, what grows with it, the numbers at 10
+                and 50 units, and a share and a deadline for every shared resource.
+                <a href="/writing/scale-budget-desktop-app/">The scale budget note</a> ·
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0006-scale-budget.md"
+                  >ADR 0006</a
+                >
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap prose">
+          <h2>How I work</h2>
+          <ul>
+            <li>
+              Decisions are written down before the code, with the reasoning and the cost:
+              <a href="/engineering/#decisions">18 decision records</a> for Senderban so far.
+            </li>
+            <li>
+              A claim is measured or it is marked as not measured. The provider table on the home
+              page says "tested" only where a real account ran.
+            </li>
+            <li>
+              Every push runs type check, build, lint, format, tests, an identifier check and a
+              secret scan of the whole history in CI.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <div class="support">
+            <div>
+              <h2>Get in touch</h2>
+              <p>
+                For work, write to me on LinkedIn. For a bug in Senderban, open a GitHub issue; for
+                a security problem, use private vulnerability reporting on the repository.
+              </p>
+            </div>
+            <div class="actions">
+              <a class="button primary" href="https://www.linkedin.com/in/alim-kose-544801ab/"
+                >LinkedIn</a
+              >
+              <a class="button" href="https://github.com/senderban/senderban/issues">Issues</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/" aria-current="page">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
