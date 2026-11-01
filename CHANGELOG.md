@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
 ### Added
 
 - **Find my provider** on **Add mailbox**: type your address and Senderban reads your domain's mail

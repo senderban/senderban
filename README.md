@@ -2,10 +2,11 @@
 
 Block a sender once, from the Windows notification, on every mail account you own.
 
-> **Status: v0.1, early release.** Windows only. Works on MXroute and Gmail: the full loop (new mail,
-> notification, block, next mail filed away, undo) was measured on one real account of each on
-> 2026-10-30. Nothing is measured on other providers. The installer is unsigned. Start with a
-> mailbox you can afford to experiment on.
+> **Status: v0.2, early release.** Windows only. The full loop (new mail, notification, block, next
+> mail filed away, undo) was measured on one real MXroute and one real Gmail account on 2026-10-30;
+> a personal Outlook.com account and iCloud were measured on 2026-11-01. Other providers ran on a
+> local Dovecot server only, see [Provider support](#provider-support). The installer is unsigned.
+> Start with a mailbox you can afford to experiment on.
 
 ## Download
 
