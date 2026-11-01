@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Writing - Senderban</title>
+    <meta
+      name="description"
+      content="Technical notes from building Senderban: each one a real problem, what was measured, the decision and its cost."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://senderban.com/writing/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap page-head">
+        <p class="eyebrow">Writing</p>
+        <h1>Notes from building Senderban</h1>
+        <p class="lead">
+          Each note is a real problem from this codebase: what was measured, what was decided, and
+          what it costs. Every claim links to the code, a decision record or the provider's own
+          documentation.
+        </p>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <ol class="post-list">
+            <li>
+              <a href="/writing/outlook-domain-text-match/"
+                >Why blocking @paypal.co on Outlook would also block @paypal.com</a
+              >
+              <p>
+                Outlook keeps a domain block as a text match. A look-alike's domain can be the start
+                of the real sender's, and what Senderban refuses because of it.
+              </p>
+              <span class="post-date">2 November 2026</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>Senderban · Apache-2.0</span>
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

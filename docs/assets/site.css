@@ -115,6 +115,7 @@ summary:focus-visible {
   color: var(--muted);
   text-decoration: none;
   padding: 0.25rem 0;
+  white-space: nowrap;
 }
 .site-header nav a:hover {
   color: var(--fg);
@@ -645,12 +646,38 @@ pre {
   border-radius: var(--radius);
   color: var(--muted);
 }
-.policy h2 {
+.policy h2,
+.article h2 {
   font-size: 1.3rem;
   margin-top: 2.5rem;
 }
-.policy h2:first-child {
+.policy h2:first-child,
+.article h2:first-child {
   margin-top: 0;
+}
+
+/* Writing */
+.post-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-width: 46rem;
+}
+.post-list li + li {
+  margin-top: 1.75rem;
+}
+.post-list a {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.post-list p {
+  margin: 0.35rem 0 0.25rem;
+  color: var(--muted);
+}
+.post-date {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Footer */
@@ -699,7 +726,8 @@ pre {
     columns: 1;
   }
 }
-@media (max-width: 36rem) {
+/* Six links fit from 700 px (measured); below that only Engineering and GitHub stay. */
+@media (max-width: 44rem) {
   .site-header nav a:not(.keep) {
     display: none;
   }

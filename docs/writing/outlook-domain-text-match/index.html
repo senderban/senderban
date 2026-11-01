@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Why blocking @paypal.co on Outlook would also block @paypal.com - Senderban</title>
+    <meta
+      name="description"
+      content="Outlook keeps a domain block as a text match, so blocking a look-alike phisher can silence the real sender. How Senderban found it before the Outlook lane shipped, what it refuses now, and what that costs."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://senderban.com/writing/outlook-domain-text-match/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap page-head">
+        <p class="eyebrow">Writing · 2 November 2026</p>
+        <h1>Why blocking @paypal.co on Outlook would also block @paypal.com</h1>
+        <p class="lead">
+          Outlook keeps a domain block as a text match. A look-alike phisher's domain can be the
+          first letters of the real sender's, so blocking the phisher would silence the real one.
+          This was found in review before the Outlook lane shipped. Here is the mechanism, what
+          Senderban refuses now, and what that costs.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <h2>A domain block on Outlook is text</h2>
+          <p>
+            Outlook.com and Microsoft 365 have no Sieve, and Microsoft Graph v1.0 has no call that
+            writes the blocked-senders list. What stays is an Inbox rule, a
+            <a href="https://learn.microsoft.com/en-us/graph/api/resources/messagerule"
+              ><code>messageRule</code></a
+            >
+            (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
+              >ADR 0013</a
+            >). One address has an exact condition, <code>fromAddresses</code>. A domain has none:
+            of the 30 conditions in
+            <a href="https://learn.microsoft.com/en-us/graph/api/resources/messagerulepredicates"
+              ><code>messageRulePredicates</code></a
+            >, the one that fits is <code>senderContains</code>, "the strings that appear in the
+            from property of an incoming message". So Senderban writes a domain and its subdomains
+            like this:
+          </p>
+          <pre><code>"senderContains": ["@example.org", ".example.org"]</code></pre>
+          <p>
+            <code>@example.org</code> catches every address at that domain, and
+            <code>.example.org</code> its subdomains. Both also catch any longer domain that starts
+            with the same letters: <code>@example.org.tr</code> is somebody else, and its mail
+            matches too. ADR 0013 lists that as a known limit, and the mail goes to Junk or Deleted
+            Items, where it can be recovered.
+          </p>
+
+          <h2>The case that matters: blocking the phisher</h2>
+          <p>
+            On 1 November 2026 a red-team pass over the code, a review that plays the attacker,
+            asked what happens when the person does the right thing. A phishing mail arrives from
+            <code>@paypal.co</code>, a look-alike. The person blocks the whole domain from the
+            notification. The rule says <code>"@paypal.co"</code>, and every address at
+            <code>@paypal.com</code> contains that text. The real sender's alerts now go to Junk, in
+            the middle of an attack that imitates that sender.
+          </p>
+          <p>
+            The guards at the block list did not see it. They compare domains label by label, and
+            the two names share no label boundary. The same holds for <code>.ne</code> before
+            <code>.net</code>, <code>.in</code> before <code>.info</code> and
+            <code>.bi</code> before <code>.biz</code>, and <code>@amazon.co</code> also matches
+            <code>@amazon.co.uk</code>. The finding was rated medium and dormant: the build had no
+            Microsoft client ID yet, so no Outlook lane could run. The note said to treat it as
+            blocking before one was set.
+          </p>
+
+          <h2>What was measured, and what was not</h2>
+          <ul>
+            <li>
+              Microsoft's reference defines <code>senderContains</code> as strings that appear in
+              the sender, and lists no exact-domain condition.
+            </li>
+            <li>
+              On one personal Outlook.com mailbox on 1 November 2026, a domain block was written as
+              <code>senderContains: "@domain"</code> (<code>POST</code> 201), and mail from another
+              address of the blocked domain did not reach the Inbox (ADR 0013, M3).
+            </li>
+            <li>
+              Not reproduced on a mailbox: a look-alike rule catching the real domain's mail. It
+              follows from the documented definition, and the fix stops Senderban from writing such
+              a rule, so there was nothing left to try it with.
+            </li>
+          </ul>
+
+          <h2>The decision: refuse it on Outlook only</h2>
+          <p>
+            The Outlook lane now refuses a domain right under <code>.co</code>, <code>.ne</code>,
+            <code>.in</code> or <code>.bi</code>, the top-level domains that are the first letters
+            of com, net, info and biz. That covers <code>@paypal.co</code>,
+            <code>@mail.paypal.co</code> and such a suffix on its own. A name under a longer suffix
+            is still written: <code>@spam.co.in</code> could only also reach
+            <code>@spam.co.info</code>, where no real sender lives. The older guards stay: a domain
+            whose text would reach the person's own mail, a listed mail provider, or the account
+            alerts of Google, Microsoft or Apple is refused too.
+          </p>
+          <p>
+            A refused entry stays on the device list, which says
+            <strong>Outlook: not applied</strong>, and the result notification says why. Sieve
+            servers compare the whole domain (<code>address :domain :is</code>) and the IMAP cleaner
+            compares labels, so those mailboxes still apply it. The 0.2.0 changelog tells people to
+            block the address instead.
+          </p>
+          <p>
+            The tests hold ten look-alike pairs. Each one checks that the look-alike really is the
+            start of the real name, that the guard refuses it, and that a fake Graph server ends
+            with no rule. Three names under a longer suffix check the opposite: one rule each.
+            Source:
+            <a
+              href="https://github.com/senderban/senderban/blob/main/packages/core/src/graph/adapter.ts"
+              >graph/adapter.ts</a
+            >,
+            <a
+              href="https://github.com/senderban/senderban/blob/main/packages/core/test/graph/adapter.test.ts"
+              >its tests</a
+            >.
+          </p>
+
+          <h2>What it costs</h2>
+          <ul>
+            <li>
+              A spammer who really lives under <code>.co</code> cannot be blocked by domain on
+              Outlook. Their address still can.
+            </li>
+            <li>
+              The guard is narrow on purpose. Every top-level domain that starts another would be
+              134 of the 248 country codes, by the count in the code against IANA's list of 1
+              November 2026, and refusing all of them would refuse most domain blocks. So
+              <code>.com</code> still reaches <code>.com.tr</code>, and <code>.ba</code> still
+              reaches <code>.bank</code>. The notification names that limit, and the mail stays in
+              Junk or Deleted Items. This was accepted after the security review the same day.
+            </li>
+            <li>
+              Still open: whether <code>senderContains</code> also reads the display name is not
+              documented. It is on the list to measure (ADR 0013, M3).
+            </li>
+          </ul>
+          <p>
+            The general lesson: when a provider offers only a text match, the dangerous case is not
+            the spammer you meant to block, it is the trusted name that starts with the same
+            letters.
+          </p>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>Senderban · Apache-2.0</span>
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
