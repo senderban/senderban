@@ -28,14 +28,22 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
   a local Dovecot, not on those providers.
 - Before any password leaves the device, Senderban asks the ManageSieve port what it is, so a server
   without it, without encryption or with a bad certificate is named as such.
-- **Outlook and Microsoft 365:** a Microsoft account keeps your block list as rules on the mailbox, so
-  every mail app follows. A sender goes to Junk or Deleted Items at the server. The sign-in stays off
-  until the Microsoft app registration is in place, and none of this has been measured on a real
-  mailbox yet ([ADR 0013](docs/adr/0013-graph-adapter.md)).
+- **Outlook and Microsoft 365:** sign in with your Microsoft account, no setup of your own. Your block
+  list becomes rules on the mailbox, so every mail app follows, and a sender goes to Junk or Deleted
+  Items at the server. New mail shows a notification within about a minute. A work or school account
+  whose organization must approve Senderban gets a link to send to its administrator. Measured on a
+  personal Outlook.com account: sign-in, the notification, an address block written as a rule and
+  read back, and removing the account with its rule. A work or school account, a domain block,
+  Unblock and several blocks sharing one rule are not measured yet
+  ([ADR 0013](docs/adr/0013-graph-adapter.md)).
+- On Outlook, a domain block under `.co`, `.ne`, `.in` or `.bi` is refused, because Outlook matches the
+  text and the rule would also catch the same name under `.com`, `.net`, `.info` or `.biz`. Block the
+  address instead.
 - **Other (IMAP)** under **Add mailbox**, for mailboxes with no rule Senderban can write (iCloud, Yahoo,
   AOL, GMX, Web.de). This is cleaning, not a server rule: while Senderban runs it moves a blocked
   sender's new mail to Junk or Trash, and clears the last 30 days of the Inbox when you block someone.
-  With Senderban closed the mail stays in the Inbox. Measured on a local Dovecot server only.
+  With Senderban closed the mail stays in the Inbox. Measured on iCloud with one address block. Yahoo,
+  AOL, GMX and Web.de ran on a local Dovecot server only.
 
 ### Changed
 
