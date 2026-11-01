@@ -364,6 +364,29 @@ h3 {
   padding: 1.25rem;
 }
 
+/* App screenshots */
+.shots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+.shots figure {
+  margin: 0;
+}
+.shots img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.shots figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
 /* Provider table */
 .table-scroll {
   overflow-x: auto;
@@ -661,7 +684,8 @@ pre {
     text-align: center;
   }
   .steps,
-  .cards {
+  .cards,
+  .shots {
     grid-template-columns: minmax(0, 1fr);
   }
   .facts {
