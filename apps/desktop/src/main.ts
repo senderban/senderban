@@ -1374,12 +1374,20 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       quiet: async (id, scope) => {
         const { pending, own } = await ready.promise;
         const target = quietTarget(pending, id, scope, own.get());
-        log("quiet", { scope, result: target.status });
+        if (target.status !== "ok") log("quiet", { scope, result: target.status });
         if (target.status === "duplicate") return { tone: "warn", text: "Already handled." };
         if (target.status !== "ok") {
           return { tone: "warn", text: "This message has expired, so nothing changed." };
         }
-        if (!(await quiet.add(target.value))) {
+        // The domain only, as `announce` logs it: enough to tell a second address of one sender from a list that did not hold.
+        const listed = quiet.entries.has(target.value);
+        const added = await quiet.add(target.value);
+        log("quiet", {
+          scope,
+          result: added ? (listed ? "listed" : "ok") : "full",
+          domain: domainOf(target.value),
+        });
+        if (!added) {
           return {
             tone: "warn",
             text: "The Don't ask again list is full. Open Senderban and remove some entries.",
@@ -1714,6 +1722,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       quiet: () => [...quiet.entries],
       quietRemove: async (value) => {
         await quiet.remove(value);
+        log("quiet-remove", { domain: domainOf(value) });
       },
       saveSpamFilter: async (accountId, filter) => {
         // Start-up fills the running set from the file it read: a save before that would be written over.
