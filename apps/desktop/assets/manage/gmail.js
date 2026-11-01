@@ -24,7 +24,10 @@ const G_PERMISSIONS =
   "Access Google already gave can be removed at myaccount.google.com/permissions.";
 // Replies of the main process, as sentences. The input is never echoed.
 const G_SIGN_IN_REPLY = {
-  "signed-in": ["ok", "Signed in. Restart Senderban to start blocking on this account."],
+  "signed-in": [
+    "ok",
+    "Signed in. Senderban restarts in a moment to start blocking on this account.",
+  ],
   "no-client": ["error", "Save your Google client first."],
   "unknown-account": ["error", "That account is no longer set up."],
   cancelled: ["warn", "Cancelled on Google's page. Nothing was saved."],

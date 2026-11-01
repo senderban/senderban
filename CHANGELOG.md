@@ -33,9 +33,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
   Items at the server. New mail shows a notification within about a minute. A work or school account
   whose organization must approve Senderban gets a link to send to its administrator. Measured on a
   personal Outlook.com account: sign-in, the notification, an address block written as a rule and
-  read back, and removing the account with its rule. A work or school account, a domain block,
-  Unblock and several blocks sharing one rule are not measured yet
-  ([ADR 0013](docs/adr/0013-graph-adapter.md)).
+  read back, a domain block, Unblock, several blocks sharing one rule, and removing the account with
+  its rule. A work or school account is not measured yet ([ADR 0013](docs/adr/0013-graph-adapter.md)).
 - On Outlook, a domain block right under `.co`, `.ne`, `.in` or `.bi` is refused, because Outlook
   matches the text and the rule would also catch the same name under `.com`, `.net`, `.info` or
   `.biz`. Block the address instead. A domain under a longer suffix such as `.co.in` is written.
@@ -47,6 +46,10 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Changed
 
+- Adding a mailbox or signing in to Gmail or Outlook restarts Senderban on its own a moment later, so
+  the new account is watched without a click; the window opens again on **Accounts** if it was open.
+  **Restart now** stays for removals and key changes, while watching is paused, and when a step is
+  still running.
 - A block that worked no longer shows a notification unless **Confirm each block** is on. Warnings
   and failures always show.
 - The notification reads in two columns: the subject and the account on the left, the spam score on

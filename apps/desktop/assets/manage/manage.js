@@ -377,6 +377,11 @@ async function refresh() {
       }
       entries = init.entries;
       render();
+      // Main says this once, on the first load after a restart asked for here (an add or the restart bar).
+      if (init.restarted === true) {
+        showView("accounts");
+        setNotice("ok", "Senderban restarted.");
+      }
     } while (refreshAgain);
   } finally {
     refreshing = false;

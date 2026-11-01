@@ -1,3 +1,16 @@
+/** A start with this flag was asked for from the open window, which opens again on Accounts. A bare flag: it carries no value to parse. */
+export const REOPEN_MANAGE_ARG = "--reopen-manage";
+
+/**
+ * The arguments of the new process: this one's, with the reopen flag once when the window is open, and without it when the person
+ * closed it. `argv[0]` is the executable, which `app.relaunch` adds itself (electronjs.org/docs/latest/api/app, `relaunch`, read
+ * 2026-11-01).
+ */
+export function relaunchArgs(argv: readonly string[], reopen: boolean): string[] {
+  const rest = argv.slice(1).filter((a) => a !== REOPEN_MANAGE_ARG);
+  return reopen ? [...rest, REOPEN_MANAGE_ARG] : rest;
+}
+
 /** What `restartApp` needs from Electron and the log, so the order of the calls can be tested without Electron. */
 export interface RestartDeps {
   /** True once the quit sequence has started (`before-quit` ran): a second request does nothing. */
@@ -12,8 +25,8 @@ export interface RestartDeps {
 }
 
 /**
- * Quits the way the tray's Quit does, then starts Senderban again. A Gmail sign-in is picked up at start, so this is the
- * "Restart now" button under Gmail accounts. Returns false when a quit is already running.
+ * Quits the way the tray's Quit does, then starts Senderban again. An account added or signed in is picked up at start, so the
+ * window calls this on its own after an add, and its restart bar calls it. Returns false when a quit is already running.
  */
 export function restartApp(deps: RestartDeps): boolean {
   if (deps.isQuitting()) return false;

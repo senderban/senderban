@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Handler = (event: unknown, payload?: unknown) => unknown;
 const handlers = new Map<string, Handler>();
@@ -39,7 +39,8 @@ vi.mock("electron", () => {
   };
 });
 
-const { ManageWindow } = await import("../src/manage.js");
+const { ManageWindow, RESTART_AFTER_ADD_MS, RESTART_WAIT_MAX_MS } =
+  await import("../src/manage.js");
 
 // Built at run time: a whole fake secret or client ID in the source trips GitHub push protection.
 const SECRET = ["GOCSPX", "the-client-secret-0123456789"].join("-");
@@ -66,6 +67,7 @@ let googleRemove: ReturnType<typeof vi.fn>;
 let restart: ReturnType<typeof vi.fn>;
 let unblock: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
+let status: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   handlers.clear();
@@ -81,6 +83,9 @@ beforeEach(() => {
   googleCancel = vi.fn();
   googleRemove = vi.fn(() => Promise.resolve("removed"));
   restart = vi.fn();
+  status = vi.fn(() =>
+    Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
+  );
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "" }));
   onError = vi.fn();
   new ManageWindow("assets", {
@@ -92,7 +97,7 @@ beforeEach(() => {
     googleCancel,
     googleRemove,
     restart,
-    status: () => Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
+    status,
     onError,
   } as never).show();
 });
@@ -111,6 +116,99 @@ describe("a restart after a sign-in", () => {
     googleSignIn.mockResolvedValueOnce({ reply: "cancelled" });
     await call("manage:google-sign-in", trusted, undefined);
     expect(await due()).toBe(false);
+  });
+});
+
+describe("the restart on its own after a sign-in", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A step that runs until `finish` is called. */
+  const holdRemove = () => {
+    let finish: () => void = () => undefined;
+    googleRemove.mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => {
+          resolve("removed");
+        };
+      }),
+    );
+    return {
+      step: call("manage:google-remove", trusted, "g1"),
+      finish: () => {
+        finish();
+      },
+    };
+  };
+
+  it("comes after the page had time to say so, with nothing taken from the page", async () => {
+    await call("manage:google-sign-in", trusted, undefined);
+    await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS - 1);
+    expect(restart).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(restart).toHaveBeenCalledWith();
+  });
+
+  it("does not come after a sign-in that did not finish", async () => {
+    googleSignIn.mockResolvedValueOnce({ reply: "cancelled" });
+    await call("manage:google-sign-in", trusted, undefined);
+    await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS);
+    expect(restart).not.toHaveBeenCalled();
+  });
+
+  it("is one restart for two sign-ins in a row", async () => {
+    await call("manage:google-sign-in", trusted, undefined);
+    await call("manage:google-sign-in", trusted, { accountId: "g1" });
+    expect(restart).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS);
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for a step still running, then restarts", async () => {
+    await call("manage:google-sign-in", trusted, undefined);
+    const held = holdRemove();
+    await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS * 3);
+    expect(restart).not.toHaveBeenCalled();
+    held.finish();
+    await held.step;
+    await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the restart to the person while watching is paused, since a restart would resume it", async () => {
+    status.mockResolvedValue({ version: "1.2.3", paused: true, behind: [], accounts: [] });
+    await call("manage:google-sign-in", trusted, undefined);
+    await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS);
+    expect(restart).not.toHaveBeenCalled();
+  });
+
+  it("logs a restart that throws and keeps the bar", async () => {
+    restart.mockImplementation(() => {
+      throw new Error("relaunch failed");
+    });
+    await call("manage:google-sign-in", trusted, undefined);
+    await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+    expect(onError).toHaveBeenCalledWith("manage:auto-restart", expect.any(Error));
+    status.mockResolvedValue({ version: "1.2.3", paused: false, behind: [], accounts: [] });
+    const page = (await call("manage:status", trusted)) as { restartPending: boolean };
+    expect(page.restartPending).toBe(true);
+  });
+
+  it("leaves the restart to the person when a step outlasts the wait", async () => {
+    await call("manage:google-sign-in", trusted, undefined);
+    const held = holdRemove();
+    await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS + RESTART_AFTER_ADD_MS);
+    held.finish();
+    await held.step;
+    await vi.advanceTimersByTimeAsync(RESTART_WAIT_MAX_MS);
+    expect(restart).not.toHaveBeenCalled();
+    const status = (await call("manage:status", trusted)) as { restartPending: boolean };
+    expect(status.restartPending).toBe(true);
   });
 });
 

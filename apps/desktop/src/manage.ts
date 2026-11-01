@@ -73,6 +73,14 @@ const DETECTS_PER_MINUTE = 6;
 const DETECT_WINDOW_MS = 60_000;
 
 /**
+ * Unit: milliseconds. A new account's lane and watcher are built at start, so an add or sign-in that worked restarts Senderban on its own
+ * after this long: the page has time to say so first. A step still running then is waited for, checked this often.
+ */
+export const RESTART_AFTER_ADD_MS = 2_000;
+/** Unit: milliseconds. A step that runs longer than this keeps the restart bar instead: the person restarts when it is done. */
+export const RESTART_WAIT_MAX_MS = 60_000;
+
+/**
  * Compared here, where the question is asked, so that no DNS answer and no text on the page bears on it. A name outside the address's
  * domain may be the right one, for a hosted mailbox, but nothing about it says so (RFC 6186 §6).
  */
@@ -226,6 +234,10 @@ export class ManageWindow {
   #detectTimes: readonly number[] = [];
   /** An account changed since Senderban started, so the page keeps offering a restart, also after the window closed. */
   #restartPending = false;
+  /** True while the restart after an add waits for its time or for a step to end. */
+  #restartWaiting = false;
+  /** This start is a restart asked for from the window: its first page load says so once. */
+  #reopened = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
   #steps = 0;
   /** One pause at a time: a Pause waits for every IMAP logout, and a second click must not race it. */
@@ -287,6 +299,17 @@ export class ManageWindow {
     ipcMain.handle("manage:settings-save", (event, value: unknown) =>
       this.#settingsSave(event, value),
     );
+  }
+
+  /** True while the window is open: a restart then opens it again. */
+  isOpen(): boolean {
+    return this.#win !== null && !this.#win.isDestroyed();
+  }
+
+  /** Opens the window after a restart asked for from it; the page then says Senderban restarted and shows Accounts. */
+  showAfterRestart(): void {
+    this.#reopened = true;
+    this.show();
   }
 
   /** Opens the window, or brings the open one to the front. */
@@ -385,7 +408,11 @@ export class ManageWindow {
   #init(event: IpcMainInvokeEvent) {
     if (!this.#trusted(event)) return null;
     try {
-      return { entries: this.#handlers.list() };
+      const entries = this.#handlers.list();
+      // Cleared only once the list was read: a load that failed says it on the next one.
+      const restarted = this.#reopened;
+      this.#reopened = false;
+      return { entries, restarted };
     } catch (error) {
       this.#handlers.onError("manage:init", error);
       return null;
@@ -415,7 +442,7 @@ export class ManageWindow {
     const parsed = QuietEntrySchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      await this.#handlers.quietRemove(parsed.data);
+      await this.#step(() => this.#handlers.quietRemove(parsed.data));
       return "removed";
     } catch (error) {
       this.#handlers.onError("manage:quiet-remove", error);
@@ -436,7 +463,7 @@ export class ManageWindow {
     const parsed = SettingsSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      await this.#handlers.saveSettings(parsed.data);
+      await this.#step(() => this.#handlers.saveSettings(parsed.data));
       return "saved";
     } catch (error) {
       this.#handlers.onError("manage:settings-save", error);
@@ -452,7 +479,9 @@ export class ManageWindow {
     const parsed = SpamFilterRequestSchema.safeParse(value);
     if (!parsed.success) return "invalid";
     try {
-      return await this.#handlers.saveSpamFilter(parsed.data.accountId, parsed.data.filter);
+      return await this.#step(() =>
+        this.#handlers.saveSpamFilter(parsed.data.accountId, parsed.data.filter),
+      );
     } catch (error) {
       this.#handlers.onError("manage:spam-filter", error);
       return "failed";
@@ -643,7 +672,7 @@ export class ManageWindow {
           signal: abort.signal,
         }),
       );
-      if (result === "saved" || result === "saved-own-entries") this.#restartPending = true;
+      if (result === "saved" || result === "saved-own-entries") this.#restartAfterAdd();
       return result;
     } catch (error) {
       this.#handlers.onError(channel, error);
@@ -765,7 +794,7 @@ export class ManageWindow {
           parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
         ),
       );
-      if (outcome.reply === "signed-in") this.#restartPending = true;
+      if (outcome.reply === "signed-in") this.#restartAfterAdd();
       return outcome;
     } catch (error) {
       this.#handlers.onError("manage:google-sign-in", error);
@@ -796,7 +825,7 @@ export class ManageWindow {
           parsed.data.accountId === undefined ? {} : { accountId: parsed.data.accountId },
         ),
       );
-      if (reply === "signed-in") this.#restartPending = true;
+      if (reply === "signed-in") this.#restartAfterAdd();
       return reply;
     } catch (error) {
       this.#handlers.onError("manage:microsoft-sign-in", error);
@@ -833,6 +862,39 @@ export class ManageWindow {
     if (this.#steps > 0) return "busy";
     this.#handlers.restart();
     return "restarting";
+  }
+
+  /**
+   * An account was added or signed in: restart soon, without a click, once no step runs. The bar stays as the fallback: while
+   * watching is paused (a restart would resume it, and pause is not kept), when a step outlasts RESTART_WAIT_MAX_MS, or when the
+   * status cannot be read. Several adds in a row share one timer.
+   */
+  #restartAfterAdd(): void {
+    this.#restartPending = true;
+    if (this.#restartWaiting) return;
+    this.#restartWaiting = true;
+    const started = Date.now();
+    const tick = async () => {
+      let again = false;
+      // A function, not a field read: a step may begin while the status is awaited, and the check must see it.
+      const idle = () => this.#steps === 0;
+      try {
+        if (idle()) {
+          if ((await this.#handlers.status()).paused) return;
+          if (idle()) {
+            this.#handlers.restart();
+            return;
+          }
+        }
+        again = Date.now() - started < RESTART_WAIT_MAX_MS;
+      } catch (error) {
+        this.#handlers.onError("manage:auto-restart", error);
+      } finally {
+        if (again) setTimeout(() => void tick(), RESTART_AFTER_ADD_MS);
+        else this.#restartWaiting = false;
+      }
+    };
+    setTimeout(() => void tick(), RESTART_AFTER_ADD_MS);
   }
 
   async #step<T>(work: () => Promise<T>): Promise<T> {

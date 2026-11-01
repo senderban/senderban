@@ -42,7 +42,7 @@ vi.mock("electron", () => {
   };
 });
 
-const { ManageWindow } = await import("../src/manage.js");
+const { ManageWindow, RESTART_AFTER_ADD_MS } = await import("../src/manage.js");
 type Handlers = ConstructorParameters<typeof ManageWindow>[1];
 
 const trusted = { sender: { id: 7 }, senderFrame: { processId: 1, routingId: 2 } };
@@ -63,6 +63,7 @@ const call = (channel: string, event: unknown, payload?: unknown) => {
 let cleanAdd: ReturnType<typeof vi.fn>;
 let accountRemove: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
+let restart: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   handlers.clear();
@@ -75,10 +76,13 @@ beforeEach(() => {
       (await request.confirmClean("you@example.com")) ? "removed" : "cancelled",
   );
   onError = vi.fn();
+  restart = vi.fn();
   const window = new ManageWindow("assets", {
     cleanAdd,
     accountRemove,
     onError,
+    restart,
+    status: () => Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
     mxrouteList: () =>
       Promise.resolve({
         accounts: [],
@@ -130,6 +134,21 @@ describe("manage:clean-add", () => {
     await call("manage:clean-add", trusted, form);
     const page = (await call("manage:mxroute-list", trusted)) as Record<string, unknown>;
     expect(page.restartPending).toBe(true);
+  });
+
+  it("restarts on its own once saved, not when the person said no", async () => {
+    vi.useFakeTimers();
+    try {
+      cleanAdd.mockResolvedValueOnce("cancelled");
+      expect(await call("manage:clean-add", trusted, form)).toBe("cancelled");
+      await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+      expect(restart).not.toHaveBeenCalled();
+      await call("manage:clean-add", trusted, form);
+      await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+      expect(restart).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("runs one add at a time", async () => {

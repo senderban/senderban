@@ -116,7 +116,7 @@ import {
   removeImapAccount,
 } from "./remove-account.js";
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
-import { restartApp } from "./restart.js";
+import { REOPEN_MANAGE_ARG, relaunchArgs, restartApp } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import type { MailWatchers } from "./mail-watchers.js";
 import { createOutlookWatchers } from "./outlook-watchers.js";
@@ -1744,7 +1744,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
             app.releaseSingleInstanceLock();
           },
           relaunch: () => {
-            app.relaunch();
+            // The window asks for every restart; the new process opens it again only if it is still open.
+            app.relaunch({ args: relaunchArgs(process.argv, manage?.isOpen() ?? false) });
           },
           quit: () => {
             app.quit();
@@ -1826,6 +1827,13 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
     });
     updateTray();
     start().then(ready.resolve, ready.reject);
+    // After start, so the page reads the accounts it is about to show. A start that failed opens the window without the notice.
+    if (process.argv.includes(REOPEN_MANAGE_ARG)) {
+      ready.promise.then(
+        () => manage?.showAfterRestart(),
+        () => manage?.show(),
+      );
+    }
     void ready.promise.then((current) => {
       runtime = current;
       updateTray();

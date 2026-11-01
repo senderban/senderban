@@ -39,7 +39,7 @@ vi.mock("electron", () => {
   };
 });
 
-const { ManageWindow } = await import("../src/manage.js");
+const { ManageWindow, RESTART_AFTER_ADD_MS } = await import("../src/manage.js");
 
 const trusted = { sender: { id: 7 }, senderFrame: { processId: 1, routingId: 2 } };
 const otherFrame = { sender: { id: 7 }, senderFrame: { processId: 1, routingId: 99 } };
@@ -55,6 +55,7 @@ let microsoftState: ReturnType<typeof vi.fn>;
 let microsoftSignIn: ReturnType<typeof vi.fn>;
 let microsoftRemove: ReturnType<typeof vi.fn>;
 let onError: ReturnType<typeof vi.fn>;
+let restart: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   handlers.clear();
@@ -62,11 +63,13 @@ beforeEach(() => {
   microsoftSignIn = vi.fn(() => Promise.resolve("signed-in"));
   microsoftRemove = vi.fn(() => Promise.resolve("removed"));
   onError = vi.fn();
+  restart = vi.fn();
   new ManageWindow("assets", {
     list: () => [],
     microsoftState,
     microsoftSignIn,
     microsoftRemove,
+    restart,
     googleCancel: () => undefined,
     status: () => Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] }),
     onError,
@@ -120,6 +123,20 @@ describe("Microsoft IPC", () => {
   it("offers a restart after a removal", async () => {
     await call("manage:microsoft-remove", trusted, "ms-1");
     expect(await due()).toBe(true);
+  });
+
+  it("restarts on its own after a sign-in that worked, and not after a removal", async () => {
+    vi.useFakeTimers();
+    try {
+      await call("manage:microsoft-remove", trusted, "ms-1");
+      await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+      expect(restart).not.toHaveBeenCalled();
+      await call("manage:microsoft-sign-in", trusted);
+      await vi.advanceTimersByTimeAsync(RESTART_AFTER_ADD_MS);
+      expect(restart).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("answers a fixed word when a handler throws, and logs the channel", async () => {

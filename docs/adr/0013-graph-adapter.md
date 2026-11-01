@@ -1,8 +1,8 @@
 # 0013 — Outlook and Microsoft 365 through Graph message rules
 
-Status: **accepted for code, not measured** (2026-10-31, new mail 2026-11-01). Nothing here has run against a real Microsoft mailbox: every shape comes from the
-v1.0 reference, read on those days. M1 to M3 below decide the provisional numbers. Builds on ADR 0009 (the Gmail lane), which this one follows
-where the two providers agree.
+Status: **accepted, partly measured** (2026-10-31, new mail 2026-11-01, measured on one personal Outlook.com mailbox 2026-11-01). Shapes not listed under
+"Measured" come from the v1.0 reference, read on those days. M1 below decides the provisional numbers. Builds on ADR 0009 (the Gmail lane), which this one
+follows where the two providers agree.
 
 ## Context
 
@@ -120,10 +120,24 @@ Measured 2026-10-31 on the built core, one laptop, a real store on disk, no netw
 
 A round that writes saves one state per write, plus one at its end. A rule refused for good, or a mailbox with no room, stops the lane until the list changes.
 
+## Measured
+
+2026-11-01, one personal Outlook.com mailbox, the app registration with public client flows off, two runs of the built app:
+
+- **M2:** the consent page opened and the token came back (`token` 200, 719 and 759 ms; `profile` 200). The second run's sign-in skipped the consent page
+  (6.6 s in all). After a restart the lane signs in with `refresh` 200 and asks nothing.
+- **M3, rules:** a block from the notification writes a rule (`POST` 201, about 0.2 s) and reads it back; click to verified block about 0.6 s. Trash and Junk
+  are two rules. A second address with the same action is added to the same rule (`PATCH` 200), the Unblock of one entry is a `PATCH` 200, of the last entry
+  a `DELETE` 204. A domain block (`senderContains: "@domain"`) is a `POST` 201. Mail from a blocked address went to Deleted Items, mail from another address
+  of a blocked domain did not reach the Inbox, and neither was announced. Remove deletes the rules (`DELETE` 204).
+- **M4:** the filtered first round answers empty (`outcome=first`, `found=0`), a new mail is announced on the next round with `Mail.ReadBasic` (no 403),
+  marking an old mail read announces nothing.
+
 ## Still to measure
 
 - **M1:** how many `fromAddresses` one rule takes, and the rule quota on Outlook.com.
-- **M2:** the consent page and the token on a personal account, with this app registration; whether `localhost` reaches the listener from the common browsers.
-- **M3:** that the rule acts on mail read by phone and webmail, and the real answers (`scope`, `mail` on a personal account, the error code of a full mailbox, the folder id on the way back, the shape of a `PATCH` answer and of a next link).
-- **M4:** the delta round on a real mailbox: that the filtered first request answers with an empty page and a delta link, the link's length and form, whether `changeType=created` still sends read-state changes, how long a new mail takes to show, and that mail moved to Junk by a rule never reaches the watcher.
+- **M2:** whether `localhost` reaches the listener from the common browsers.
+- **M3:** that the rule acts while the phone app is open and how fast; whether `senderContains` also matches the display name; the error code of a full
+  mailbox; the shape of a next link.
+- **M4:** the delta link's length and form, and Pause and Resume.
 - **M5:** a work account: what the "needs approval" page does, and that the administrator's link works.

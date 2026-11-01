@@ -96,7 +96,8 @@ for that is trying to take over your mailbox ([SECURITY.md](SECURITY.md)).
 ### Gmail
 
 Open Senderban from the tray, **Accounts**, **Add mailbox**, **Gmail**, **Add Gmail account**, sign in
-with your Google account in your browser, **Restart now**. There is nothing to set up.
+with your Google account in your browser. Senderban restarts on its own and opens **Accounts** again.
+There is nothing to set up.
 
 Google has not verified Senderban yet, so the sign-in page shows "Google hasn't verified this app"
 and the app is limited to 100 users. To sign in through a Google Cloud project you own instead, see
@@ -105,7 +106,7 @@ and the app is limited to 100 users. To sign in through a Google Cloud project y
 ### MXroute and other mail servers
 
 Open Senderban from the tray, **Accounts**, **Add mailbox**, **Mail server**, pick your provider,
-enter the mail address and password, **Add mailbox**, **Restart now**. For MXroute also enter the
+enter the mail address and password, **Add mailbox**; Senderban restarts on its own. For MXroute also enter the
 server (it is in your MXroute welcome mail). Senderban asks you to confirm the server, checks that
 it speaks ManageSieve before any password leaves your device, signs in over IMAP and ManageSieve and
 stores nothing unless both work. The password is stored encrypted on this device.
@@ -175,8 +176,8 @@ mail filtered at that provider ([ADR 0012](docs/adr/0012-generic-managesieve.md)
 row it means the local Dovecot only ([ADR 0014](docs/adr/0014-imap-clean.md)).
 On iCloud, one address block moved two earlier mails and one new mail out of the Inbox with no
 failure. On a personal Outlook.com account, sign-in, the new-mail notification, an address block
-written as a rule and read back, and removing the account with its rule ran; a work or school
-account, a domain block, Unblock and several blocks sharing one rule did not.
+written as a rule and read back, a domain block, Unblock, several blocks sharing one rule, and
+removing the account with its rule ran; a work or school account did not.
 Not yet measured on MXroute: adding the `include` to a user's already-active Sieve script, and an
 envelope-sender match on its own (the test mail had the same From and envelope address).
 

@@ -18,7 +18,10 @@ const MS_ACCESS =
 // Microsoft's "needs approval" page often leads back as a cancel, or nowhere at all: these are the replies a person in that spot sees.
 const MS_MAY_NEED_APPROVAL = new Set(["needs-approval", "cancelled", "timeout"]);
 const MS_SIGN_IN_REPLY = {
-  "signed-in": ["ok", "Signed in. Restart Senderban to start blocking on this account."],
+  "signed-in": [
+    "ok",
+    "Signed in. Senderban restarts in a moment to start blocking on this account.",
+  ],
   "no-client": ["error", "Microsoft sign-in is not set up in this version of Senderban."],
   "unknown-account": ["error", "That account is no longer set up."],
   cancelled: [

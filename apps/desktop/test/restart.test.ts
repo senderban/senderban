@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { restartApp } from "../src/restart.js";
+import { REOPEN_MANAGE_ARG, relaunchArgs, restartApp } from "../src/restart.js";
 
 function deps(quitting: boolean) {
   const calls: string[] = [];
@@ -30,5 +30,24 @@ describe("restartApp", () => {
     const { calls, value } = deps(true);
     expect(restartApp(value)).toBe(false);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("relaunchArgs", () => {
+  it("keeps this process's arguments without the executable and adds the reopen flag", () => {
+    expect(relaunchArgs(["C:/app/electron.exe", "C:/app", "--user-data-dir=C:/p"], true)).toEqual([
+      "C:/app",
+      "--user-data-dir=C:/p",
+      REOPEN_MANAGE_ARG,
+    ]);
+  });
+
+  it("carries the flag once, however many restarts came before", () => {
+    const once = relaunchArgs(["exe", REOPEN_MANAGE_ARG], true);
+    expect(relaunchArgs(["exe", ...once], true)).toEqual([REOPEN_MANAGE_ARG]);
+  });
+
+  it("drops the flag when the window was closed before the restart", () => {
+    expect(relaunchArgs(["exe", "C:/app", REOPEN_MANAGE_ARG], false)).toEqual(["C:/app"]);
   });
 });

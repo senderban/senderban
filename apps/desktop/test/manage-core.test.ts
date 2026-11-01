@@ -317,7 +317,13 @@ describe("manage:pause", () => {
 
 describe("manage:init", () => {
   it("answers the trusted page with the entries and nothing else", async () => {
-    expect(await call("manage:init", trusted)).toEqual({ entries: [] });
+    expect(await call("manage:init", trusted)).toEqual({ entries: [], restarted: false });
+  });
+
+  it("says once, on the first load after a restart asked for from the window, that Senderban restarted", async () => {
+    page.showAfterRestart();
+    expect(await call("manage:init", trusted)).toEqual({ entries: [], restarted: true });
+    expect(await call("manage:init", trusted)).toEqual({ entries: [], restarted: false });
   });
 
   it("answers null to another frame, another window or no frame, without reading the list", async () => {
