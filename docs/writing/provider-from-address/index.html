@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Finding a mail provider from an address, when DNS can lie - Senderban</title>
     <meta
@@ -63,15 +67,16 @@
           <a href="/#how">How it works</a>
           <a href="/#providers">Providers</a>
           <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
           <a class="keep" href="/engineering/">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap page-head">
-        <p class="eyebrow">Writing · 2 November 2026</p>
+        <p class="eyebrow">Writing · <time datetime="2026-11-02">2 November 2026</time></p>
         <h1>Finding a mail provider from an address, when DNS can lie</h1>
         <p class="lead">
           Senderban's Find my provider button turns an address into a server name. The input comes
@@ -115,13 +120,15 @@
               <strong>An MX record picks, it does not write.</strong> The hosts of the lowest
               preference are matched by whole labels against a fixed table of zones. A match names a
               provider whose servers come from Senderban's own table, so a forged record reaches a
-              known provider at worst.
+              known provider at worst. MXroute is the one exception: its mailbox server is the MX
+              host, so that name is kept, but only one label inside MXroute's own zone.
             </li>
             <li>
               <strong>An unknown mail host is asked.</strong> At most three ManageSieve probes run
               side by side, 5 seconds each, in the order of
-              <a href="https://www.rfc-editor.org/rfc/rfc5804#section-1.8">RFC 5804 §1.8</a>. A
-              probe sends nothing of the person's and reads the answer behind verified TLS. Then the
+              <a href="https://www.rfc-editor.org/rfc/rfc5804#section-1.8">RFC 5804 §1.8</a>, with
+              the primary MX added in between because most servers run both. A probe sends nothing
+              of the person's and reads the answer behind verified TLS. Then the
               <code>_imaps._tcp</code> target of
               <a href="https://www.rfc-editor.org/rfc/rfc6186">RFC 6186</a>, on port 993. Then
               "unknown".
@@ -132,9 +139,10 @@
               who can forge a DNS answer still needs a public certificate for the name, and for a
               name inside the person's domain that takes control of the domain. So a name from DNS
               fills the form only when it is the domain itself or below it, and never on a public
-              suffix, where strangers register the names below. A name outside comes back as data:
-              the page says records can be forged, sends the person to their provider's welcome
-              mail, and leaves the field empty.
+              suffix, where strangers register the names below. One limit is written down: a
+              subdomain the domain has handed to someone else, or left dangling, counts as inside. A
+              name outside comes back as data: the page says records can be forged, sends the person
+              to their provider's welcome mail, and leaves the field empty.
             </li>
             <li>
               <strong>The process that asks for the password checks for itself.</strong> The main
@@ -166,11 +174,12 @@
           <p>
             A name that passes the check could still resolve to something else when the connection
             opens: DNS rebinding. So the probe's socket takes its address from one lookup,
-            <code>publicAddressLookup</code>, which drops private, loopback and link-local answers
-            and the IPv6 forms that carry an IPv4 address (<code>::ffff:0:0/96</code>,
-            <code>64:ff9b::/96</code>). A name cannot answer one thing to the check and another to
-            the connection. A name from DNS must also pass the same public host name check as a
-            typed one, SRV ports are limited to 4190, 2000 and 993, and a greeting stops at 8 KiB.
+            <code>publicAddressLookup</code>, which drops private, loopback and link-local answers,
+            checks an IPv4 address written as IPv6 against the same rules, and drops the translation
+            prefixes that carry an IPv4 address (such as <code>64:ff9b::/96</code>). A name cannot
+            answer one thing to the check and another to the connection. A name from DNS must also
+            pass the same public host name check as a typed one, SRV ports are limited to 4190, 2000
+            and 993, and a greeting stops at 8 KiB.
           </p>
           <p>
             The button runs on a click only, one at a time and at most six a minute, and ends with
@@ -185,13 +194,17 @@
             >.
           </p>
 
-          <h2>Where it departs from the standard</h2>
+          <h2>Where it departs from the standards</h2>
           <p>
             RFC 6186 §6 asks two things: check that a target lies in the queried domain, which is
             done, and verify a target outside it with the user before any connection. The second is
             a departure: a ManageSieve probe connects first. It follows the person's click, carries
             nothing of theirs and gives away only their IP address, and a name outside the domain
-            never reaches the form. The <code>_imaps._tcp</code> target is never connected to.
+            never reaches the form. The <code>_imaps._tcp</code> target is never connected to. Three
+            smaller departures, all in ADR 0018: the primary MX is probed between the SRV target and
+            the domain, only the first SRV target is taken where RFC 5804 §1.8 tries each one, and
+            the SRV-ID comparison of RFC 7817 §3 is not done, which only makes fewer certificates
+            pass.
           </p>
 
           <h2>Measured</h2>

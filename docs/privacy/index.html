@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Privacy policy - Senderban</title>
     <meta
@@ -40,13 +44,14 @@
           <a href="/#how">How it works</a>
           <a href="/#providers">Providers</a>
           <a href="/writing/">Writing</a>
+          <a href="/work/">Work</a>
           <a class="keep" href="/engineering/">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap page-head">
         <p class="eyebrow">Privacy</p>
         <h1>Privacy policy</h1>

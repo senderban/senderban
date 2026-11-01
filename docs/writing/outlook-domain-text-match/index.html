@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Why blocking @paypal.co on Outlook would also block @paypal.com - Senderban</title>
     <meta
@@ -63,15 +67,16 @@
           <a href="/#how">How it works</a>
           <a href="/#providers">Providers</a>
           <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
           <a class="keep" href="/engineering/">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap page-head">
-        <p class="eyebrow">Writing · 2 November 2026</p>
+        <p class="eyebrow">Writing · <time datetime="2026-11-02">2 November 2026</time></p>
         <h1>Why blocking @paypal.co on Outlook would also block @paypal.com</h1>
         <p class="lead">
           Outlook keeps a domain block as a text match. A look-alike phisher's domain can be the
@@ -200,9 +205,9 @@
             </li>
           </ul>
           <p>
-            The general lesson: when a provider offers only a text match, the dangerous case is not
-            the spammer you meant to block, it is the trusted name that starts with the same
-            letters.
+            The brand names here are examples of look-alikes, not anyone's mail data. The general
+            lesson: when a provider offers only a text match, the dangerous case is not the spammer
+            you meant to block, it is the trusted name that starts with the same letters.
           </p>
           <p>
             <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>

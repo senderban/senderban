@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Work with me - Alim Köse</title>
     <meta
@@ -49,20 +53,21 @@
           <a href="/#how">How it works</a>
           <a href="/#providers">Providers</a>
           <a href="/writing/">Writing</a>
+          <a href="/work/" aria-current="page">Work</a>
           <a class="keep" href="/engineering/">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap page-head">
         <p class="eyebrow">Work with me</p>
         <h1>Alim Köse</h1>
         <p class="lead">
           I design and build software that has to be careful: it holds credentials, talks to other
           companies' APIs and runs on people's own machines. Senderban is the public evidence. Each
-          item below links to its code, its decision records or its attested releases.
+          item below links to its code, its decision records or its notes.
         </p>
         <div class="actions">
           <a class="button primary" href="https://www.linkedin.com/in/alim-kose-544801ab/"
@@ -79,10 +84,10 @@
             <div>
               <h3>Desktop apps on Electron</h3>
               <p>
-                A tray app with sandboxed windows, a strict content security policy, IPC that checks
-                which frame is calling, and secrets kept with the operating system's own protection.
-                Released from CI with a build provenance attestation you can verify, unsigned for
-                now.
+                A tray app with a sandboxed window, a strict content security policy, IPC that
+                checks which frame is calling, and secrets kept with the operating system's own
+                protection. Built and attested in CI, published by hand; you can verify the
+                attestation. The installer is not code-signed yet.
                 <a href="/engineering/#security">Security model</a> ·
                 <a href="/engineering/#verify">verify a download</a>
               </p>
@@ -90,9 +95,9 @@
             <div>
               <h3>Mail and OAuth integrations</h3>
               <p>
-                Gmail API under Google's Limited Use rules, Microsoft Graph, IMAP and ManageSieve,
-                with sign-in through PKCE and a loopback redirect and the least permissions that
-                work.
+                Gmail API built to follow Google's Limited Use requirements (Google has not verified
+                the app yet), Microsoft Graph, IMAP and ManageSieve, with sign-in through PKCE and a
+                loopback redirect and the least permissions that work.
                 <a href="/#providers">What is tested where</a> ·
                 <a
                   href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
@@ -103,9 +108,8 @@
             <div>
               <h3>Security reviews</h3>
               <p>
-                A defensive review and an attacker's pass before a release, as for Senderban 0.2.0,
-                with every finding fixed or written down with its reason. Two of the notes come from
-                such findings.
+                A defensive review and an attacker's pass before a release, as for Senderban 0.2.0.
+                Two of the findings are written up here, with the fix and what it costs.
                 <a href="/writing/outlook-domain-text-match/">The Outlook look-alike</a> ·
                 <a href="/writing/provider-from-address/">forged DNS and passwords</a>
               </p>
@@ -113,8 +117,8 @@
             <div>
               <h3>Scale and performance</h3>
               <p>
-                A budget written before the code: the unit, what grows with it, the numbers at 10
-                and 50 units, and a share and a deadline for every shared resource.
+                A scale budget as part of the change: the unit, what grows with it, the numbers at
+                10 and 50 units, and a share and a deadline for every shared resource.
                 <a href="/writing/scale-budget-desktop-app/">The scale budget note</a> ·
                 <a
                   href="https://github.com/senderban/senderban/blob/main/docs/adr/0006-scale-budget.md"
@@ -131,7 +135,8 @@
           <h2>How I work</h2>
           <ul>
             <li>
-              Decisions are written down before the code, with the reasoning and the cost:
+              Decisions are written down with the code, with the reasoning and the cost, and updated
+              when something is measured:
               <a href="/engineering/#decisions">18 decision records</a> for Senderban so far.
             </li>
             <li>

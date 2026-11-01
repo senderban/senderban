@@ -2,26 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>
-      A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job - Senderban
-    </title>
+    <title>A scale budget for a desktop app - Senderban</title>
     <meta
       name="description"
-      content="A tray app that holds 50 mail accounts can still storm a provider and freeze its own window. The scale budget Senderban writes before the code, the gates and deadlines that came out of it, and the cost."
+      content="A tray app that holds 50 mail accounts can still storm a provider and freeze its own window. The scale budget behind Senderban, the gates and deadlines that came out of it, and the cost."
     />
     <meta name="color-scheme" content="light dark" />
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="Senderban" />
-    <meta
-      property="og:title"
-      content="
-      A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job - Senderban
-    "
-    />
+    <meta property="og:title" content="A scale budget for a desktop app - Senderban" />
     <meta
       property="og:description"
-      content="A tray app that holds 50 mail accounts can still storm a provider and freeze its own window. The scale budget Senderban writes before the code, the gates and deadlines that came out of it, and the cost."
+      content="A tray app that holds 50 mail accounts can still storm a provider and freeze its own window. The scale budget behind Senderban, the gates and deadlines that came out of it, and the cost."
     />
     <meta property="og:url" content="https://senderban.com/writing/scale-budget-desktop-app/" />
     <meta property="og:image" content="https://senderban.com/assets/og.png" />
@@ -67,20 +64,21 @@
           <a href="/#how">How it works</a>
           <a href="/#providers">Providers</a>
           <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
           <a class="keep" href="/engineering/">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap page-head">
-        <p class="eyebrow">Writing · 2 November 2026</p>
+        <p class="eyebrow">Writing · <time datetime="2026-11-02">2 November 2026</time></p>
         <h1>A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job</h1>
         <p class="lead">
           Scale budgets are usually written for servers. A tray app that holds up to 50 mail
           accounts can still storm a provider with logins and freeze its own window. Here is the
-          budget Senderban writes before the code, what came out of it, and what it costs.
+          budget, how it found its way into the code, and what it costs.
         </p>
       </div>
 
@@ -88,9 +86,9 @@
         <div class="wrap prose">
           <h2>The unit is the account</h2>
           <p>
-            A scale budget answers four questions before the code: the unit, what grows linearly
-            with it, the number at 10 and 50 units, and the share each unit gets of a shared
-            resource. The app's budget is
+            A scale budget answers four questions: the unit, what grows linearly with it, the number
+            at 10 and 50 units, and the share each unit gets of a shared resource. The app's budget
+            is
             <a href="https://github.com/senderban/senderban/blob/main/docs/adr/0006-scale-budget.md"
               >ADR 0006</a
             >, and later decisions that add work, such as finding a provider from an address, carry
@@ -104,13 +102,13 @@
             provider's limit, because no provider's login throttle has been measured.
           </p>
 
-          <h2>The storm the budget found</h2>
+          <h2>The storm a review found</h2>
           <p>
             One persistent IMAP connection per account is fine at 1 account and fine at 50. The
             problem is the moment they all start together: at launch, after the laptop wakes up, or
             when the person presses Resume. Without a limit, 50 accounts open 50 logins at the same
-            instant against what is often one provider. A block clicked in a notification did the
-            same: it wrote the rule to every account at once, 50 provider rounds in parallel.
+            instant. A block clicked in a notification did the same: it wrote the rule to every
+            account at once, 50 provider rounds in parallel.
           </p>
           <p>
             The answer is one shared gate per resource, not one per account: a first-in, first-out

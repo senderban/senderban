@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>How Senderban is built</title>
     <meta
@@ -40,20 +44,21 @@
           <a href="/#how">How it works</a>
           <a href="/#providers">Providers</a>
           <a href="/writing/">Writing</a>
+          <a href="/work/">Work</a>
           <a class="keep" href="/engineering/" aria-current="page">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap page-head">
         <p class="eyebrow">Engineering</p>
         <h1>How Senderban is built</h1>
         <p class="lead">
           A small tool that holds mail passwords and writes rules into your mailbox has to be
-          careful. These are the decisions behind it, each one written down before the code, with
-          the reasoning and the cost.
+          careful. These are the decisions behind it, each one written down with the code, with the
+          reasoning and the cost, and updated when something is measured.
         </p>
         <ul class="facts" aria-label="At a glance">
           <li><strong>TypeScript</strong><span>strict, Node 24, Electron</span></li>
@@ -67,8 +72,9 @@
         <div class="wrap">
           <h2>Architecture</h2>
           <p class="section-lead">
-            Two packages. The core knows nothing about Electron or Windows; the desktop app knows
-            nothing about any one provider. A provider is an adapter behind one interface.
+            Two packages. The core holds the protocols and the rules and knows nothing about
+            Electron or Windows. The desktop app wires each adapter to a window, a sign-in page and
+            a secret store. A provider is an adapter behind one interface.
           </p>
           <div
             class="arch"
@@ -115,15 +121,18 @@
             <div>
               <h3>Only its own rules</h3>
               <p>
-                Senderban writes rules marked as its own and leaves yours alone. A Sieve script it
-                did not write and cannot parse is never edited.
+                Senderban changes only rules it can recognise as its own: by name, by a marker in
+                its Sieve script, or by the id Gmail gave its filter. On a server with an active
+                Sieve script of yours it adds one include line, after saving a copy; a script it
+                cannot parse is never edited.
               </p>
             </div>
             <div>
               <h3>Headers only</h3>
               <p>
                 A new mail costs one fetch of From and Subject, plus the spam score where the server
-                adds one. There is no sync and no message body.
+                adds one. There is no sync and no message body. On a plain IMAP mailbox a block also
+                reads the sender of the last 30 days of the Inbox.
               </p>
             </div>
             <div>
@@ -157,15 +166,16 @@
               <dt>IPC</dt>
               <dd>
                 Each handler first checks the message came from our own window and frame, then
-                parses its input with a strict Zod schema. Unknown fields are rejected.
+                validates its input: a strict Zod schema that rejects unknown fields, or a bounded
+                pattern for an id.
               </dd>
             </div>
             <div>
               <dt>Input limits</dt>
               <dd>
                 Bounds come from the meaning of a value, not a character cap: an address follows RFC
-                5321 (local part 64, domain 253, whole 254), a time is in seconds with a minimum and
-                a maximum, and the same number holds in the window, the schema and the store.
+                5321 (local part 64, domain 253, whole 254), a port is 1 to 65535, and the window
+                gets its limits from the same schema that checks the input.
               </dd>
             </div>
             <div>
@@ -180,9 +190,11 @@
               <dt>Sign-in</dt>
               <dd>
                 Gmail and Outlook use OAuth with PKCE, <code>state</code> and a loopback redirect
-                (RFC 8252). Scopes are the least that work: Gmail <code>gmail.metadata</code> and
-                <code>gmail.settings.basic</code>; Microsoft <code>Mail.ReadBasic</code> and
-                <code>MailboxSettings.ReadWrite</code>.
+                (RFC 8252; Outlook's is <code>localhost</code>, which Microsoft requires and RFC
+                8252 does not recommend). Scopes are the least that work: Gmail
+                <code>gmail.metadata</code> and <code>gmail.settings.basic</code>; Microsoft
+                <code>Mail.ReadBasic</code>, <code>MailboxSettings.ReadWrite</code>,
+                <code>User.Read</code> and <code>offline_access</code>.
               </dd>
             </div>
             <div>
@@ -200,9 +212,9 @@
         <div class="wrap">
           <h2>Scale budget</h2>
           <p class="section-lead">
-            Written before the code: what one account costs, and what 10 and 50 cost. Cost grows
-            with accounts, never with mail volume. Shared resources go through one gate each, and
-            every gated job has a deadline, so one stuck account cannot hold the others.
+            What one account costs, and what 10 and 50 cost. Cost grows with accounts; a new mail is
+            one fetch, never a sync. Shared resources go through one gate each, and every gated job
+            has a deadline, so one stuck account cannot hold the others.
           </p>
           <div class="table-scroll" tabindex="0" role="region" aria-label="Scale budget table">
             <table>
@@ -253,7 +265,8 @@
         <div class="wrap">
           <h2>How it is checked</h2>
           <p class="section-lead">
-            Every push runs the same pipeline, and the release is built only from a version tag.
+            Every push runs the same pipeline. The attested installer is built only from a version
+            tag, and a person publishes the release.
           </p>
           <ol class="pipeline">
             <li>Type check</li>
@@ -276,7 +289,8 @@
               <h3>Release provenance</h3>
               <p>
                 The installer is built by the release workflow and gets a signed build attestation.
-                The job that signs never runs dependency code.
+                The job that signs never runs dependency code; the build job still decides which
+                file it signs (SLSA Build Level 2).
               </p>
             </div>
           </div>
@@ -302,7 +316,7 @@ gh attestation verify .\Senderban-Setup-X.Y.Z.exe --repo senderban/senderban `
         <div class="wrap">
           <h2>Decision records</h2>
           <p class="section-lead">
-            Each one names the problem, the options, the choice and what it costs.
+            Each one names the problem and the choice; most also name the options and what it costs.
           </p>
           <ol class="adr-list">
             <li>
@@ -326,7 +340,7 @@ gh attestation verify .\Senderban-Setup-X.Y.Z.exe --repo senderban/senderban `
             <li>
               <a
                 href="https://github.com/senderban/senderban/blob/main/docs/adr/0004-notification-popup.md"
-                >Notification popup replaces the native toast</a
+                >Notification popup replaces the native toast (replaced by 0007)</a
               >
             </li>
             <li>

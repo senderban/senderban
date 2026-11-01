@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Senderban: block a sender on every mail account</title>
     <meta
@@ -64,23 +68,24 @@
         <nav aria-label="Main">
           <a href="#how">How it works</a>
           <a href="#providers">Providers</a>
-          <a href="#privacy">Privacy</a>
           <a href="/writing/">Writing</a>
+          <a href="/work/">Work</a>
           <a class="keep" href="/engineering/">Engineering</a>
           <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
         </nav>
       </div>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <div class="wrap hero">
         <div>
           <p class="eyebrow">v0.2 · Windows · free and open source</p>
           <h1>Block a sender once. On every account, on every device.</h1>
           <p class="lead">
             When unwanted mail arrives, the Windows notification offers the block. One click writes
-            the rule on your mail provider's own server, so it holds on your phone, in webmail and
-            in whichever mail client you use.
+            the rule on your mail provider's own server where it offers one, so it holds on your
+            phone, in webmail and in whichever mail client you use. On a plain IMAP mailbox
+            Senderban moves the mail itself while it runs.
           </p>
           <div class="actions">
             <a class="button primary" href="https://github.com/senderban/senderban/releases/latest"
@@ -133,7 +138,7 @@
           <h2>How it works</h2>
           <p class="section-lead">
             Senderban sits in the tray and does one thing. It is not an email client: it does not
-            send, sync, search or download message bodies.
+            send, sync or download message bodies.
           </p>
           <ol class="steps">
             <li>
@@ -153,8 +158,8 @@
             <li>
               <h3>Block in one click</h3>
               <p>
-                Choose this sender or the whole domain. The rule goes to the server of every account
-                you added, and Senderban reads it back to confirm.
+                Choose this sender or the whole domain. The block applies to every account you
+                added: as a rule on the server where the provider has one, read back to confirm.
               </p>
             </li>
           </ol>
@@ -163,8 +168,9 @@
             <div>
               <h3>Reversible by default</h3>
               <p>
-                Blocked mail goes to Junk or Trash, never straight to deletion. Every block can be
-                lifted in the Blocked senders window.
+                Blocked mail goes to Junk or Trash. The one exception is Block at server on MXroute,
+                which you switch on yourself: the server then refuses the mail and keeps no copy.
+                Every block can be lifted in the Blocked senders window.
               </p>
             </div>
             <div>
@@ -184,8 +190,8 @@
             <div>
               <h3>Your own mail is safe</h3>
               <p>
-                Your own addresses are never blocked, and a whole-domain block never covers your own
-                mail domain.
+                The addresses of the accounts you added are never blocked, and a whole-domain block
+                never covers their mail domains.
               </p>
             </div>
           </div>
@@ -289,9 +295,11 @@
             </table>
           </div>
           <p class="note">
-            A rule on the server works with Senderban closed and your computer off. Where Senderban
-            moves the mail itself, a blocked sender's mail stays in the inbox while Senderban is
-            closed, and your phone sees it. Details:
+            Gmail: Google has not verified Senderban yet, so sign-in shows a warning and the app is
+            limited to 100 users. MXroute: adding Senderban's rules to a Sieve script you already
+            run is not measured yet. A rule on the server works with Senderban closed and your
+            computer off. Where Senderban moves the mail itself, a blocked sender's mail stays in
+            the inbox while Senderban is closed, and your phone sees it. Details:
             <a href="https://github.com/senderban/senderban#provider-support"
               >provider support in the README</a
             >.
@@ -304,16 +312,18 @@
           <h2>What it reads and writes</h2>
           <ul>
             <li>
-              Uses only the From and Subject of a newly arrived message, plus the server's spam
-              score where there is one, on your device.
+              Uses the From and Subject of a newly arrived message, plus the server's spam score
+              where there is one, on your device. On a plain IMAP mailbox it also reads the sender
+              of the last 30 days of the Inbox when you block someone, and keeps nothing of them.
             </li>
             <li>
               Never reads message bodies. There is no Senderban server, no account and no tracking.
             </li>
             <li>
-              Writes rules on your mail provider, marked as its own, and leaves your other rules
-              alone. The exception is the MXroute blacklist, which has no marker: Unblock removes an
-              address there even if you had listed it yourself.
+              Writes only rules it can recognise as its own again: by name, by a marker in its Sieve
+              script, or by the id Gmail gave its filter. On a server where you already run a Sieve
+              script it adds one include line to it, after saving a copy. The MXroute blacklist has
+              no marker: Unblock removes an address there even if you had listed it yourself.
             </li>
             <li>
               Block at server, on MXroute, is off until you switch it on: it refuses mail for every
@@ -349,11 +359,20 @@
             </p>
           </details>
           <details>
+            <summary>Gmail sign-in says Google hasn't verified this app. Why?</summary>
+            <p>
+              Google has not verified Senderban yet, so its sign-in page shows that warning and the
+              app is limited to 100 users until it is verified. The permissions it asks for are the
+              two in the Gmail section above.
+            </p>
+          </details>
+          <details>
             <summary>Does it delete my mail?</summary>
             <p>
-              No. The choices are Move to Junk and Move to Trash, and on MXroute an optional Block
-              at server that you switch on yourself. Gmail can't file mail into Spam, so there it is
-              Move to Trash.
+              Not by default. The choices are Move to Junk and Move to Trash. On MXroute there is
+              also Block at server, off until you switch it on: the server refuses that sender's
+              mail and keeps no copy, until you unblock. Gmail can't file mail into Spam, so there
+              it is Move to Trash.
             </p>
           </details>
           <details>
