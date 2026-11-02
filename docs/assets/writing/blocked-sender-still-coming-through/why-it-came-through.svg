@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 586" width="420" height="586" role="img" aria-labelledby="t d">
+  <title id="t">Why a blocked sender's mail came through: four questions</title>
+  <desc id="d">Four questions in order. One: is it in Spam, Junk or Trash? Yes means the block worked, because Gmail's and Outlook's Block file the mail there and do not refuse it. Two: did it arrive before the block? Yes means move it yourself, because Gmail's Block and Outlook rules act on new mail. Three: is it from an address you did not block? Yes means an address block covers one address; block the domain after checking what it matches. Four: was the block made in one mail app? Yes means it holds on that device while the app runs; make it on the provider's server. If none applies, check in the provider's settings that the block is there and switched on.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .chip{fill:#f6f8fa;stroke:#848d97;stroke-width:1}
+    .mark{fill:#0b5fff}.ln{stroke:#848d97;stroke-width:1.5;fill:none}.ah{fill:#848d97}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .h{font-size:17px;font-weight:600}.b{font-weight:600}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .chip{fill:#1c1f24;stroke:#6e7681}
+      .mark{fill:#4c8dff}.ln{stroke:#8b949e}.ah{fill:#8b949e}
+    }
+  </style>
+  <rect class="bg" width="420" height="586"/>
+  <text class="mu" x="10" y="22">A blocked sender's mail came through</text>
+
+  <rect class="chip" x="10" y="34" width="400" height="40" rx="6"/>
+  <text class="fg h" x="22" y="60">1. Is it in Spam, Junk or Trash?</text>
+  <rect class="mark" x="22" y="84" width="4" height="40" rx="1"/>
+  <text class="fg" x="34" y="100"><tspan class="b">Yes:</tspan> the block worked. Gmail's and</text>
+  <text class="fg" x="34" y="120">Outlook's Block file it there, not refuse it.</text>
+  <path class="ln" d="M40 130V148"/>
+  <path class="ah" d="M40 156l-5-9h10z"/>
+  <text class="mu" x="52" y="148">No, it is in the inbox</text>
+
+  <rect class="chip" x="10" y="158" width="400" height="40" rx="6"/>
+  <text class="fg h" x="22" y="184">2. Did it arrive before the block?</text>
+  <rect class="mark" x="22" y="208" width="4" height="40" rx="1"/>
+  <text class="fg" x="34" y="224"><tspan class="b">Yes:</tspan> Gmail's Block and Outlook rules act</text>
+  <text class="fg" x="34" y="244">on new mail. Move this one yourself.</text>
+  <path class="ln" d="M40 254V272"/>
+  <path class="ah" d="M40 280l-5-9h10z"/>
+  <text class="mu" x="52" y="272">No</text>
+
+  <rect class="chip" x="10" y="282" width="400" height="40" rx="6"/>
+  <text class="fg h" x="22" y="308">3. Is it from an address you did not block?</text>
+  <rect class="mark" x="22" y="332" width="4" height="40" rx="1"/>
+  <text class="fg" x="34" y="348"><tspan class="b">Yes:</tspan> an address block covers one address.</text>
+  <text class="fg" x="34" y="368">Block the domain, after checking its match.</text>
+  <path class="ln" d="M40 378V396"/>
+  <path class="ah" d="M40 404l-5-9h10z"/>
+  <text class="mu" x="52" y="396">No, it is the same address</text>
+
+  <rect class="chip" x="10" y="406" width="400" height="40" rx="6"/>
+  <text class="fg h" x="22" y="432">4. Was the block made in one mail app?</text>
+  <rect class="mark" x="22" y="456" width="4" height="40" rx="1"/>
+  <text class="fg" x="34" y="472"><tspan class="b">Yes:</tspan> it holds on that device, while the app</text>
+  <text class="fg" x="34" y="492">runs. Make it on the provider's server.</text>
+  <path class="ln" d="M40 502V520"/>
+  <path class="ah" d="M40 528l-5-9h10z"/>
+  <text class="mu" x="52" y="520">No</text>
+
+  <text class="fg" x="10" y="552">None of these: check in the provider's settings</text>
+  <text class="fg" x="10" y="574">that the block is there and switched on.</text>
+</svg>
