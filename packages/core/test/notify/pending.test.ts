@@ -155,6 +155,31 @@ describe("PendingBlocks.restore", () => {
     expect(pending.size).toBe(1);
   });
 
+  it("does not take back a spent id after newer entries evicted it, until its TTL ends", () => {
+    let now = 10 * HOUR;
+    const pending = new PendingBlocks({ max: 2, ttlMs: 2 * HOUR, now: () => now });
+    expect(pending.restore(ID, block, 9 * HOUR)).toBe(true);
+    expect(pending.consume(ID)).toEqual({ status: "ok", block });
+    pending.add(block);
+    pending.add(block);
+    expect(pending.peek(ID)).toEqual({ status: "unknown" });
+    expect(pending.restore(ID, block, 9 * HOUR)).toBe(false);
+    expect(pending.consume(ID)).toEqual({ status: "unknown" });
+    // Past the TTL of the announcement the spent mark is gone with it, and the toast is too old to restore anyway.
+    now = 12 * HOUR;
+    expect(pending.restore(ID, block, 9 * HOUR)).toBe(false);
+  });
+
+  it("forgets a spent id when its TTL ends, so the table does not grow", () => {
+    let now = 10 * HOUR;
+    const pending = new PendingBlocks({ ttlMs: HOUR, now: () => now });
+    for (let n = 0; n < 50; n++) {
+      pending.consume(pending.add(block));
+      now += HOUR / 10;
+    }
+    expect(pending.size).toBeLessThanOrEqual(10);
+  });
+
   it("refuses an id that is not a lowercase UUID", () => {
     const pending = new PendingBlocks({ now: () => 10 * HOUR });
     expect(pending.restore("not-an-id", block, 9 * HOUR)).toBe(false);

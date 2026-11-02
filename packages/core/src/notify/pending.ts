@@ -48,6 +48,11 @@ export interface PendingOptions {
  */
 export class PendingBlocks {
   readonly #slots = new Map<string, Slot>();
+  /**
+   * Ids already answered, by creation time, swept by the TTL only: eviction from `#slots` must not make a spent id claimable again by
+   * `restore`. One entry per answered click, so at most as many as announcements in one TTL (about 36 bytes each).
+   */
+  readonly #spent = new Map<string, number>();
   readonly #max: number;
   readonly #ttlMs: number;
   readonly #now: () => number;
@@ -93,7 +98,7 @@ export class PendingBlocks {
    */
   restore(id: string, block: PendingBlock, issuedAtMs: number): boolean {
     this.#expire();
-    if (!TAG.test(id) || this.#slots.has(id)) return false;
+    if (!TAG.test(id) || this.#slots.has(id) || this.#spent.has(id)) return false;
     if (issuedAtMs > this.#startedAt || issuedAtMs < this.#now() - this.#ttlMs) return false;
     this.#slots.set(id, { block, createdAt: issuedAtMs, spent: false });
     this.#evict();
@@ -107,6 +112,7 @@ export class PendingBlocks {
     if (slot === undefined) return { status: "unknown" };
     if (slot.spent) return { status: "duplicate" };
     slot.spent = true;
+    this.#spent.set(id, slot.createdAt);
     return { status: "ok", block: slot.block };
   }
 
@@ -131,6 +137,9 @@ export class PendingBlocks {
     // already here, so insertion order is no longer creation order.
     for (const [id, slot] of this.#slots) {
       if (slot.createdAt <= cutoff) this.#slots.delete(id);
+    }
+    for (const [id, createdAt] of this.#spent) {
+      if (createdAt <= cutoff) this.#spent.delete(id);
     }
   }
 }

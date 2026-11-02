@@ -46,7 +46,11 @@ A toast outlives the app: it stays in the Action Center after the app quit or re
 - **A second delivery after a restart.** Which ids were answered is not written to disk. Windows can deliver the same click twice (toast and
   Action Center); in one process the second is a `duplicate`, but a second delivery to a new process finds an empty table and the click is
   claimable once more within the 24 hours. `store.add` is idempotent, so the cost is one sync on the clicked lane. Persisting spent ids
-  would add a write for every answer; not done.
+  would add a write for every answer; not done. Inside one process the answered ids are kept apart from the table of announcements and
+  swept by the 24 hours only, so 200 newer toasts do not make an answered id claimable again.
+- **The signed `act` limits only its own click.** A signed tail restores the id; a later button of the same toast then acts on it without
+  a tail. `blockPending` derives the domain itself and applies its own rules, and every button of a toast is in the same XML, so the
+  signed `act` is not a control to rely on.
 - **Who may call the activator.** The manifest sets no `LaunchAndActivationPermission`, so the machine default applies (administrators,
   SYSTEM, interactive users). Code running as the same user can call it. It can also decrypt `activation-key.json` (DPAPI protects
   against other users, not against other apps of the same user) and read the signed tails from the toast database Windows keeps per user,
