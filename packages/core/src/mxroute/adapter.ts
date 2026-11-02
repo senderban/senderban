@@ -141,10 +141,10 @@ export interface MxrouteAdapterOptions {
 
 /**
  * Mirrors the block list's `reject` addresses onto the MXroute spam blacklist, so the server refuses the mail
- * at the door (measured 2026-10-25: `550 High scoring spam message has been dropped`). The blacklist belongs
- * to the whole mail domain, so the address is refused for every mailbox on it. An address that was already
- * on the blacklist counts as added (409) and is taken off again on Unblock; any other entry of the person
- * is never touched.
+ * at the door (measured 2026-10-25: `550 High scoring spam message has been dropped`). MXroute documents the
+ * blacklist as applying across the hosting account's domains (measured on one mailbox only), so the address can
+ * be refused for every mailbox on them. An address that was already on the blacklist counts as added (409) and
+ * is taken off again on Unblock; any other entry of the person is never touched.
  */
 export class MxrouteAdapter implements BlockAdapter {
   readonly id = MXROUTE_ADAPTER_ID;
