@@ -32,7 +32,7 @@
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="Why are blocked emails still coming through? Gmail's Block files mail in Spam, Outlook's in Junk: the mail still arrives. A block kept in one app holds only on that device. Google and Microsoft help pages, read 2 November 2026."
+      content="Why are blocked emails still coming through? Gmail's Block files mail in Spam, Outlook's in Junk: the mail still arrives. A block list kept in one app stays in that app. Google and Microsoft help pages, read 2 November 2026."
     />
     <meta property="article:published_time" content="2026-11-02" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -105,7 +105,8 @@
               </li>
               <li>
                 A block list kept in a mail app on one computer is not on the server: Microsoft's
-                archived note on Outlook 2013 says such lists "are maintained only on that client".
+                archived note on Outlook 2013 says such lists "are maintained only on that client",
+                and mail the client moves reaches Outlook.com only when it syncs.
               </li>
               <li>
                 The new Outlook "does not support blocking senders for third-party accounts like
@@ -245,15 +246,17 @@
             with an Outlook.com account says it plainly: if you use the Safe Senders and Blocked
             Senders lists in Outlook 2013, "the lists are maintained only on that client", while "if
             an email message is blocked by the Outlook.com service, the email message is not
-            delivered to the Outlook 2013 clients". Its fix is to keep the list on Outlook.com
-            instead (read 2 November 2026).
+            delivered to the Outlook 2013 clients". It adds that when the client synchronizes with
+            Outlook.com, "the email message is also moved to the Junk folder on Outlook.com.
+            However, the Blocked senders list on Outlook.com is not updated". Its fix is to keep the
+            list on Outlook.com instead (read 2 November 2026).
           </p>
           <figure class="figure">
             <img
               src="/assets/writing/blocked-sender-still-coming-through/where-the-block-lives.svg"
               width="420"
               height="460"
-              alt="Diagram: with a rule on the mail server, the phone, webmail and PC all see the mail filed. With a block kept in one app, the phone and webmail see it in the inbox and only the PC app moves it, while it runs."
+              alt="Diagram: with a rule on the mail server, the phone, webmail and PC all see the mail filed. With a block kept in one app, the phone and webmail see it in the inbox unless the PC app has moved it and synced."
             />
             <figcaption>
               A rule on the server against a block in one app. Senderban works the second way on
@@ -325,7 +328,9 @@
                   <td>
                     Outlook 2013's own lists "are maintained only on that client" (archived note)
                   </td>
-                  <td>Is blocked on that PC only</td>
+                  <td>
+                    The list stays in that app; mail it moves reaches the server only after it syncs
+                  </td>
                 </tr>
               </tbody>
             </table>

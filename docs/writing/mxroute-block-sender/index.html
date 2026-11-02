@@ -366,7 +366,7 @@
           </p>
           <p>
             This is the rule Senderban wrote for a test mailbox on 2 November 2026, for one address
-            and one whole domain, read back from the server as it was stored:
+            and one whole domain, as the project's rule generator renders it:
           </p>
           <pre tabindex="0"><code>require ["fileinto", "mailbox", "envelope"];
 # senderban-managed v1
@@ -716,11 +716,11 @@ if anyof (
             <div>
               <dt>Look-alike senders</dt>
               <dd>
-                2 November 2026, 09:56 UTC. Senderban's own Sieve code wrote its rule for one
-                address and one whole domain to a Dovecot 2.4.5 server with Pigeonhole, in Docker
-                (image <code>dovecot/dovecot:2.4.5</code>), the harness of the project's contract
-                tests. Twelve mails were delivered over LMTP, the path a real mail server uses, and
-                the Junk and INBOX counts were read after each one. Not MXroute.
+                2 November 2026. Senderban's own Sieve code wrote its rule for one address and one
+                whole domain to a Dovecot 2.4.5 server with Pigeonhole, in Docker (image
+                <code>dovecot/dovecot:2.4.5</code>), the harness of the project's contract tests.
+                Twelve mails were delivered over LMTP, the path a real mail server uses, and the
+                Junk and INBOX counts were read after each one. Not MXroute.
               </dd>
             </div>
             <div>
@@ -762,7 +762,8 @@ if anyof (
                   >the Dovecot contract tests</a
                 >, which hold the domain, subdomain, forged-From and look-alike cases, ADR 0003,
                 0008 and 0017, and the provider notes in the README. The twelve look-alike cases of
-                2 November 2026 are the last block in that file.
+                2 November 2026 are the block named "a domain rule and an address rule beside
+                look-alike senders".
               </dd>
             </div>
           </dl>
