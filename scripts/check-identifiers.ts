@@ -64,9 +64,14 @@ const PUBLIC_ZONES = [
 /**
  * Hosts the website links or names, each as exactly itself: a zone here would also pass any address at that domain. Kept apart from
  * EXACT_HOSTS, whose cap guards test names. The author's public profile (docs/index.html, docs/engineering/, docs/work/), the JSON-LD
- * `@context` vocabulary (docs/) and the sitemap namespace (docs/sitemap.xml).
+ * `@context` vocabulary (docs/), the sitemap namespace (docs/sitemap.xml) and the Apple help page the post on blocked senders cites.
  */
-export const SITE_HOSTS: readonly string[] = ["www.linkedin.com", "schema.org", "www.sitemaps.org"];
+export const SITE_HOSTS: readonly string[] = [
+  "www.linkedin.com",
+  "schema.org",
+  "www.sitemaps.org",
+  "support.apple.com",
+];
 
 export const EXACT_HOSTS: readonly string[] = [
   // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0013).

@@ -325,8 +325,11 @@ describe("isAllowedHost", () => {
   });
 
   it("passes the site's hosts as exactly themselves, not their domains", () => {
-    expect(SITE_HOSTS.length).toBeLessThanOrEqual(3);
+    expect(SITE_HOSTS.length).toBeLessThanOrEqual(4);
     expect(isAllowedHost(host("www", "linkedin", "com"))).toBe(true);
+    expect(isAllowedHost(host("support", "apple", "com"))).toBe(true);
+    expect(isAllowedHost(host("apple", "com"))).toBe(false);
+    expect(isAllowedHost(host("mail", "support", "apple", "com"))).toBe(false);
     expect(isAllowedHost(host("linkedin", "com"))).toBe(false);
     expect(isAllowedHost(host("mail", "linkedin", "com"))).toBe(false);
     expect(isAllowedHost(host("sitemaps", "org"))).toBe(false);
