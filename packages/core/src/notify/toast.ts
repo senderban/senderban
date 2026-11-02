@@ -1,6 +1,8 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ACTIONS } from "../blocklist.js";
 import type { BlockAction } from "../blocklist.js";
+import { parseAddress } from "../address.js";
 import { isPublicSuffix } from "../freemail.js";
 import { DEFAULT_SETTINGS } from "../settings.js";
 import type { DefaultAction, Settings } from "../settings.js";
@@ -15,12 +17,64 @@ import { QUIET_CHOICE } from "./quiet.js";
 
 /** Unit: UTF-16 units. A toast line is cut by Windows anyway; this keeps one hostile subject from growing the XML. */
 export const TOAST_TEXT_MAX = 200;
-/** A click is `act=sender;id=<36-char uuid>` at most; anything longer is not ours. Unit: UTF-16 units. */
-export const ACTIVATION_ARGUMENTS_MAX = 64;
+/**
+ * The longest click: `act=domain;id=<36>;acct=<64>;from=<254>;t=<10 digits>;mac=<22>` = 14 + 36 + 6 + 64 + 6 + 254 + 3 + 10 + 5 + 22 = 420
+ * (ACCOUNT_ID is 64 characters, an address at most ADDRESS_LIMITS.totalMax). Anything longer is not ours. Unit: UTF-16 units.
+ */
+export const ACTIVATION_ARGUMENTS_MAX = 430;
+
+/** Unit: bytes. The key of an `ActivationSigner` (HMAC-SHA-256 takes any length; 32 is the digest size, RFC 2104 section 3). */
+export const ACTIVATION_KEY_BYTES = 32;
+/** Unit: bytes of the tag kept (128 bits; RFC 2104 section 5 allows truncating to half the digest, no shorter than 80 bits). */
+const ACTIVATION_MAC_BYTES = 16;
+
+/**
+ * Proves that a click's tail (`acct`, `from`, `t`) was written by this app: a toast outlives the process, so its button carries the
+ * sender, and nothing else would tell a forged activation from ours. The key stays on this machine (the desktop keeps it with
+ * `safeStorage`); it signs and checks, and the tag hides nothing.
+ */
+export interface ActivationSigner {
+  sign(act: string, id: string, accountId: string, sender: string, issuedAt: number): string;
+  verify(
+    act: string,
+    id: string,
+    accountId: string,
+    sender: string,
+    issuedAt: number,
+    mac: string,
+  ): boolean;
+}
+
+export function createActivationSigner(key: Uint8Array): ActivationSigner {
+  if (key.length !== ACTIVATION_KEY_BYTES) throw new Error("activation key must be 32 bytes");
+  const tag = (...fields: readonly (string | number)[]): Buffer =>
+    // A JSON array keeps the fields apart whatever a sender holds.
+    createHmac("sha256", key)
+      .update(JSON.stringify(fields))
+      .digest()
+      .subarray(0, ACTIVATION_MAC_BYTES);
+  return {
+    sign: (act, id, accountId, sender, issuedAt) =>
+      tag(act, id, accountId, sender, issuedAt).toString("base64url"),
+    verify: (act, id, accountId, sender, issuedAt, mac) => {
+      const given = Buffer.from(mac, "base64url");
+      return (
+        given.length === ACTIVATION_MAC_BYTES &&
+        timingSafeEqual(given, tag(act, id, accountId, sender, issuedAt))
+      );
+    },
+  };
+}
 
 export interface MailToast {
   /** Pending-block id; comes back in the click. */
   readonly id: string;
+  /**
+   * The account's engine id and the second the toast was announced. With both, every button also carries the sender, so a click on this
+   * toast after the app was closed (the process that holds `id` is gone) can still be answered. Without them the click is the id alone.
+   */
+  readonly accountId?: string;
+  readonly issuedAt?: number;
   /** Validated lowercase address. */
   readonly sender: string;
   /** Already sanitised by the watcher (control and bidi characters removed). */
@@ -154,9 +208,25 @@ function noteLine(note: string | null): string {
   return note === null ? "" : `<text placement="attribution">${note}</text>`;
 }
 
-/** The click value of a button. Only `isNotificationId` ids are put here, so nothing needs escaping. */
-function args(act: "sender" | "domain" | "quiet", id: string): string {
-  return `act=${act};id=${id}`;
+/**
+ * The click value of a button, as an XML attribute value. The id is a checked UUID; the sender (a validated address, which may hold `&` or `'`)
+ * and the account are escaped with the rest. Both only go on when the caller gave the account and the time: the toast then outlives the app.
+ */
+function args(
+  act: "sender" | "domain" | "quiet" | "open",
+  toast: MailToast,
+  signer: ActivationSigner | undefined,
+): string {
+  const base = `act=${act};id=${toast.id}`;
+  const { accountId, issuedAt } = toast;
+  // No signer (no key on this machine) means no tail: an earlier run's toast then answers "expired", as it always did.
+  if (accountId === undefined || issuedAt === undefined || signer === undefined) return base;
+  // A value the click parser would refuse is left off, so a long id never makes a toast whose buttons do nothing.
+  if (!ACCOUNT_ARG.test(accountId) || !Number.isSafeInteger(issuedAt) || issuedAt < 0) return base;
+  const mac = signer.sign(act, toast.id, accountId, toast.sender, issuedAt);
+  const tail = `;acct=${accountId};from=${toast.sender};t=${String(issuedAt)};mac=${mac}`;
+  if (`${base}${tail}`.length > ACTIVATION_ARGUMENTS_MAX) return base;
+  return escapeMarkup(`${base}${tail}`);
 }
 
 /** What a toast needs from the Settings page, and whether this Windows draws styled buttons. */
@@ -164,6 +234,8 @@ export interface ToastOptions extends Partial<
   Pick<Settings, "defaultAction" | "preferServerBlock" | "toastDuration">
 > {
   readonly buttonStyle?: boolean;
+  /** Signs the tail of each click (see `ActivationSigner`); none means a toast whose buttons carry no sender. */
+  readonly signer?: ActivationSigner;
   /** `file:` URLs of the coloured strips, one per level; none means a toast with no strip. Never a URL that came from a mail. */
   readonly spamStrips?: Readonly<Record<SpamLevel, string>>;
 }
@@ -196,7 +268,8 @@ export function buildMailToastXml(toast: MailToast, options: ToastOptions = {}):
   const styled = options.buttonStyle === true;
   const stay = staying(toastDuration);
   // The red button style needs `useButtonStyle` on the toast (schema, Microsoft Learn: new in Windows 11, so the caller opts in).
-  const open = `<toast ${stay.open}${styled ? ' useButtonStyle="true"' : ""}>`;
+  // `launch` is what a click on the toast's body sends: a toast found later in the notification list can still be answered.
+  const open = `<toast ${stay.open}${styled ? ' useButtonStyle="true"' : ""} launch="${args("open", toast, options.signer)}">`;
   const critical = styled ? ' hint-buttonStyle="Critical"' : "";
   const lines = textLines(toast);
   const strip = stripLine(toast, options.spamStrips);
@@ -208,15 +281,15 @@ export function buildMailToastXml(toast: MailToast, options: ToastOptions = {}):
     // The toast has no choice to hold "Don't ask again", so it is the second button; the toast's own close button dismisses it.
     return (
       `${open}${visual(GMAIL_MISSING_NOTE)}` +
-      `<actions><action content="Move this sender to Trash" arguments="${args("sender", toast.id)}" activationType="foreground"${critical}/>` +
-      `<action content="Don't ask again" arguments="${args("quiet", toast.id)}" activationType="foreground"/>` +
+      `<actions><action content="Move this sender to Trash" arguments="${args("sender", toast, options.signer)}" activationType="foreground"${critical}/>` +
+      `<action content="Don't ask again" arguments="${args("quiet", toast, options.signer)}" activationType="foreground"/>` +
       `</actions></toast>`
     );
   }
   const domainButton =
     toast.domain === null
       ? ""
-      : `<action content="${escapeXml(domainButtonLabel(toast.domain))}" arguments="${args("domain", toast.id)}" activationType="foreground"/>`;
+      : `<action content="${escapeXml(domainButtonLabel(toast.domain))}" arguments="${args("domain", toast, options.signer)}" activationType="foreground"/>`;
   // "Block at server" is the one choice that keeps no copy of later mail, so it is listed last and selected only when the person
   // turned that on (ADR 0008).
   const choices: readonly (readonly [string, string])[] = [
@@ -232,19 +305,62 @@ export function buildMailToastXml(toast: MailToast, options: ToastOptions = {}):
   return (
     `${open}${visual(noteText(toast))}` +
     `<actions><input id="target" type="selection" defaultInput="${preselected}">${selections}</input>` +
-    `<action content="This sender" arguments="${args("sender", toast.id)}" activationType="foreground"${critical}/>` +
+    `<action content="This sender" arguments="${args("sender", toast, options.signer)}" activationType="foreground"${critical}/>` +
     `${domainButton}</actions></toast>`
   );
 }
 
+/** What a button carried beyond the id: see `Activation.restore`. */
+export interface ActivationRestore {
+  readonly accountId: string;
+  readonly sender: string;
+  readonly issuedAt: number;
+}
+
+/** A click on the toast's body: it asks for the buttons, so it blocks nothing. */
+export const REOPEN_CHOICE = "reopen";
+
 export interface Activation {
   readonly id: string;
   readonly scope: BlockScope;
-  /** `QUIET_CHOICE` puts the sender on the "Don't ask again" list; it does nothing to mail. */
-  readonly action: BlockAction | typeof QUIET_CHOICE;
+  /**
+   * `QUIET_CHOICE` puts the sender on the "Don't ask again" list; `REOPEN_CHOICE` shows the toast again. Neither does anything to mail.
+   */
+  readonly action: BlockAction | typeof QUIET_CHOICE | typeof REOPEN_CHOICE;
+  /**
+   * What the button itself carried, for a toast that an earlier run announced (see `PendingBlocks.restore`). `sender` is canonical
+   * (`parseAddress`), `issuedAt` is epoch seconds. Absent on a button without the tail (an older toast, or a caller that gave no account).
+   */
+  readonly restore?: ActivationRestore;
 }
 
-const ARGUMENTS = /^act=(sender|domain|quiet);id=([0-9a-f-]{36})$/u;
+/** The engine's account id (`ACCOUNT_ID` in sync/engine.ts, kept here so the toast module does not import the engine). */
+const ACCOUNT_ARG = /^[A-Za-z0-9._@-]{1,64}$/u;
+const ARGUMENTS =
+  /^act=(sender|domain|quiet|open);id=([0-9a-f-]{36})(?:;acct=([A-Za-z0-9._@-]{1,64});from=([^;]{1,254});t=([0-9]{1,10});mac=([A-Za-z0-9_-]{22}))?$/u;
+
+/**
+ * The tail of a click, or null when there is none (or no key to check it with); `"bad"` when it is there and wrong. A tail is only taken
+ * back when its tag was made with this machine's key, so an activation that something else made up never names a sender.
+ */
+function restoreOf(
+  match: RegExpExecArray,
+  act: string,
+  id: string,
+  signer: ActivationSigner | undefined,
+): ActivationRestore | null | "bad" {
+  const [, , , accountId, from, t, mac] = match;
+  if (accountId === undefined || from === undefined || t === undefined || mac === undefined) {
+    return null;
+  }
+  if (signer === undefined) return null;
+  const parsed = parseAddress(from);
+  // Only the exact form a toast writes: a sender that needed any rewriting did not come from us.
+  if (!parsed.ok || parsed.value.address !== from) return "bad";
+  const issuedAt = Number(t);
+  if (!signer.verify(act, id, accountId, from, issuedAt, mac)) return "bad";
+  return { accountId, sender: from, issuedAt };
+}
 
 // The envelope comes from the OS and may carry keys we do not know; the two fields we read are bounded.
 const Details = z.looseObject({
@@ -263,18 +379,25 @@ export type ActivationResult =
 export function parseActivation(
   details: unknown,
   defaultAction: DefaultAction = DEFAULT_SETTINGS.defaultAction,
+  signer?: ActivationSigner,
 ): ActivationResult {
   const envelope = Details.safeParse(details);
   if (!envelope.success) return { ok: false, reason: "malformed" };
   const match = ARGUMENTS.exec(envelope.data.arguments);
   const id = match?.[2];
-  // A click on the toast body or on Windows' own close button has no `act=`: nothing to do.
+  // A click on Windows' own close button, or on the body of a toast from before `launch`, has no `act=`: nothing to do.
   if (match === null || id === undefined || !isNotificationId(id)) {
     return { ok: false, reason: "not-a-button" };
   }
+  const restore = restoreOf(match, match[1] ?? "", id, signer);
+  if (restore === "bad") return { ok: false, reason: "malformed" };
+  const tail = restore === null ? {} : { restore };
+  if (match[1] === "open") {
+    return { ok: true, activation: { id, scope: "address", action: REOPEN_CHOICE, ...tail } };
+  }
   // Gmail's own button: that toast has no choice.
   if (match[1] === "quiet") {
-    return { ok: true, activation: { id, scope: "address", action: QUIET_CHOICE } };
+    return { ok: true, activation: { id, scope: "address", action: QUIET_CHOICE, ...tail } };
   }
   const target = envelope.data.userInputs?.["target"];
   const action =
@@ -293,6 +416,7 @@ export function parseActivation(
       id,
       scope,
       action: scope === "domain" && action === "reject" ? defaultAction : action,
+      ...tail,
     },
   };
 }

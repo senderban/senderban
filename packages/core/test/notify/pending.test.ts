@@ -8,6 +8,16 @@ const ids = (): (() => string) => {
 };
 
 describe("PendingBlocks", () => {
+  it("peek answers as consume would and leaves the id its one click", () => {
+    const pending = new PendingBlocks();
+    const id = pending.add(block);
+    expect(pending.peek(id)).toEqual({ status: "ok", block });
+    expect(pending.peek(id)).toEqual({ status: "ok", block });
+    expect(pending.consume(id)).toEqual({ status: "ok", block });
+    expect(pending.peek(id)).toEqual({ status: "duplicate" });
+    expect(pending.peek("0f8fad5b-d9cb-469f-a165-70867728950e")).toEqual({ status: "unknown" });
+  });
+
   it("hands a block out once; the second activation of the same click is a duplicate", () => {
     const pending = new PendingBlocks({ newId: ids() });
     const id = pending.add(block);
@@ -95,5 +105,67 @@ describe("isNotificationId", () => {
     ]) {
       expect(isNotificationId(raw)).toBe(false);
     }
+  });
+});
+
+describe("PendingBlocks.restore", () => {
+  const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const HOUR = 3_600_000;
+
+  it("takes back a toast announced before this table was made, once", () => {
+    const pending = new PendingBlocks({ now: () => 10 * HOUR });
+    expect(pending.restore(ID, block, 9 * HOUR)).toBe(true);
+    expect(pending.consume(ID)).toEqual({ status: "ok", block });
+    expect(pending.consume(ID)).toEqual({ status: "duplicate" });
+  });
+
+  it("does not take back an id this table already holds, spent or not", () => {
+    const pending = new PendingBlocks({ now: () => 10 * HOUR, newId: () => ID });
+    const id = pending.add(block);
+    pending.consume(id);
+    expect(pending.restore(id, { accountId: "other", sender: "x@example.com" }, 9 * HOUR)).toBe(
+      false,
+    );
+    expect(pending.consume(id)).toEqual({ status: "duplicate" });
+  });
+
+  it("does not take back a toast announced after this table was made: that one was evicted, expired or dropped", () => {
+    let now = 10 * HOUR;
+    const pending = new PendingBlocks({ now: () => now });
+    now += 1000;
+    expect(pending.restore(ID, block, now)).toBe(false);
+    expect(pending.consume(ID)).toEqual({ status: "unknown" });
+  });
+
+  it("does not take back a toast older than the TTL", () => {
+    const pending = new PendingBlocks({ ttlMs: HOUR, now: () => 10 * HOUR });
+    expect(pending.restore(ID, block, 8 * HOUR)).toBe(false);
+    expect(pending.restore(ID, block, 10 * HOUR - HOUR + 1)).toBe(true);
+  });
+
+  it("lets a restored entry expire on its own issue time, even behind a newer entry", () => {
+    let now = 100 * HOUR;
+    const pending = new PendingBlocks({ now: () => now });
+    pending.add(block);
+    // Issued 23 h 59 min before this table was made: one minute of its TTL is left.
+    expect(pending.restore(ID, block, now - 24 * HOUR + 60_000)).toBe(true);
+    now += 2 * 60_000;
+    expect(pending.peek(ID)).toEqual({ status: "unknown" });
+    expect(pending.consume(ID)).toEqual({ status: "unknown" });
+    expect(pending.size).toBe(1);
+  });
+
+  it("refuses an id that is not a lowercase UUID", () => {
+    const pending = new PendingBlocks({ now: () => 10 * HOUR });
+    expect(pending.restore("not-an-id", block, 9 * HOUR)).toBe(false);
+    expect(pending.size).toBe(0);
+  });
+
+  it("stays inside the cap: restored entries evict the oldest like added ones", () => {
+    const pending = new PendingBlocks({ max: 2, now: () => 10 * HOUR });
+    const ids = ["1", "2", "3"].map((n) => `0f8fad5b-d9cb-469f-a165-70867728950${n}`);
+    for (const id of ids) pending.restore(id, block, 9 * HOUR);
+    expect(pending.size).toBe(2);
+    expect(pending.consume(ids[0] ?? "").status).toBe("unknown");
   });
 });

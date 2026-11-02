@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVATION_ARGUMENTS_MAX,
   DOMAIN_BUTTON_MAX,
+  REOPEN_CHOICE,
   TOAST_TEXT_MAX,
   SPAM_HIGH,
   SPAM_MEDIUM,
   buildMailToastXml,
+  createActivationSigner,
   escapeXml,
   parseActivation,
   spamLevel,
@@ -13,6 +15,7 @@ import {
 import type { MailToast } from "../../src/notify/toast.js";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const signer = createActivationSigner(Buffer.alloc(32, 7));
 const toast = (over: Partial<MailToast> = {}): MailToast => ({
   id: ID,
   sender: "news@example.com",
@@ -305,7 +308,7 @@ describe("buildMailToastXml", () => {
 
   it("keeps a toast until it is closed with the reminder scenario, the ordinary sound and no third button", () => {
     const plain = buildMailToastXml(toast(), { toastDuration: "until-closed", buttonStyle: true });
-    expect(plain).toContain('<toast scenario="reminder" useButtonStyle="true">');
+    expect(plain).toContain('<toast scenario="reminder" useButtonStyle="true"');
     expect(plain).not.toContain("duration=");
     expect(plain).toContain(
       '</visual><audio src="ms-winsoundevent:Notification.Default"/><actions>',
@@ -315,7 +318,7 @@ describe("buildMailToastXml", () => {
     const gmail = buildMailToastXml(toast({ trashOnly: true, domain: null }), {
       toastDuration: "until-closed",
     });
-    expect(gmail).toContain('<toast scenario="reminder">');
+    expect(gmail).toContain('<toast scenario="reminder" launch=');
     expect(gmail).toContain("<audio ");
   });
 
@@ -355,7 +358,35 @@ describe("the size of a toast", () => {
       },
     );
     // Measured on Windows 11 (2026-10-31): 10,991 characters showed, 39,991 were refused.
-    expect(xml.length).toBeLessThan(5_000);
+    expect(xml.length).toBeLessThan(5_500);
+  });
+
+  it("stays under what Windows was seen to show when every click also carries the longest sender", () => {
+    const sender = `${"'".repeat(64)}@${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(60)}.example`;
+    const hostile = "'".repeat(1_000);
+    const xml = buildMailToastXml(
+      toast({
+        accountId: "a".repeat(64),
+        issuedAt: 9_999_999_999,
+        sender,
+        subject: hostile,
+        account: hostile,
+        domain: hostile,
+        rejectsAtServer: true,
+      }),
+      {
+        toastDuration: "until-closed",
+        buttonStyle: true,
+        signer,
+        spamStrips: {
+          low: `file:///${"é".repeat(200)}.png`,
+          medium: `file:///${"é".repeat(200)}.png`,
+          high: `file:///${"é".repeat(200)}.png`,
+        },
+      },
+    );
+    expect(xml).toContain(`;from=${"&apos;".repeat(64)}@`);
+    expect(xml.length).toBeLessThan(10_991);
   });
 });
 
@@ -389,6 +420,11 @@ describe("parseActivation", () => {
   });
 
   it("reads the domain button with the Trash choice", () => {
+    expect(parseActivation(click(`act=open;id=${ID}`, { target: "trash" }))).toEqual({
+      ok: true,
+      activation: { id: ID, scope: "address", action: REOPEN_CHOICE },
+    });
+    expect(buildMailToastXml(toast())).toContain(`launch="act=open;id=${ID}"`);
     expect(parseActivation(click(`act=domain;id=${ID}`, { target: "trash" }))).toEqual({
       ok: true,
       activation: { id: ID, scope: "domain", action: "trash" },
@@ -468,5 +504,153 @@ describe("parseActivation", () => {
     const result = parseActivation(click("act=sender;id=SECRET-subject-text"));
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain("SECRET");
+  });
+});
+
+describe("a click that outlives the app", () => {
+  const click = (args: string, userInputs?: Record<string, string>) => ({
+    type: "click",
+    arguments: args,
+    ...(userInputs === undefined ? {} : { userInputs }),
+  });
+  const ACCOUNT = "gmail-bd3565c8.gmail";
+  const FROM = "news@example.com";
+  const SECONDS = 1_793_631_000;
+  const mac = (act: string, id = ID, acct = ACCOUNT, from = FROM, t = SECONDS) =>
+    signer.sign(act, id, acct, from, t);
+  const tail = (act = "sender") =>
+    `;acct=${ACCOUNT};from=${FROM};t=${String(SECONDS)};mac=${mac(act)}`;
+  /** Signs a hand-written click the way a toast would, so a refusal is about the part under test and not the missing tag. */
+  const signed = (args: string): string => {
+    const m = /^act=(\w+);id=([^;]+);acct=([^;]*);from=(.*);t=([^;]*)$/u.exec(args);
+    if (m === null) return `${args};mac=${mac("sender")}`;
+    const [, act = "", id = "", acct = "", from = "", t = ""] = m;
+    return `${args};mac=${mac(act, id, acct, from, Number(t))}`;
+  };
+  const parse = (args: string) => parseActivation(click(args), undefined, signer);
+
+  it("puts the account, the sender and the time on every button when the caller gave them", () => {
+    const xml = buildMailToastXml(toast({ accountId: ACCOUNT, issuedAt: SECONDS }), { signer });
+    for (const act of ["sender", "domain"]) {
+      expect(xml).toContain(`arguments="act=${act};id=${ID}${tail(act)}"`);
+    }
+    expect(xml).toContain(`launch="act=open;id=${ID}${tail("open")}"`);
+  });
+
+  it("writes no tail when the caller has no signer, so no toast carries a sender it cannot vouch for", () => {
+    const xml = buildMailToastXml(toast({ accountId: ACCOUNT, issuedAt: SECONDS }));
+    expect(xml).toContain(`arguments="act=sender;id=${ID}"`);
+    expect(xml).not.toContain("from=");
+    expect(xml).not.toContain("mac=");
+  });
+
+  it("escapes a sender that holds & or ' in the attribute, and parses it back", () => {
+    const sender = "o'neil&co@example.com";
+    const xml = buildMailToastXml(toast({ sender, accountId: ACCOUNT, issuedAt: 1 }), { signer });
+    expect(xml).toContain(`from=o&apos;neil&amp;co@example.com;t=1;mac=`);
+    expect(parse(signed(`act=sender;id=${ID};acct=${ACCOUNT};from=${sender};t=1`))).toMatchObject({
+      ok: true,
+      activation: { restore: { sender, issuedAt: 1 } },
+    });
+  });
+
+  it("leaves the tail off when an account id would make a click the parser refuses", () => {
+    const xml = buildMailToastXml(toast({ accountId: "x".repeat(65), issuedAt: 1 }), { signer });
+    expect(xml).toContain(`arguments="act=sender;id=${ID}"`);
+    expect(xml).not.toContain("acct=");
+  });
+
+  it("fits the longest address and account id inside ACTIVATION_ARGUMENTS_MAX", () => {
+    const sender = `${"a".repeat(64)}@${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(63)}.com`;
+    expect(sender).toHaveLength(254);
+    const args = signed(`act=domain;id=${ID};acct=${"a".repeat(64)};from=${sender};t=9999999999`);
+    expect(args).toHaveLength(420);
+    expect(args.length).toBeLessThanOrEqual(ACTIVATION_ARGUMENTS_MAX);
+    expect(parse(args).ok).toBe(true);
+  });
+
+  it("reads the tail as the restore of the click", () => {
+    expect(parse(`act=sender;id=${ID}${tail()}`)).toEqual({
+      ok: true,
+      activation: {
+        id: ID,
+        scope: "address",
+        action: "junk",
+        restore: { accountId: ACCOUNT, sender: FROM, issuedAt: SECONDS },
+      },
+    });
+    expect(parse(`act=quiet;id=${ID}${tail("quiet")}`)).toMatchObject({
+      ok: true,
+      activation: { action: "quiet", restore: { sender: "news@example.com" } },
+    });
+  });
+
+  it.each([
+    [
+      "a sender that is not canonical",
+      `act=sender;id=${ID};acct=${ACCOUNT};from=News@Example.com;t=1`,
+    ],
+    ["a sender with no @", `act=sender;id=${ID};acct=${ACCOUNT};from=nobody;t=1`],
+    ["a look-alike domain", `act=sender;id=${ID};acct=${ACCOUNT};from=a@bаnk.com;t=1`],
+    ["a part of the tail missing", `act=sender;id=${ID};acct=${ACCOUNT};t=1`],
+    [
+      "an account id over 64 characters",
+      `act=sender;id=${ID};acct=${"a".repeat(65)};from=a@example.com;t=1`,
+    ],
+    ["an account id with a separator", `act=sender;id=${ID};acct=a;b;from=a@example.com;t=1`],
+    ["a time that is not digits", `act=sender;id=${ID};acct=${ACCOUNT};from=a@example.com;t=-1`],
+    [
+      "a time over 10 digits",
+      `act=sender;id=${ID};acct=${ACCOUNT};from=a@example.com;t=12345678901`,
+    ],
+    ["a second tail", `act=sender;id=${ID}${tail()}${tail()}`],
+  ])("refuses %s", (_name, args) => {
+    expect(parse(signed(args)).ok).toBe(false);
+  });
+
+  describe("the signature", () => {
+    const other = createActivationSigner(Buffer.alloc(32, 9));
+    const forged = (over: Partial<Record<"act" | "id" | "acct" | "from" | "t", string>> = {}) => {
+      const f = { act: "sender", id: ID, acct: ACCOUNT, from: FROM, t: String(SECONDS), ...over };
+      // Signed for the original fields, the sent ones changed after: what someone who cannot sign would have to do.
+      return `act=${f.act};id=${f.id};acct=${f.acct};from=${f.from};t=${f.t};mac=${mac("sender")}`;
+    };
+
+    it("takes a tail only when its tag was made with this key", () => {
+      expect(parse(`act=sender;id=${ID}${tail()}`).ok).toBe(true);
+      expect(parseActivation(click(`act=sender;id=${ID}${tail()}`), undefined, other)).toEqual({
+        ok: false,
+        reason: "malformed",
+      });
+    });
+
+    it.each([
+      ["a sender changed after signing", { from: "boss@example.com" }],
+      ["an account changed after signing", { acct: "other-lane" }],
+      ["a time changed after signing", { t: "1793631001" }],
+      ["an id changed after signing", { id: "1f8fad5b-d9cb-469f-a165-70867728950e" }],
+      ["an action changed after signing", { act: "domain" }],
+    ])("refuses %s", (_name, over) => {
+      expect(parse(forged(over))).toEqual({ ok: false, reason: "malformed" });
+    });
+
+    it.each([
+      ["a tail with no tag", `act=sender;id=${ID};acct=${ACCOUNT};from=${FROM};t=1`],
+      ["a tag that is too short", `act=sender;id=${ID}${tail()}`.slice(0, -2)],
+      ["a tag that is not base64url", `act=sender;id=${ID}${tail()}`.slice(0, -1) + "="],
+    ])("refuses %s", (_name, args) => {
+      expect(parse(args).ok).toBe(false);
+    });
+
+    it("hands over no sender when there is no key to check the tail with", () => {
+      expect(parseActivation(click(`act=sender;id=${ID}${tail()}`))).toEqual({
+        ok: true,
+        activation: { id: ID, scope: "address", action: "junk" },
+      });
+    });
+
+    it("refuses a key that is not 32 bytes", () => {
+      expect(() => createActivationSigner(Buffer.alloc(16))).toThrow();
+    });
   });
 });

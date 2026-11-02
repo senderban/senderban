@@ -251,6 +251,28 @@ describe("createGmailWatchers: lifecycle", () => {
     expect(t.trayStates.filter(([id]) => id === two).at(-1)?.[1]).toBe("watching");
   });
 
+  it("says what the toast of a sender offers for a lane it holds, and null once the lane is forgotten", async () => {
+    const t = setup();
+    await started(t);
+    const laneId = t.built.lanes[0]?.laneId ?? "";
+    expect(t.watchers.toastOffer(laneId, "news@example.com")).toMatchObject({ trashOnly: true });
+    expect(t.watchers.toastOffer("not-a-lane", "news@example.com")).toBeNull();
+    t.watchers.forget(laneId);
+    expect(t.watchers.toastOffer(laneId, "news@example.com")).toBeNull();
+  });
+
+  it("puts the lane and the time on the toast, so a click can be taken back after a restart", async () => {
+    const t = setup();
+    await started(t);
+    t.fake.deliver({ from: "Spam Co <spam@news.example.com>", subject: "WIN NOW" });
+    await tick(2 * MINUTE);
+    expect(t.shown[0]?.accountId).toBe(t.built.lanes[0]?.laneId);
+    // Announced by a poll inside the two minutes that passed, in epoch seconds.
+    const issued = t.shown[0]?.issuedAt ?? 0;
+    expect(issued).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+    expect(issued).toBeGreaterThan(Math.floor(Date.now() / 1000) - 120);
+  });
+
   it("forget stops the watcher, drops it and deletes the cursor", async () => {
     const t = setup();
     await started(t);

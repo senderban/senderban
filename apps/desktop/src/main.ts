@@ -46,6 +46,7 @@ import {
   gmailLaneId,
 } from "@senderban/core";
 import type {
+  MailToast,
   BlockAction,
   BlockEntry,
   BlockResult,
@@ -72,7 +73,7 @@ import {
   signInMicrosoft,
 } from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
-import { Menu, Tray, app, nativeImage, powerMonitor, shell } from "electron";
+import { Menu, Tray, app, nativeImage, powerMonitor, safeStorage, shell } from "electron";
 import { checkAccount, checkCleanAccount } from "./account-check.js";
 import { cleanGapListener, cleanLane } from "./clean-lane.js";
 import type { AccountCheckStage } from "./account-check.js";
@@ -159,6 +160,9 @@ import {
 } from "./mxroute-settings.js";
 import { QuietStore } from "./quiet-file.js";
 import { SettingsStore } from "./settings-file.js";
+import { loadActivationSigner } from "./activation-key.js";
+import { restoreClicked } from "./restore-click.js";
+import { STORE_TOAST_ACTIVATOR_CLSID } from "./toast-activator.js";
 import { Toasts, spamStripUrls } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
 
@@ -284,6 +288,23 @@ const gmailToastLanes = new Set<string>();
 /** Gmail lanes held still while their account is being removed (a failed fan-out round is not news then). */
 const heldGmailLanes = createHeldLanes();
 const heldSieveLanes = createHeldLanes();
+
+/** What the toast of a mail from `sender` offers on an IMAP account. */
+function imapOffer(
+  accountId: string,
+  sender: string,
+  own: ReturnType<OwnMailSet["get"]>,
+): Pick<MailToast, "domain" | "rejectsAtServer"> {
+  return {
+    domain: blockableDomain(sender, own),
+    // A wildcard address is never written to the blacklist (it would refuse a whole provider).
+    rejectsAtServer: rejectingAccounts.has(accountId) && canRejectSender(sender, own),
+  };
+}
+
+/** A click carries no mail text, so a toast of an earlier run comes back without its subject. */
+const SUBJECT_NOT_KEPT = "(subject not kept after a restart)";
+
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
 let gmailSkipped: GmailSkipped[] = [];
 /** Microsoft accounts that have no lane this session: a block or an Unblock does not reach them. */
@@ -586,6 +607,8 @@ async function start(): Promise<Runtime> {
     clean: configured.filter(isCleanAccount).length,
     skipped: configured.length - accounts.length,
     electron: process.versions.electron,
+    // Windows started this process for a click on a toast (build/appx-extensions.xml): a run of these without a click is a restart loop.
+    cold: process.argv.includes("-ToastActivated"),
   });
   // Never-refuse set for "Block at server" (ADR 0008 point 3); see own-mail.ts.
   const own = createOwnMail(collectOwnMail(configured), () =>
@@ -660,15 +683,14 @@ async function start(): Promise<Runtime> {
       });
       toasts?.show({
         id,
+        accountId,
+        issuedAt: Math.floor(Date.now() / 1000),
         sender: message.from,
         subject: message.subject,
         account: labels.get(accountId) ?? accountId,
         spamScore: message.spamScore,
         overSpamLimit: overSpamLimit(spamFilters.get(accountId) ?? null, message.spamScore),
-        domain: blockableDomain(message.from, own.get()),
-        // A wildcard address is never written to the blacklist (it would refuse a whole provider).
-        rejectsAtServer:
-          rejectingAccounts.has(accountId) && canRejectSender(message.from, own.get()),
+        ...imapOffer(accountId, message.from, own.get()),
       });
     },
     onOverflow: (accountId, skipped) => {
@@ -1258,6 +1280,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.setAppUserModelId(APP_USER_MODEL_ID);
+  // A packaged toast click reaches handleActivation only through the COM activator in the manifest; without it Windows starts a new
+  // process with the button's arguments and drops the Junk/Trash choice (.task/store-msix.md).
+  if (process.windowsStore) app.setToastActivatorCLSID(STORE_TOAST_ACTIVATOR_CLSID);
 
   // Starting the exe again while it lives in the tray opens the window instead of doing nothing.
   app.on("second-instance", () => {
@@ -1359,9 +1384,22 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         ? {}
         : { onAccountsChanged: googleDeps.onAccountsChanged }),
     };
+    // A click that started this process is handed over as soon as the handler is set, so it waits for this key.
+    const activationSigner = loadActivationSigner(
+      join(app.getPath("userData"), "activation-key.json"),
+      {
+        available: () => safeStorage.isAsyncEncryptionAvailable(),
+        encrypt: (plain) => safeStorage.encryptStringAsync(plain),
+        decrypt: async (cipher) => (await safeStorage.decryptStringAsync(cipher)).result,
+      },
+    );
+    void activationSigner.then((signer) => {
+      if (signer === null) log("toast-key", { result: "none" });
+    });
     toasts = new Toasts({
       settings: () => settings.current,
       spamStrips: spamStripUrls(assets),
+      signer: () => activationSigner,
       onActivation: () => {
         log("toast-activation");
       },
@@ -1372,10 +1410,12 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         log("toast-refused");
       },
       hold: (work) => (manage === null ? work() : manage.hold(work)),
-      quiet: async (id, scope) => {
-        const { pending, own } = await ready.promise;
+      quiet: async (id, scope, restore) => {
+        const { pending, own, lanes } = await ready.promise;
+        const restored = restoreClicked(pending, lanes, id, restore);
         const target = quietTarget(pending, id, scope, own.get());
-        if (target.status !== "ok") log("quiet", { scope, result: target.status });
+        if (target.status !== "ok")
+          log("quiet", { scope, result: target.status, restore: restored });
         if (target.status === "duplicate") return { tone: "warn", text: "Already handled." };
         if (target.status !== "ok") {
           return { tone: "warn", text: "This message has expired, so nothing changed." };
@@ -1398,8 +1438,32 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return { tone: "ok", text: `${target.value}: you will not be asked again.` };
       },
       onError: logIpcError,
-      choose: async (id, scope, action) => {
+      reopen: async (id, restore) => {
+        const { pending, lanes, labels, own, gmailWatchers, outlookWatchers } = await ready.promise;
+        const restored = restoreClicked(pending, lanes, id, restore);
+        const seen = pending.peek(id);
+        log("toast-reopen", { result: seen.status, restore: restored });
+        if (seen.status === "duplicate") return { tone: "warn", text: "Already handled." };
+        if (seen.status !== "ok") {
+          return { tone: "warn", text: "This message has expired, so nothing changed." };
+        }
+        const { accountId, sender } = seen.block;
+        return {
+          id,
+          accountId,
+          issuedAt: restore?.issuedAt ?? Math.floor(Date.now() / 1000),
+          sender,
+          subject: SUBJECT_NOT_KEPT,
+          account: labels.get(accountId) ?? accountId,
+          spamScore: null,
+          ...(gmailWatchers.toastOffer(accountId, sender) ??
+            outlookWatchers.toastOffer(accountId, sender) ??
+            imapOffer(accountId, sender, own.get())),
+        };
+      },
+      choose: async (id, scope, action, restore) => {
         const { store, engine, lanes, pending, labels, own } = await ready.promise;
+        const restored = restoreClicked(pending, lanes, id, restore);
         let clicked = null as string | null;
         let result: BlockResult;
         try {
@@ -1444,6 +1508,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           action,
           result: result.status,
           verified: result.status === "blocked" ? result.verified : undefined,
+          restore: restored,
         });
         manage?.notifyChanged();
         // On a Gmail account every single-address entry is a Trash filter, whatever action the list holds for it.

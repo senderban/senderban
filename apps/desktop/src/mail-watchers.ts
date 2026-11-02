@@ -120,6 +120,11 @@ export interface MailWatchers {
   startOne(laneId: string): void;
   /** The account is gone or signed out: its watcher is stopped and dropped, its cursor deleted. */
   forget(laneId: string): void;
+  /** What the toast of a mail from `sender` offers on this lane; null for a lane these watchers do not hold. */
+  toastOffer(
+    laneId: string,
+    sender: string,
+  ): Pick<MailToast, "spamScore" | "domain" | "rejectsAtServer" | "trashOnly"> | null;
   /** Watchers alive (for tests and the tray). */
   readonly size: number;
 }
@@ -185,6 +190,8 @@ export function createMailWatchers<Lane, Gap extends string>(
           });
           deps.showMail({
             id,
+            accountId: laneId,
+            issuedAt: Math.floor(now() / 1000),
             sender: message.from,
             subject: message.subject,
             account: label(),
@@ -277,6 +284,9 @@ export function createMailWatchers<Lane, Gap extends string>(
   }
 
   return {
+    toastOffer(laneId, sender) {
+      return watchers.has(laneId) ? provider.toast(sender) : null;
+    },
     start() {
       for (const [laneId, watcher] of watchers) {
         if (deps.isHeld?.(laneId) !== true) watcher.start();
