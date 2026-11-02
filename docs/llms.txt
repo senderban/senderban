@@ -1,0 +1,36 @@
+# Senderban: block a sender once, on every mail account you add
+
+> Senderban is a free, open-source Windows tray app. When a new mail arrives it shows a Windows notification; one click writes the block as a rule on the mail provider's own server (a Gmail filter, a Sieve script, an Outlook rule) where the provider allows it, so the block also holds on your phone and in webmail. It is not an email client: it does not send, sync or search mail and does not download message bodies.
+
+Developer: Alim Köse. License: Apache-2.0. Current release: v0.2.0 (2026-11-01). Source: https://github.com/senderban/senderban
+
+## Site Structure
+- [Home](https://senderban.com/): what Senderban does, the provider list and how to download it
+- [How Senderban is built](https://senderban.com/engineering/): architecture decisions with their measurements and costs
+- [Writing](https://senderban.com/writing/): guides and engineering notes, each with a dated measurement
+- [How do I block a domain in Gmail, and does it work?](https://senderban.com/writing/gmail-block-domain/): Gmail has no domain block; the Block button covers one sender and a `from:` filter also matches display names and look-alike domains
+- [Why are blocked emails still coming through?](https://senderban.com/writing/blocked-sender-still-coming-through/): four causes, each provider's own steps first, and what a block kept in one app misses
+- [How do I block a sender on MXroute?](https://senderban.com/writing/mxroute-block-sender/): the account blacklist versus a Sieve rule on one mailbox, with a look-alike run on Dovecot
+- [Outlook keeps a domain block as a text match](https://senderban.com/writing/outlook-domain-text-match/): why blocking a look-alike domain can silence the real sender
+- [Finding a mail provider from an address](https://senderban.com/writing/provider-from-address/): why a server name taken from unsigned DNS cannot decide where a password goes
+- [A scale budget for a desktop app](https://senderban.com/writing/scale-budget-desktop-app/): 50 accounts, 5 slots and a deadline on every job
+- [Work with me](https://senderban.com/work/): the developer's profile
+- [Privacy policy](https://senderban.com/privacy/): what the app reads and writes
+
+## What It Does
+- Shows a notification for each new mail and blocks the sender with one click.
+- Writes the block as a rule on the provider's server: a Gmail filter, a Sieve script (MXroute and other ManageSieve servers) or an Outlook message rule. The block list is shared by all accounts and every block can be undone in the Blocked senders window.
+- On iCloud and other IMAP-only providers it moves the mail itself while the app runs.
+- Offers an optional per-mailbox spam-score filter on mail servers that add a spam score.
+- Measured against real accounts: MXroute and Gmail on 2026-10-30; a personal Outlook.com account and iCloud on 2026-11-01. Migadu, mailbox.org, Purelymail, Yahoo, AOL, GMX and Web.de ran on a local Dovecot server only, not at the provider.
+
+## What It Does Not Do
+- It is not an email client and does not send, sync, search or download message bodies.
+- It runs on Windows only today. The installer is unsigned.
+- Gmail has no whole-domain block through Senderban, because a Gmail `from:` filter also matches display names and look-alike domains; Gmail takes single addresses.
+- Outlook: a personal account was measured; a work or school account was not.
+- On IMAP-only providers (iCloud, Yahoo and similar) there is no server rule: with Senderban closed, a blocked sender's mail stays in the inbox.
+- It does not block a mail by its content; the spam-score filter only uses a score the server already adds.
+
+## Content Licensing
+Attribution: "Senderban (senderban.com)". The source code is Apache-2.0.
