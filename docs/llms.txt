@@ -10,6 +10,7 @@ Developer: Alim Köse. License: Apache-2.0. Current release: v0.2.0 (2026-11-01)
 - [Writing](https://senderban.com/writing/): guides and engineering notes, each with a dated measurement
 - [How do I block a domain in Gmail, and does it work?](https://senderban.com/writing/gmail-block-domain/): Gmail has no domain block; the Block button covers one sender and a `from:` filter also matches display names and look-alike domains
 - [Why are blocked emails still coming through?](https://senderban.com/writing/blocked-sender-still-coming-through/): four causes, each provider's own steps first, and what a block kept in one app misses
+- [How do I block email on iCloud?](https://senderban.com/writing/icloud-block-sender/): Apple's own ways first (Block this Contact in iPhone Mail sends mail to Trash, iCloud.com rules, Junk); Senderban writes no rule on iCloud and moves mail only while it runs
 - [How do I block a sender on MXroute?](https://senderban.com/writing/mxroute-block-sender/): the account blacklist versus a Sieve rule on one mailbox, with a look-alike run on Dovecot
 - [Outlook keeps a domain block as a text match](https://senderban.com/writing/outlook-domain-text-match/): why blocking a look-alike domain can silence the real sender
 - [Finding a mail provider from an address](https://senderban.com/writing/provider-from-address/): why a server name taken from unsigned DNS cannot decide where a password goes

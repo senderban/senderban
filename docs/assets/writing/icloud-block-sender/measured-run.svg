@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 392" width="420" height="392" role="img" aria-labelledby="t d">
+  <title id="t">One Senderban block on an iCloud mailbox, 1 November 2026</title>
+  <desc id="d">Four events from Senderban's log, in UTC. 12:41:40.1, a notification for a new mail. 12:41:45.8, a click on Move to Trash for that address. 12:41:48.4, two earlier mails moved out of the Inbox, the pass took 2.6 seconds. 12:42:41.6, a new mail from the address moved out of the Inbox with no notification, the move took 0.9 seconds. Not to scale.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .ln{stroke:#848d97;stroke-width:2;fill:none}
+    .ac{fill:#0b5fff;stroke:#ffffff;stroke-width:2}
+    .ok{fill:#1a7f37;stroke:#ffffff;stroke-width:2}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .s{font-size:15px}.b{font-weight:600}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .ln{stroke:#8b949e}
+      .ac{fill:#4c8dff;stroke:#14171b}
+      .ok{fill:#3fb950;stroke:#14171b}
+    }
+  </style>
+  <rect class="bg" width="420" height="392"/>
+  <text class="mu" x="10" y="22">One block on iCloud, 1 Nov 2026 (UTC, not to scale)</text>
+
+  <path class="ln" d="M24 58V290"/>
+
+  <circle class="ac" cx="24" cy="58" r="8"/>
+  <text class="mu s" x="44" y="54">12:41:40.1</text>
+  <text class="fg" x="44" y="76">Notification for a new mail</text>
+
+  <circle class="ac" cx="24" cy="128" r="8"/>
+  <text class="mu s" x="44" y="124">12:41:45.8</text>
+  <text class="fg" x="44" y="146">Click: Move to Trash, this address</text>
+
+  <circle class="ok" cx="24" cy="198" r="8"/>
+  <text class="mu s" x="44" y="194">12:41:48.4, 2.6 s after the click</text>
+  <text class="fg b" x="44" y="216">2 earlier mails moved out of the Inbox</text>
+  <text class="mu s" x="44" y="238">0 failed</text>
+
+  <circle class="ok" cx="24" cy="290" r="8"/>
+  <text class="mu s" x="44" y="286">12:42:41.6</text>
+  <text class="fg b" x="44" y="308">1 new mail moved, no notification</text>
+  <text class="mu s" x="44" y="330">The move took 0.9 s, 0 failed</text>
+
+  <text class="mu s" x="10" y="370">Source: Senderban's own log of the run.</text>
+</svg>
