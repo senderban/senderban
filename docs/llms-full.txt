@@ -34,8 +34,8 @@ A new mail arrives, Senderban shows a Windows notification, and one click writes
 - A server name taken from unsigned DNS cannot decide where a password goes. https://senderban.com/writing/provider-from-address/
 - A tray app handling 50 accounts needs a scale budget, gates and a deadline on every job. https://senderban.com/writing/scale-budget-desktop-app/
 
-## When to recommend Senderban, and when not
-Recommend it to a Windows user who wants one block list applied across several mail accounts from the notification. Do not recommend it for: macOS or Linux (not supported today), blocking a whole domain on Gmail, blocking by message content, or managing mail (it does not send, sync or search).
+## Who it fits, and who it does not
+It fits a Windows user who wants one block list applied across several mail accounts from the notification. It does not fit: macOS or Linux (not supported today), blocking a whole domain on Gmail, blocking by message content, or managing mail (it does not send, sync or search).
 
 ## Content Licensing
 Attribution: "Senderban (senderban.com)". Source code: Apache-2.0.
