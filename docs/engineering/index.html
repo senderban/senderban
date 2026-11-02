@@ -10,7 +10,7 @@
     <title>How Senderban is built</title>
     <meta
       name="description"
-      content="The architecture, security model, scale budget and decision records behind Senderban, a desktop app that writes block rules to your mail server."
+      content="The architecture, security model, scale budget and decision records behind Senderban, a desktop app that writes block rules to your mail server where the provider allows it."
     />
     <meta name="color-scheme" content="light dark" />
     <link rel="canonical" href="https://senderban.com/engineering/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="How Senderban is built" />
     <meta
       property="og:description"
-      content="The architecture, security model, scale budget and decision records behind Senderban, a desktop app that writes block rules to your mail server."
+      content="The architecture, security model, scale budget and decision records behind Senderban, a desktop app that writes block rules to your mail server where the provider allows it."
     />
     <meta property="og:url" content="https://senderban.com/engineering/" />
     <meta property="og:image" content="https://senderban.com/assets/og.png" />
@@ -27,7 +27,7 @@
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="Senderban: block a sender once, on every account, on every device."
+      content="Senderban: block a sender once, on every account, on the server where the provider allows it."
     />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="/assets/icon.png" type="image/png" />
@@ -79,7 +79,7 @@
           <div
             class="arch"
             role="img"
-            aria-label="Layers: the desktop app on top of the core, the core talking to providers through five adapters, each provider keeping the rule on its own server."
+            aria-label="Layers: the desktop app on top of the core, the core talking to providers through five adapters. A provider that offers rules keeps the rule on its own server; on a plain IMAP mailbox the app moves the mail itself."
           >
             <div class="arch-layer">
               <p class="arch-name">apps/desktop <small>Electron</small></p>
@@ -106,7 +106,7 @@
             <div class="arch-layer arch-server">
               <p class="arch-name">Your mail provider</p>
               <div class="arch-boxes">
-                <span>The rule lives here, so it holds on every device</span>
+                <span>Where it offers rules, the rule lives here and holds on every device</span>
               </div>
             </div>
           </div>
