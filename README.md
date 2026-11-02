@@ -8,6 +8,16 @@ Block a sender once, from the Windows notification, on every mail account you ow
 > local Dovecot server only, see [Provider support](#provider-support). The installer is unsigned.
 > Start with a mailbox you can afford to experiment on.
 
+<picture>
+  <source srcset="docs/assets/shots/blocked-dark.webp" media="(prefers-color-scheme: dark)">
+  <img src="docs/assets/shots/blocked-light.webp" width="720" alt="The Blocked senders view: five sample senders, each with its block, what Gmail and Other (IMAP) mailboxes do with it, and an Unblock button.">
+</picture>
+
+<picture>
+  <source srcset="docs/assets/shots/accounts-dark.webp" media="(prefers-color-scheme: dark)">
+  <img src="docs/assets/shots/accounts-light.webp" width="720" alt="The Accounts view: sample MXroute, Other (IMAP), Gmail and Outlook mailboxes with their state, and Block at server and a spam filter on the MXroute domain.">
+</picture>
+
 ## Download
 
 [Latest release](https://github.com/senderban/senderban/releases/latest): `Senderban-Setup-X.Y.Z.exe`.
