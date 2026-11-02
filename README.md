@@ -214,6 +214,12 @@ npm run build
 npm run dist -w apps/desktop   # apps/desktop/release/Senderban-Setup-<version>.exe
 ```
 
+## Sponsor
+
+Senderban is free and open source. [Sponsoring](https://github.com/sponsors/AlimKose) pays for
+maintenance time and the senderban.com domain. Sponsors are named here and on
+[senderban.com](https://senderban.com) when they ask to be.
+
 ## License
 
 [Apache-2.0](LICENSE).
