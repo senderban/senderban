@@ -1,7 +1,8 @@
 # 0014 — Cleaning over IMAP where no rule can be written
 
-Status: **accepted** (2026-10-31). Measured on a local Dovecot 2.4.5 container only; no iCloud, Yahoo, AOL or GMX account has been
-tried yet.
+Status: **accepted** (2026-10-31). Measured on a local Dovecot 2.4.5 container and, on 2026-11-01, on one iCloud mailbox (one address
+block moved 2 earlier mails and 1 new mail out of the Inbox, 0 failed; the Junk or Trash folder was
+not looked at). No Yahoo, AOL or GMX account has been tried yet.
 
 ## Context
 
