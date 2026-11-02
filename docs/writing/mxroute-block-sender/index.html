@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Block a sender on MXroute: blacklist or Sieve - Senderban</title>
+    <meta
+      name="description"
+      content="MXroute blocks a sender in two places: the account blacklist or a Sieve rule on one mailbox. What each covers, with a Sieve rule measured on 2 Nov 2026."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta
+      property="og:title"
+      content="How do I block a sender on MXroute, and what does each way cover? - Senderban"
+    />
+    <meta
+      property="og:description"
+      content="MXroute blocks a sender in two places: the account blacklist or a Sieve rule on one mailbox. What each covers, with a Sieve rule measured on 2 Nov 2026."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/mxroute-block-sender/" />
+    <meta
+      property="og:image"
+      content="https://senderban.com/assets/writing/mxroute-block-sender/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="How do I block a sender on MXroute? A Sieve domain rule for brand.example left 4 of 4 look-alike senders in the inbox. Dovecot 2.4.5, 2 November 2026."
+    />
+    <meta property="article:published_time" content="2026-11-02" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        "headline": "How do I block a sender on MXroute, and what does each way cover?",
+        "datePublished": "2026-11-02",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/writing/mxroute-block-sender/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/mxroute-block-sender/"
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/writing/mxroute-block-sender/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Engineering note · <time datetime="2026-11-02">2 November 2026</time></p>
+        <h1>How do I block a sender on MXroute, and what does each way cover?</h1>
+        <p class="lead">
+          To block a sender on MXroute, add the address, or <code>*@example.com</code> for a whole
+          domain, to the blacklist in the MXroute control panel. MXroute says that list covers every
+          domain on your account and is not a guaranteed refusal. The other way is a Sieve rule: it
+          acts on one mailbox and files the mail into Junk or Trash.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <div class="key-facts">
+            <p class="key-facts-title">Key facts</p>
+            <ul>
+              <li>
+                MXroute's blacklist takes a full address or <code>*@example.com</code>. Its
+                documentation, read on 2 November 2026, says the sender lists "apply across the
+                hosting account's domains".
+              </li>
+              <li>
+                On one MXroute mailbox on 25 October 2026, mail from a blacklisted address was
+                refused with <code>550 High scoring spam message has been dropped</code>, and no
+                copy was kept. MXroute says a blacklist entry "is not a guaranteed SMTP-level
+                rejection".
+              </li>
+              <li>
+                A Sieve rule acts on one mailbox, at delivery. Senderban's rule for the domain
+                <code>brand.example</code>, run on Dovecot 2.4.5 on 2 November 2026, filed 4 of 4
+                senders at the domain or under it into Junk and left 4 of 4 look-alike senders in
+                the inbox.
+              </li>
+              <li>
+                On a real MXroute mailbox, Senderban's rule was written 1.9 s after the click (25
+                October 2026), and the blocked sender's next mail was filed away (30 October 2026).
+              </li>
+              <li>
+                Senderban never puts a whole domain on the MXroute blacklist. Refusal at the server
+                is for one address at a time, and it is off until you switch it on.
+              </li>
+            </ul>
+          </div>
+
+          <nav class="toc" aria-label="On this page">
+            <p class="toc-title">On this page</p>
+            <ol>
+              <li>
+                <a href="#where-to-block-on-mxroute">Where can I block a sender on MXroute?</a>
+              </li>
+              <li>
+                <a href="#block-with-the-blacklist"
+                  >How do I block a sender with the MXroute blacklist?</a
+                >
+              </li>
+              <li>
+                <a href="#what-the-blacklist-covers"
+                  >What does the MXroute blacklist cover, and does it refuse the mail?</a
+                >
+              </li>
+              <li>
+                <a href="#block-with-a-sieve-rule"
+                  >How does a Sieve filter block a sender on one mailbox?</a
+                >
+              </li>
+              <li>
+                <a href="#does-sieve-catch-look-alikes"
+                  >Does a Sieve domain block catch look-alike domains?</a
+                >
+              </li>
+              <li>
+                <a href="#sieve-traps-we-hit">What went wrong in our own Sieve rules?</a>
+              </li>
+              <li>
+                <a href="#what-senderban-does-on-mxroute"
+                  >What does Senderban do on MXroute, and what does it not do?</a
+                >
+              </li>
+              <li><a href="#how-we-measured">How was this measured?</a></li>
+              <li><a href="#what-was-not-measured">What was not measured?</a></li>
+              <li><a href="#related-reading">Related reading</a></li>
+            </ol>
+          </nav>
+
+          <h2 id="where-to-block-on-mxroute">Where can I block a sender on MXroute?</h2>
+          <p>
+            In two places, and they cover different things. The blacklist sits in MXroute's spam
+            check, before a mail is delivered, and it is one list for the whole hosting account. A
+            Sieve rule sits in one mailbox and runs as each mail is delivered there. MXroute's
+            documentation (read 2 November 2026) has a page for the blacklist and none for Sieve.
+            Senderban reaches an MXroute mailbox's Sieve scripts over ManageSieve, the standard
+            protocol for them, and read its own rule back from a real MXroute mailbox on 25 October
+            2026
+            <a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0003-desktop-shell.md"
+              >(ADR 0003)</a
+            >.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="The two places a block can live on MXroute"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Question</th>
+                  <th scope="col">Blacklist</th>
+                  <th scope="col">Sieve rule</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Where you set it</th>
+                  <td>MXroute control panel, or the MXroute API</td>
+                  <td>A Sieve script on the mailbox, written through ManageSieve</td>
+                </tr>
+                <tr>
+                  <th scope="row">What it covers</th>
+                  <td>Every domain on the hosting account, by MXroute's documentation</td>
+                  <td>One mailbox</td>
+                </tr>
+                <tr>
+                  <th scope="row">What happens to the mail</th>
+                  <td>
+                    An input to spam scoring. Refused with a 550 reply in our one test; MXroute does
+                    not promise that
+                  </td>
+                  <td>Filed into the folder the rule names, such as Junk or Trash</td>
+                </tr>
+                <tr>
+                  <th scope="row">A whole domain</th>
+                  <td><code>*@example.com</code></td>
+                  <td><code>address :domain :is "from" "example.com"</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <figure class="figure">
+            <img
+              src="/assets/writing/mxroute-block-sender/where-a-block-acts.svg"
+              width="420"
+              height="564"
+              alt="Diagram: a mail reaches MXroute's spam check, where the account-wide blacklist can get it refused with a 550 reply; accepted mail is delivered, and the mailbox's Sieve script files a match into Junk or Trash and leaves the rest in INBOX."
+            />
+            <figcaption>
+              The blacklist acts for the whole account before delivery; a Sieve rule acts for one
+              mailbox at delivery. Sources:
+              <a href="https://docs.mxroute.com/docs/panel/spam-filters.html" rel="noopener"
+                >MXroute, Spam Filters and Sender Lists</a
+              >
+              (read 2 November 2026) and
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0008-reject-action.md"
+                >ADR 0008</a
+              >
+              for the 550 reply, measured 25 October 2026.
+            </figcaption>
+          </figure>
+
+          <h2 id="block-with-the-blacklist">How do I block a sender with the MXroute blacklist?</h2>
+          <p>
+            These are the steps on MXroute's
+            <a href="https://docs.mxroute.com/docs/panel/spam-filters.html" rel="noopener"
+              >Spam Filters and Sender Lists</a
+            >
+            page, read 2 November 2026. Put your sender where this says <code>example.com</code>.
+          </p>
+          <ol>
+            <li>
+              Open the Control Panel: <strong>Management</strong>, <strong>Subscriptions</strong>,
+              then open the control panel for the service.
+            </li>
+            <li>
+              Go to <strong>Spam Filters</strong>, then <strong>Manage Lists</strong> under
+              <strong>Whitelist &amp; Blacklist</strong>.
+            </li>
+            <li>
+              Under <strong>Add New Entry</strong>, type the sender in
+              <strong>Email Address or Pattern</strong>: a full address such as
+              <code>news@example.com</code>, or <code>*@example.com</code> for every sender at that
+              domain.
+            </li>
+            <li>In <strong>Add to</strong>, choose <strong>Blacklist (Blocked)</strong>.</li>
+            <li>Click <strong>Add Entry</strong>, and check that the entry is in the blacklist.</li>
+          </ol>
+          <pre tabindex="0"><code>*@example.com</code></pre>
+          <p>
+            Keep the domain after the <code>@</code> whole: the same page says SpamAssassin "does
+            not properly process entries with <code>*</code> after <code>@</code>", and it asks you
+            to keep broad patterns and lists small. To undo an entry: <strong>Spam Filters</strong>,
+            <strong>Manage Lists</strong>, the entry's <strong>Delete</strong> icon, then
+            <strong>Delete</strong> in <strong>Confirm Deletion</strong>.
+          </p>
+          <p>
+            With an API key the same list is
+            <code>POST /domains/{domain}/spam/blacklist</code> with a body of
+            <code>{"entry": "..."}</code>, at most 254 characters, in MXroute's
+            <a href="https://api.mxroute.com/openapi.yaml" rel="noopener">API description</a>
+            (read 2 November 2026). Writes are limited to 60 requests a minute.
+          </p>
+
+          <h2 id="what-the-blacklist-covers">
+            What does the MXroute blacklist cover, and does it refuse the mail?
+          </h2>
+          <p>
+            It covers the whole hosting account, and it may or may not refuse the mail. Both of
+            MXroute's own documents say the list is shared by every domain on the account, even
+            though the API names one domain in its path. The list feeds the MXroute spam filter, and
+            MXroute does not tie an entry to one outcome.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="What MXroute says about the blacklist, and what we saw"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Question</th>
+                  <th scope="col">Answer</th>
+                  <th scope="col">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Which mailboxes does an entry cover?</td>
+                  <td>"These lists apply across the hosting account's domains."</td>
+                  <td>MXroute panel docs, read 2 Nov 2026</td>
+                </tr>
+                <tr>
+                  <td>Is that also true through the API?</td>
+                  <td>"Sender lists are shared across an account's domains."</td>
+                  <td>MXroute API description, read 2 Nov 2026</td>
+                </tr>
+                <tr>
+                  <td>Is the mail refused?</td>
+                  <td>
+                    "A blacklist entry is not a guaranteed SMTP-level rejection." The lists are
+                    "sender-list inputs to spam processing".
+                  </td>
+                  <td>MXroute panel docs</td>
+                </tr>
+                <tr>
+                  <td>What decides it?</td>
+                  <td>
+                    The High Score Threshold, a whole number from 1 to 50; MXroute recommends 15.
+                    The API calls it the "score threshold for auto-deletion".
+                  </td>
+                  <td>MXroute panel docs and API description</td>
+                </tr>
+                <tr>
+                  <td>What did we see?</td>
+                  <td>
+                    <code>550 High scoring spam message has been dropped</code>, no copy kept, and
+                    Unblock took the entry off again
+                  </td>
+                  <td>One MXroute mailbox, 25 Oct 2026 (ADR 0008)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            One consequence matters more than the rest. A From address can be forged, and the list
+            is shared. An entry made because of one forged mail refuses the real sender's mail for
+            every domain and mailbox on the account, and a refused mail leaves no copy to find. That
+            is why Senderban never offers refusal for your own addresses or for an address on the
+            mail domain of any account it knows (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0008-reject-action.md"
+              >ADR 0008</a
+            >, item 3).
+          </p>
+
+          <h2 id="block-with-a-sieve-rule">
+            How does a Sieve filter block a sender on one mailbox?
+          </h2>
+          <p>
+            A Sieve rule is a short script on the mail server that runs on each mail as it is
+            delivered to that mailbox. The Sieve standard,
+            <a href="https://www.rfc-editor.org/rfc/rfc5228.html" rel="noopener">RFC 5228</a>,
+            describes "a language for filtering email messages at time of final delivery". So the
+            rule moves the next mail from a sender, not the mail already in your inbox, and it works
+            with every mail app and on your phone, because the server runs it.
+          </p>
+          <p>
+            This is the rule Senderban wrote for a test mailbox on 2 November 2026, for one address
+            and one whole domain, read back from the server as it was stored:
+          </p>
+          <pre tabindex="0"><code>require ["fileinto", "mailbox", "envelope"];
+# senderban-managed v1
+if anyof (
+  address :is "from" [
+    "smith@example.com"
+  ],
+  address :domain :is "from" [
+    "brand.example"
+  ],
+  address :domain :matches "from" [
+    "*.brand.example"
+  ],
+  envelope :is "from" [
+    "smith@example.com"
+  ],
+  envelope :domain :is "from" [
+    "brand.example"
+  ],
+  envelope :domain :matches "from" [
+    "*.brand.example"
+  ]
+) {
+  fileinto :create "Junk";
+  stop;
+}</code></pre>
+          <ul>
+            <li>
+              <code>address ... "from"</code> reads the From header.
+              <code>envelope ... "from"</code> reads the sender the sending server gave, which can
+              differ from the header. Each key is tested against both.
+            </li>
+            <li>
+              <code>:domain :is "brand.example"</code> compares the whole domain part of the
+              address, not a piece of it. <code>:domain :matches "*.brand.example"</code> adds the
+              subdomains. Without a comparator, Sieve compares without regard to upper and lower
+              case (RFC 5228, section 2.7.3).
+            </li>
+            <li>
+              <code>fileinto :create "Junk"</code> files the mail into Junk and makes the folder if
+              it is missing; <code>stop</code> ends the script for that mail.
+            </li>
+          </ul>
+          <p>
+            On MXroute, look for that mail in Junk. MXroute's
+            <a href="https://docs.mxroute.com/docs/default-folders.html" rel="noopener"
+              >default folders page</a
+            >
+            (read 2 November 2026) lists Junk as not subscribed by default, and says a mail app that
+            shows only subscribed folders may need you to subscribe to Junk to see it.
+          </p>
+
+          <h2 id="does-sieve-catch-look-alikes">
+            Does a Sieve domain block catch look-alike domains?
+          </h2>
+          <p>
+            Not in our test. The rule above filed every sender at <code>brand.example</code> or
+            under it into Junk, and left a longer domain, a domain that only starts the same way and
+            a display name holding the domain in the inbox. That is the difference from Gmail, where
+            the same kind of block also caught <code>brand.example.test</code> (<a
+              href="/writing/gmail-block-domain/"
+              >our Gmail measurement</a
+            >).
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/mxroute-block-sender/domain-rule-vs-gmail.svg"
+              width="420"
+              height="446"
+              alt="Chart: four sender domains. Gmail's from: search for brand.example took the domain, a subdomain and two other domains that only contain it. Senderban's Sieve domain rule took the domain and the subdomain and left the two other domains in the inbox."
+            />
+            <figcaption>
+              The Sieve rule took the domain and its subdomain and nothing longer. Sieve: Dovecot
+              2.4.5, 2 November 2026; Gmail: web search on one mailbox, 29 October 2026 (<a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0009-gmail-account.md"
+                >ADR 0009</a
+              >). Stand-in names; every value is in the table below.
+            </figcaption>
+          </figure>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Where each sender landed under the Sieve rule, measured 2 November 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">From header (stand-in)</th>
+                  <th scope="col">Envelope sender</th>
+                  <th scope="col">Landed</th>
+                  <th scope="col">Should the block take it?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>news@brand.example</code></td>
+                  <td>the same</td>
+                  <td>Junk</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>news@mail.brand.example</code></td>
+                  <td>the same</td>
+                  <td>Junk</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>NEWS@BRAND.EXAMPLE</code></td>
+                  <td>the same</td>
+                  <td>Junk</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>hello@other.example</code>, display name "Brand"</td>
+                  <td><code>bounce@mail.brand.example</code></td>
+                  <td>Junk</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>news@brand.example.test</code></td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>notices@news.brand.example.test</code></td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>news@xbrand.example</code></td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>billing@other.example</code>, display name "brand.example Billing"</td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>smith@example.com</code></td>
+                  <td>the same</td>
+                  <td>Junk</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>john.smith@example.com</code></td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>xsmith@example.com</code></td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>other@other.example</code>, display name "smith@example.com"</td>
+                  <td>the same</td>
+                  <td>Inbox</td>
+                  <td>No</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Twelve mails, twelve results as meant: 5 into Junk, 7 left in the inbox. The fourth row
+            is the envelope test at work: the header looked harmless, and the sending server's
+            envelope sender was under the blocked domain.
+          </p>
+
+          <h2 id="sieve-traps-we-hit">What went wrong in our own Sieve rules?</h2>
+          <p>
+            Two drafts of Senderban's spam-score rule failed on a real Sieve server, Pigeonhole
+            2.4.5, on 31 October 2026 (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0017-spam-filter.md"
+              >ADR 0017</a
+            >). They apply to any rule you write by hand.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Sieve traps measured on Pigeonhole 2.4.5, 31 October 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">What we wrote</th>
+                  <th scope="col">What the server did</th>
+                  <th scope="col">What we write now</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>?</code> for one character before a <code>*</code></td>
+                  <td>
+                    <code>1? *</code> matched <code>1.6 (+)</code>, and <code>?.6 *</code> matched
+                    <code>4.9 (++++)</code>: the <code>?</code> did not hold one character
+                  </td>
+                  <td>Digits, then at most one <code>*</code> at the end</td>
+                </tr>
+                <tr>
+                  <td><code>:value "ge"</code> with the <code>i;ascii-numeric</code> comparator</td>
+                  <td>
+                    A value with no leading digit counts as positive infinity (<a
+                      href="https://www.rfc-editor.org/rfc/rfc4790.txt"
+                      rel="noopener"
+                      >RFC 4790</a
+                    >, 9.1.1), so a clean mail's <code>-1.2</code> was over every limit
+                  </td>
+                  <td>No numeric comparator; a list of patterns</td>
+                </tr>
+                <tr>
+                  <td>Two header tests, the second to rule out the first's mistake</td>
+                  <td>
+                    Each test can be met by a different line of the same header:
+                    <code>-1.2</code> beside <code>0.0</code> moved clean mail
+                  </td>
+                  <td>One test on one list, so one line has to hold all of it</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The third trap applies to any rule that tests the same header twice: a header that
+            appears on two lines can meet each test with a different line. A Sieve rule is not
+            finished until a real server has delivered a mail through it.
+          </p>
+
+          <h2 id="what-senderban-does-on-mxroute">
+            What does Senderban do on MXroute, and what does it not do?
+          </h2>
+          <p>
+            Senderban is a free, open-source Windows app. On an MXroute mailbox it shows a
+            notification for new mail with three choices: <strong>Move to Junk</strong> (the
+            default), <strong>Move to Trash</strong> and, if you switched it on,
+            <strong>Block at server</strong>. Junk and Trash write the Sieve rule shown above, for
+            the sender or the whole domain, and read it back. Block at server puts one address on
+            the MXroute blacklist and keeps a Junk rule as the backup for a mail that still arrives.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Senderban's choices on MXroute, v0.2.0"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Choice</th>
+                  <th scope="col">Writes</th>
+                  <th scope="col">Whole domain</th>
+                  <th scope="col">Copy of the mail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Move to Junk</td>
+                  <td>Sieve rule on the mailbox</td>
+                  <td>Yes</td>
+                  <td>In Junk</td>
+                </tr>
+                <tr>
+                  <td>Move to Trash</td>
+                  <td>Sieve rule on the mailbox</td>
+                  <td>Yes</td>
+                  <td>In Trash</td>
+                </tr>
+                <tr>
+                  <td>Block at server</td>
+                  <td>Blacklist entry, plus a Junk rule</td>
+                  <td>No, one address</td>
+                  <td>None if the server refuses it</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Measured on a real MXroute mailbox: the rule was written 1.9 s after the click on 25
+            October 2026, and read back from the server (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0003-desktop-shell.md"
+              >ADR 0003</a
+            >), and on 30 October 2026 the whole loop ran: new mail, notification, block, the next
+            mail filed away, undo (<a
+              href="https://github.com/senderban/senderban/blob/main/README.md"
+              >README</a
+            >).
+          </p>
+          <p>What it does not do on MXroute, as the README and ADRs state for v0.2.0:</p>
+          <ul>
+            <li>
+              <strong>No whole domain on the blacklist.</strong> Block at server takes single
+              addresses only, and Senderban never writes or deletes a blacklist entry that holds a
+              <code>*</code> or starts with <code>@</code>. A domain is blocked by the Sieve rule.
+            </li>
+            <li>
+              <strong>No refusal by default.</strong> Block at server needs an MXroute API key and a
+              switch on each mail domain, and it is never offered for your own addresses or mail
+              domains.
+            </li>
+            <li>
+              <strong>No change to your spam settings.</strong> Senderban's MXroute client calls the
+              domain list and the blacklist, nothing else; your High Score Threshold stays as it is.
+            </li>
+            <li>
+              <strong>Your own blacklist entries are not safe from Unblock.</strong> The blacklist
+              has no tag, so Unblock removes an address there even if you had listed it yourself.
+            </li>
+            <li>
+              <strong>Removing a mailbox leaves the blacklist.</strong> Senders Senderban put there
+              stay until you delete them in the MXroute panel.
+            </li>
+            <li><strong>Not on mail already in the inbox.</strong> The rule acts at delivery.</li>
+          </ul>
+          <figure class="figure figure-shot">
+            <picture>
+              <source
+                srcset="/assets/shots/accounts-dark.webp"
+                media="(prefers-color-scheme: dark)"
+              />
+              <img
+                src="/assets/shots/accounts-light.webp"
+                width="1109"
+                height="754"
+                loading="lazy"
+                decoding="async"
+                alt="Senderban's Accounts view with sample data: the mail domain example.org has Block at server switched on, and its mailbox has a spam filter set to Off."
+              />
+            </picture>
+            <figcaption>
+              The Accounts view, Senderban v0.2.0, sample data: <strong>Block at server</strong> is
+              a switch per mail domain. Source:
+              <a href="https://github.com/senderban/senderban/blob/main/README.md"
+                >Senderban README</a
+              >.
+            </figcaption>
+          </figure>
+
+          <h2 id="how-we-measured">How was this measured?</h2>
+          <dl class="spec">
+            <div>
+              <dt>Look-alike senders</dt>
+              <dd>
+                2 November 2026, 09:56 UTC. Senderban's own Sieve code wrote its rule for one
+                address and one whole domain to a Dovecot 2.4.5 server with Pigeonhole, in Docker
+                (image <code>dovecot/dovecot:2.4.5</code>), the harness of the project's contract
+                tests. Twelve mails were delivered over LMTP, the path a real mail server uses, and
+                the Junk and INBOX counts were read after each one. Not MXroute.
+              </dd>
+            </div>
+            <div>
+              <dt>MXroute mailbox</dt>
+              <dd>
+                A test mailbox of the maintainer's on MXroute: the rule read back over ManageSieve
+                on 25 October 2026, the 550 refusal and Unblock on 25 October 2026, the whole loop
+                on 30 October 2026.
+              </dd>
+            </div>
+            <div>
+              <dt>Sieve traps</dt>
+              <dd>
+                31 October 2026: every score from -20.0 to 199.9 tested against the rule's pattern
+                lists, and the cases that matter delivered to the same Dovecot 2.4.5 harness over
+                LMTP.
+              </dd>
+            </div>
+            <div>
+              <dt>MXroute's statements</dt>
+              <dd>
+                Read on 2 November 2026: the Spam Filters and Sender Lists page, the Default Folders
+                page and the API description. Quotes are as written there.
+              </dd>
+            </div>
+            <div>
+              <dt>Names</dt>
+              <dd>Real domains and addresses are replaced by reserved example names (RFC 2606).</dd>
+            </div>
+            <div>
+              <dt>Record</dt>
+              <dd>
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/packages/core/src/sieve/rules.ts"
+                  >the rule generator</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/packages/core/contract/dovecot.contract.ts"
+                  >the Dovecot contract tests</a
+                >, which hold the domain, subdomain and forged-From cases, ADR 0003, 0008 and 0017,
+                and the provider notes in the README. The look-alike run of 2 November 2026 used the
+                same harness and is not yet part of those tests.
+              </dd>
+            </div>
+          </dl>
+
+          <h2 id="what-was-not-measured">What was not measured?</h2>
+          <ul>
+            <li>
+              A whole-domain Sieve rule on MXroute itself. The look-alike results come from Dovecot
+              2.4.5; on MXroute a single-address rule was measured.
+            </li>
+            <li>
+              A <code>*@example.com</code> entry on the MXroute blacklist, and whether an entry made
+              under one domain refuses mail to a second domain on the account. MXroute's
+              documentation says it does; we tested one domain.
+            </li>
+            <li>
+              Whether a blacklisted sender is refused at every High Score Threshold. The 550 came
+              from one mailbox with the threshold it had.
+            </li>
+            <li>
+              On MXroute: adding Senderban's rule to a Sieve script you already run, and a match on
+              the envelope sender alone (the test mail had the same From and envelope address).
+            </li>
+            <li>
+              Forged mail from a domain on your own MXroute account, and whether MXroute's checks
+              stop it.
+            </li>
+            <li>
+              Whether MXroute changes any of this later: the dates above are the dates it held.
+            </li>
+          </ul>
+
+          <h2 id="related-reading">Related reading</h2>
+          <ul>
+            <li>
+              <a href="/writing/gmail-block-domain/"
+                >How do I block a domain in Gmail, and does it work?</a
+              >: the same look-alike senders against Gmail's <code>from:</code> search.
+            </li>
+            <li>
+              <a href="/writing/outlook-domain-text-match/"
+                >Why blocking @paypal.co on Outlook would also block @paypal.com</a
+              >: a domain block that is a text match.
+            </li>
+            <li>
+              <a href="/#providers">Where Senderban works</a>: what each provider keeps, and what
+              was tested on a real account.
+            </li>
+            <li>
+              <a href="/#how">How Senderban works</a>: from the notification to the rule on the
+              server.
+            </li>
+          </ul>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
