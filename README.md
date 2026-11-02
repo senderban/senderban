@@ -62,7 +62,8 @@ there also moves their mail of the last 30 days out of the inbox, and adding the
 for your whole block list at the next start.
 
 - **Block at server** (MXroute, one address, off until you switch it on) puts the address on the
-  MXroute blacklist, which covers every mailbox on that mail domain. On the mailbox measured the
+  MXroute blacklist, which MXroute's documentation says applies across the hosting account's
+  domains (not measured here beyond one mailbox). On the mailbox measured the
   sender got `550 High scoring spam message has been dropped` and no copy was kept. That depends on
   the spam-score limit in your MXroute panel, so a Junk rule stays as the backup for a mail that
   still arrives.
