@@ -10,7 +10,7 @@
     <title>Senderban: block a sender on every mail account</title>
     <meta
       name="description"
-      content="Block a sender once, from the Windows notification, on every mail account you own. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source."
+      content="Block a sender once, from the Windows notification, on every mail account you add. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source."
     />
     <meta name="color-scheme" content="light dark" />
     <link rel="canonical" href="https://senderban.com/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Senderban: block a sender on every mail account" />
     <meta
       property="og:description"
-      content="Block a sender once, from the Windows notification, on every mail account you own. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source."
+      content="Block a sender once, from the Windows notification, on every mail account you add. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source."
     />
     <meta property="og:url" content="https://senderban.com/" />
     <meta property="og:image" content="https://senderban.com/assets/og.png" />
@@ -35,7 +35,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Senderban",
-        "description": "Block a sender once, from the Windows notification, on every mail account you own. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source.",
+        "description": "Block a sender once, from the Windows notification, on every mail account you add. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source.",
         "url": "https://senderban.com/",
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "Windows",
@@ -160,9 +160,10 @@
             <li>
               <h3>Block in one click</h3>
               <p>
-                Choose this sender or the whole domain (Gmail: single addresses only). The block
-                applies to every account you added: as a rule on the server where the provider has
-                one, read back to confirm.
+                Choose this sender or the whole domain (<a href="/writing/gmail-block-domain/"
+                  >Gmail: single addresses only</a
+                >). The block applies to every account you added: as a rule on the server where the
+                provider has one, read back to confirm.
               </p>
             </li>
           </ol>
@@ -276,7 +277,11 @@
                 </tr>
                 <tr>
                   <td>MXroute</td>
-                  <td>Sieve rule on the server, plus the optional server blacklist</td>
+                  <td>
+                    <a href="/writing/mxroute-block-sender/"
+                      >Sieve rule on the server, plus the optional server blacklist</a
+                    >
+                  </td>
                   <td>Yes</td>
                 </tr>
                 <tr>
@@ -301,8 +306,10 @@
             Gmail: Google has not verified Senderban yet, so sign-in shows a warning and the app is
             limited to 100 users. MXroute: adding Senderban's rules to a Sieve script you already
             run is not measured yet. A rule on the server works with Senderban closed and your
-            computer off. Where Senderban moves the mail itself, a blocked sender's mail stays in
-            the inbox while Senderban is closed, and your phone sees it. Details:
+            computer off. Where Senderban moves the mail itself,
+            <a href="/writing/blocked-sender-still-coming-through/#on-the-server-or-in-one-app"
+              >a blocked sender's mail stays in the inbox while Senderban is closed</a
+            >, and your phone sees it. Details:
             <a href="https://github.com/senderban/senderban#provider-support"
               >provider support in the README</a
             >.

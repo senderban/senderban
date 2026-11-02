@@ -10,7 +10,7 @@
     <title>Why blocking @paypal.co on Outlook would also block @paypal.com - Senderban</title>
     <meta
       name="description"
-      content="Outlook keeps a domain block as a text match, so blocking a look-alike phisher can silence the real sender. How Senderban found it before the Outlook lane shipped, what it refuses now, and what that costs."
+      content="Outlook keeps a domain block as a text match. A look-alike's domain can be the start of the real sender's, and what Senderban refuses because of it."
     />
     <meta name="color-scheme" content="light dark" />
     <meta property="og:type" content="article" />
@@ -21,7 +21,7 @@
     />
     <meta
       property="og:description"
-      content="Outlook keeps a domain block as a text match, so blocking a look-alike phisher can silence the real sender. How Senderban found it before the Outlook lane shipped, what it refuses now, and what that costs."
+      content="Outlook keeps a domain block as a text match. A look-alike's domain can be the start of the real sender's, and what Senderban refuses because of it."
     />
     <meta property="og:url" content="https://senderban.com/writing/outlook-domain-text-match/" />
     <meta property="og:image" content="https://senderban.com/assets/og.png" />
@@ -91,7 +91,11 @@
           <h2>A domain block on Outlook is text</h2>
           <p>
             Outlook.com and Microsoft 365 have no Sieve, and Microsoft Graph v1.0 has no call that
-            writes the blocked-senders list. What stays is an Inbox rule, a
+            writes the blocked-senders list (Outlook's own Blocked senders and Blocked domains
+            lists, and why they can seem not to work, are in
+            <a href="/writing/blocked-sender-still-coming-through/#outlook-block-sender-not-working"
+              >Why doesn't Block sender work in Outlook?</a
+            >). What stays is an Inbox rule, a
             <a href="https://learn.microsoft.com/en-us/graph/api/resources/messagerule"
               ><code>messageRule</code></a
             >
@@ -165,10 +169,12 @@
           </p>
           <p>
             A refused entry stays on the device list, which says
-            <strong>Outlook: not applied</strong>, and the result notification says why. Sieve
-            servers compare the whole domain (<code>address :domain :is</code>) and the IMAP cleaner
-            compares labels, so those mailboxes still apply it. The 0.2.0 changelog tells people to
-            block the address instead.
+            <strong>Outlook: not applied</strong>, and the result notification says why.
+            <a href="/writing/mxroute-block-sender/#does-sieve-catch-look-alikes"
+              >Sieve servers compare the whole domain</a
+            >
+            (<code>address :domain :is</code>) and the IMAP cleaner compares labels, so those
+            mailboxes still apply it. The 0.2.0 changelog tells people to block the address instead.
           </p>
           <p>
             The tests hold ten look-alike pairs. Each one checks that the look-alike really is the
@@ -207,10 +213,16 @@
           <p>
             The brand names here are examples of look-alikes, not anyone's mail data. The general
             lesson: when a provider offers only a text match, the dangerous case is not the spammer
-            you meant to block, it is the trusted name that starts with the same letters.
+            you meant to block, it is the trusted name that starts with the same letters. Gmail's
+            <code>from:</code> search, whose format a Gmail filter uses, also matched a longer
+            domain in our test:
+            <a href="/writing/gmail-block-domain/"
+              >How do I block a domain in Gmail, and does it work?</a
+            >.
           </p>
           <p>
-            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+            <a href="/writing/">All writing</a> · <a href="/#providers">Where Senderban works</a> ·
+            <a href="/engineering/">How Senderban is built</a>
           </p>
         </div>
       </section>

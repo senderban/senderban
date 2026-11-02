@@ -10,7 +10,7 @@
     <title>Blocked emails still coming through? Here is why - Senderban</title>
     <meta
       name="description"
-      content="Gmail's Block files mail in Spam and Outlook's in Junk, a block kept in one app misses your phone, and it covers one address. What each block does."
+      content="Blocked emails still coming through? The block files them in Spam or Junk, the mail came before it, the sender changed address, or it lives in one app."
     />
     <meta name="color-scheme" content="light dark" />
     <meta property="og:type" content="article" />
@@ -18,7 +18,7 @@
     <meta property="og:title" content="Why are blocked emails still coming through? - Senderban" />
     <meta
       property="og:description"
-      content="Gmail's Block files mail in Spam and Outlook's in Junk, a block kept in one app misses your phone, and it covers one address. What each block does."
+      content="Blocked emails still coming through? The block files them in Spam or Junk, the mail came before it, the sender changed address, or it lives in one app."
     />
     <meta
       property="og:url"
@@ -338,9 +338,11 @@
               >reference for Outlook rules</a
             >
             describes "rules for incoming messages in the Inbox", so mail that was already in the
-            Inbox stays there. And a domain in an Outlook rule is a text match: a rule for
-            <code>@brand.example</code> also catches <code>@brand.example.test</code>, which is
-            someone else. Graph has no exact-domain condition (<a
+            Inbox stays there. And
+            <a href="/writing/outlook-domain-text-match/"
+              >a domain in an Outlook rule is a text match</a
+            >: a rule for <code>@brand.example</code> also catches <code>@brand.example.test</code>,
+            which is someone else. Graph has no exact-domain condition (<a
               href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
               >ADR 0013</a
             >).
@@ -611,6 +613,11 @@
               <a href="/writing/outlook-domain-text-match/"
                 >Why blocking @paypal.co on Outlook would also block @paypal.com</a
               >: why an Outlook domain rule is a text match.
+            </li>
+            <li>
+              <a href="/writing/mxroute-block-sender/"
+                >How do I block a sender on MXroute, and what does each way cover?</a
+              >: the one provider here where a block can refuse the mail at the server.
             </li>
             <li>
               <a href="/#providers">Where Senderban works</a>: what each provider keeps, and what
