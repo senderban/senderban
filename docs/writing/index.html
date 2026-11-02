@@ -56,15 +56,26 @@
         <p class="eyebrow">Writing</p>
         <h1>Notes from building Senderban</h1>
         <p class="lead">
-          Each note is a real problem from this codebase: what was measured, what was decided, and
-          what it costs. Every claim links to the code, a decision record or the provider's own
-          documentation.
+          Engineering notes and guides, each from a real problem in this codebase: what was
+          measured, what was decided, and what it costs. Every claim links to the code, a decision
+          record or the provider's own documentation.
         </p>
       </div>
 
       <section>
         <div class="wrap">
           <ol class="post-list">
+            <li>
+              <a href="/writing/gmail-block-domain/"
+                >How do I block a domain in Gmail, and does it work?</a
+              >
+              <p>
+                To block a domain in Gmail, filter on from:(@domain) and delete. Measured
+                2026-10-29: from: also matches longer domains and display-name words.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Guide</span>
+            </li>
             <li>
               <a href="/writing/scale-budget-desktop-app/"
                 >A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job</a
@@ -74,6 +85,7 @@
                 gates and deadlines that came with it, and their cost.
               </p>
               <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
             </li>
             <li>
               <a href="/writing/provider-from-address/"
@@ -84,6 +96,7 @@
                 to decide, what leaves the device, and where it departs from RFC 6186.
               </p>
               <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
             </li>
             <li>
               <a href="/writing/outlook-domain-text-match/"
@@ -94,6 +107,7 @@
                 of the real sender's, and what Senderban refuses because of it.
               </p>
               <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
             </li>
           </ol>
         </div>

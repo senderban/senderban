@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Block a domain in Gmail: what the filter catches - Senderban</title>
+    <meta
+      name="description"
+      content="To block a domain in Gmail, filter on from:(@domain) and delete. Measured 2026-10-29: from: also matches longer domains and display-name words."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta
+      property="og:title"
+      content="How do I block a domain in Gmail, and does it work? - Senderban"
+    />
+    <meta
+      property="og:description"
+      content="To block a domain in Gmail, filter on from:(@domain) and delete. Measured 2026-10-29: from: also matches longer domains and display-name words."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/gmail-block-domain/" />
+    <meta
+      property="og:image"
+      content="https://senderban.com/assets/writing/gmail-block-domain/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="How do I block a domain in Gmail, and does it work? All 4 from: forms tried for brand.example also matched brand.example.test. Gmail search, one mailbox, 29 October 2026."
+    />
+    <meta property="article:published_time" content="2026-11-02" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "How do I block a domain in Gmail, and does it work?",
+        "datePublished": "2026-11-02",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/writing/gmail-block-domain/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/gmail-block-domain/"
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/writing/gmail-block-domain/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Guide · <time datetime="2026-11-02">2 November 2026</time></p>
+        <h1>How do I block a domain in Gmail, and does it work?</h1>
+        <p class="lead">
+          Gmail's Block button works on one sender, not a whole domain. To block a domain in Gmail
+          you make a filter on <code>from:(@example.com)</code> that deletes the mail. It works, but
+          in our test on 29 October 2026 that search also caught a longer, different domain, and a
+          <code>from:</code> term also matched a word in a sender's display name.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <div class="key-facts">
+            <p class="key-facts-title">Key facts</p>
+            <ul>
+              <li>
+                Gmail's Block option works on one sender at a time and sends their future mail to
+                Spam. Google's help page, read on 2 November 2026, describes no way to block a whole
+                domain.
+              </li>
+              <li>
+                The free way is a filter whose sender is
+                <code>@example.com</code> and whose action is to delete the mail.
+              </li>
+              <li>
+                On 29 October 2026, four ways of writing <code>from:</code> for one domain,
+                <code>brand.example</code> here, each returned the same 21 result rows from three
+                domains, one of them the longer domain <code>brand.example.test</code>.
+              </li>
+              <li>
+                In the same test a one-word <code>from:</code> term matched a sender through a word
+                in the display name that is not in the address.
+              </li>
+              <li>
+                Senderban blocks single addresses on Gmail and moves their mail to Trash. It writes
+                no domain filter there, because of this measurement.
+              </li>
+            </ul>
+          </div>
+
+          <nav class="toc" aria-label="On this page">
+            <p class="toc-title">On this page</p>
+            <ol>
+              <li><a href="#can-i-block-a-domain-in-gmail">Can I block a domain in Gmail?</a></li>
+              <li>
+                <a href="#block-a-domain-with-a-filter"
+                  >How do I block a domain in Gmail with a filter?</a
+                >
+              </li>
+              <li>
+                <a href="#what-a-from-filter-matches"
+                  >Does the filter block all emails from the domain, and only that domain?</a
+                >
+              </li>
+              <li><a href="#is-one-address-more-exact">Is blocking one address more exact?</a></li>
+              <li>
+                <a href="#what-senderban-does-on-gmail"
+                  >What does Senderban do on Gmail, and what does it not do?</a
+                >
+              </li>
+              <li><a href="#how-we-measured">How was this measured?</a></li>
+              <li><a href="#what-was-not-measured">What was not measured?</a></li>
+              <li><a href="#related-reading">Related reading</a></li>
+            </ol>
+          </nav>
+
+          <h2 id="can-i-block-a-domain-in-gmail">Can I block a domain in Gmail?</h2>
+          <p>
+            Not with a button. Gmail's
+            <a href="https://support.google.com/mail/answer/8151?hl=en" rel="noopener"
+              >help page on blocking a sender</a
+            >
+            (read 2 November 2026) offers <strong>Block "{sender}"</strong> in a message's More
+            menu, for that one sender, and says all their future mail goes to Spam. It does not
+            mention domains. What can cover a domain is a filter, the tool Google's
+            <a href="https://support.google.com/mail/answer/6579?hl=en" rel="noopener"
+              >filter help page</a
+            >
+            describes for sending mail to a label, archiving, deleting, starring or forwarding it.
+          </p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="Gmail's two tools">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Gmail tool</th>
+                  <th scope="col">What it covers</th>
+                  <th scope="col">Where the mail goes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Block "{sender}"</td>
+                  <td>One sender</td>
+                  <td>Spam</td>
+                </tr>
+                <tr>
+                  <td>Filter on <code>from:(@example.com)</code></td>
+                  <td>Every sender the search matches, which is more than the domain (below)</td>
+                  <td>What you choose, for example delete</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="block-a-domain-with-a-filter">How do I block a domain in Gmail with a filter?</h2>
+          <p>
+            These are the steps on Google's filter help page (read 2 November 2026), with the domain
+            filled in. Use your own domain where this says <code>example.com</code>.
+          </p>
+          <ol>
+            <li>On your computer, open Gmail.</li>
+            <li>In the search box at the top, click <strong>Show search options</strong>.</li>
+            <li>
+              Enter the criteria: put <code>@example.com</code> as the sender. Typed straight into
+              the search box, that is <code>from:(@example.com)</code>.
+            </li>
+            <li>
+              Click <strong>Search</strong> and read the senders that come up. Look for any address
+              that is not at the domain you meant, and for any sender that is there only because of
+              its name.
+            </li>
+            <li>At the bottom of the search window, click <strong>Create filter</strong>.</li>
+            <li>
+              Choose what the filter does: delete the mail, or send it to a label if you would
+              rather look before deleting.
+            </li>
+            <li>Click <strong>Create filter</strong>.</li>
+          </ol>
+          <p>
+            To undo it: <strong>Settings</strong>, <strong>See all settings</strong>,
+            <strong>Filters and Blocked Addresses</strong>, then <strong>Delete</strong> next to the
+            filter. Step 4 shows what the filter will take before it exists, so it is the step not
+            to skip.
+          </p>
+          <pre tabindex="0"><code>from:(@example.com)</code></pre>
+
+          <h2 id="what-a-from-filter-matches">
+            Does the filter block all emails from the domain, and only that domain?
+          </h2>
+          <p>
+            It takes all of them and more. Gmail's
+            <a
+              href="https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.settings.filters"
+              rel="noopener"
+              >filter reference</a
+            >
+            defines a filter's sender criterion as "the sender's display name or email address", and
+            says its query "supports the same query format as the Gmail search box" (read 2 November
+            2026). In the search box, on one real mailbox, <code>from:</code> matched whole words
+            anywhere in the address, and in the display name too. No form we tried means "this
+            domain and its subdomains".
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/gmail-block-domain/from-header-match.svg"
+              width="420"
+              height="424"
+              alt="Diagram: a From header split into words. from:(@billing) matched a display-name word; from:(@brand.example) matched two words inside news.brand.example.test, a different domain."
+            />
+            <figcaption>
+              Where <code>from:</code> matched: a word in the display name, and the domain's words
+              inside a longer domain. Gmail web search, one mailbox, 29 October 2026; stand-in
+              names. Source:
+              <a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0009-gmail-account.md"
+                >ADR 0009, "Measured live"</a
+              >.
+            </figcaption>
+          </figure>
+          <p>
+            The four forms <code>from:(@brand.example)</code>, <code>from:(brand.example)</code>,
+            <code>from:("@brand.example")</code> and <code>from:(+"@brand.example")</code> returned
+            the same 21 rows. They came from <code>brand.example</code>, from the longer domain
+            <code>brand.example.test</code> and from <code>news.brand.example.test</code>. A real
+            brand and its country domain stood where these stand-in names are. A query for a second
+            domain also took its subdomain, so a subdomain is caught as well. Part of a word caught
+            nothing.
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/gmail-block-domain/domain-match-result.svg"
+              width="420"
+              height="386"
+              alt="Chart: four sender domains. A domain block should take brand.example and its subdomain, and the search matched both. It should not take brand.example.test or news.brand.example.test, and the search matched both."
+            />
+            <figcaption>
+              Two of the four kinds of sender matched by <code>from:(@brand.example)</code> are
+              another domain. Gmail web search, one mailbox, 29 October 2026; the same values are in
+              the table below. Source: ADR 0009.
+            </figcaption>
+          </figure>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="What from: matched, measured 29 October 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Search</th>
+                  <th scope="col">Sender (stand-in)</th>
+                  <th scope="col">Matched</th>
+                  <th scope="col">Should a domain block take it?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>from:(@brand.example)</code></td>
+                  <td><code>brand.example</code></td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>from:(@brand.example)</code></td>
+                  <td><code>brand.example.test</code>, a different domain</td>
+                  <td>Yes</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>from:(@brand.example)</code></td>
+                  <td><code>news.brand.example.test</code></td>
+                  <td>Yes</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>from:(brand.example)</code>, <code>from:("@brand.example")</code>,
+                    <code>from:(+"@brand.example")</code>
+                  </td>
+                  <td>The same three domains</td>
+                  <td>The same 21 rows</td>
+                  <td>As above</td>
+                </tr>
+                <tr>
+                  <td><code>from:(@other.example)</code>, a second domain</td>
+                  <td><code>accounts.other.example</code>, its subdomain</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>from:(@brand.e)</code>, <code>from:(@rand.example)</code></td>
+                  <td>Part of a word</td>
+                  <td>0 rows</td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>from:(@billing)</code></td>
+                  <td>Display name "Brand Billing", address without that word</td>
+                  <td>Yes</td>
+                  <td>No</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            So a filter on <code>@brand.example</code> deletes the mail of
+            <code>brand.example.test</code>, which may be someone else. A domain whose name is
+            another domain followed by more labels gets caught with it.
+          </p>
+
+          <h2 id="is-one-address-more-exact">Is blocking one address more exact?</h2>
+          <p>
+            In what we measured, yes. A filter on one quoted address took that address and not
+            longer addresses that end the same way. On 27 October 2026 a Gmail filter on
+            <code>from:("smith@example.com")</code> that stars the mail, instead of deleting it, was
+            tested with one mail from each sender:
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="One quoted address, measured 27 October 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Mail from (stand-in)</th>
+                  <th scope="col">Starred by the filter</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>smith@example.com</code></td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td><code>john.smith@example.com</code></td>
+                  <td>No</td>
+                </tr>
+                <tr>
+                  <td><code>xsmith@example.com</code></td>
+                  <td>No</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Whether a quoted address also matches a display name that contains it was not tested.
+            The cost of one address per filter is that a sender who changes address gets through.
+          </p>
+
+          <h2 id="what-senderban-does-on-gmail">
+            What does Senderban do on Gmail, and what does it not do?
+          </h2>
+          <p>
+            Senderban is a free, open-source Windows app. On a Gmail account it shows a notification
+            for new mail with one button, <strong>Move this sender to Trash</strong>. A click adds
+            that one address to a Gmail filter, quoted like the one above, with the Trash label, and
+            reads the filter back to check it. In one measurement on 27 October 2026 that took 0.75
+            s from the click to the checked result. The filter lives on Google's server, so it also
+            applies on your phone and in webmail.
+          </p>
+          <p>What it does not do on Gmail, as the README states for v0.2.0:</p>
+          <ul>
+            <li>
+              <strong>No domain block.</strong> A whole-domain entry made on another account, such
+              as an MXroute mailbox, is not applied on Gmail, and the list shows
+              <strong>Gmail: not applied</strong>.
+            </li>
+            <li>
+              <strong>No Spam.</strong> A filter cannot file mail into Spam: the Gmail API refused
+              the Spam label with a 400 error on 26 October 2026. A Junk or Block at server entry
+              made on another account goes to Trash on Gmail.
+            </li>
+            <li>
+              <strong>No refusal at the server.</strong> Gmail still accepts the mail; the filter
+              puts it in Trash.
+            </li>
+            <li>
+              <strong>Not verified by Google yet.</strong> Sign-in shows a warning, and the app is
+              limited to 100 users until Google verifies it.
+            </li>
+          </ul>
+          <figure class="figure figure-shot">
+            <picture>
+              <source
+                srcset="/assets/shots/blocked-dark.webp"
+                media="(prefers-color-scheme: dark)"
+              />
+              <img
+                src="/assets/shots/blocked-light.webp"
+                width="1109"
+                height="754"
+                loading="lazy"
+                decoding="async"
+                alt="Senderban's Blocked senders window with sample data: the two domain entries read Gmail: not applied, the three single addresses read Gmail: Trash."
+              />
+            </picture>
+            <figcaption>
+              The Blocked senders window, Senderban v0.2.0, sample data: domain entries read
+              <strong>Gmail: not applied</strong>, single addresses <strong>Gmail: Trash</strong>.
+              Source:
+              <a href="https://github.com/senderban/senderban/blob/main/README.md"
+                >Senderban README</a
+              >.
+            </figcaption>
+          </figure>
+          <p>
+            If you need one domain gone from Gmail, the filter above is the tool, after you have
+            read its search results in step 4.
+          </p>
+
+          <h2 id="how-we-measured">How was this measured?</h2>
+          <dl class="spec">
+            <div>
+              <dt>Domain terms</dt>
+              <dd>
+                29 October 2026, Gmail on the web, the author's own mailbox, read only: no filter
+                was written. Each query was typed into the search box, and the sender address and
+                display name were read from every result row.
+              </dd>
+            </div>
+            <div>
+              <dt>Why the search box</dt>
+              <dd>
+                Google says a filter's query uses the search box's format. Senderban's Gmail
+                permission, message metadata, cannot run a search through the API, so the search box
+                was the way to see what a term matches.
+              </dd>
+            </div>
+            <div>
+              <dt>One address</dt>
+              <dd>
+                27 October 2026, Gmail filters written through the API with a marker action (star)
+                instead of Trash, test senders on a domain we own, one mail per case, each filter
+                deleted right after.
+              </dd>
+            </div>
+            <div>
+              <dt>Names</dt>
+              <dd>Real domains and addresses are replaced by reserved example names (RFC 2606).</dd>
+            </div>
+            <div>
+              <dt>Record</dt>
+              <dd>
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0009-gmail-account.md"
+                  >ADR 0009, section "Measured live"</a
+                >, and the provider notes in the Senderban README.
+              </dd>
+            </div>
+          </dl>
+
+          <h2 id="what-was-not-measured">What was not measured?</h2>
+          <ul>
+            <li>
+              A domain filter acting on new mail. The domain results come from the search box, which
+              Google says shares the filter's format; a filter at delivery was not run.
+            </li>
+            <li>
+              A display name that holds the domain itself, such as "brand.example support". The
+              display-name match was seen with a one-word term.
+            </li>
+            <li>
+              Upper and lower case, non-English letters, and the <code>-</code> exclusion inside
+              <code>from:</code>.
+            </li>
+            <li>
+              More than one mailbox, and more than one mail per address case. What a mailbox holds
+              decides what a search can show.
+            </li>
+            <li>Gmail's phone apps and Google Workspace admin settings.</li>
+            <li>Whether Google changes this later: the dates above are the dates it held.</li>
+          </ul>
+
+          <h2 id="related-reading">Related reading</h2>
+          <ul>
+            <li>
+              <a href="/writing/outlook-domain-text-match/"
+                >Why blocking @paypal.co on Outlook would also block @paypal.com</a
+              >: the same kind of text match, on Outlook.
+            </li>
+            <li>
+              <a href="/#providers">Where Senderban works</a>: what each provider keeps, and what
+              was tested on a real account.
+            </li>
+          </ul>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
