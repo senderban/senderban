@@ -390,7 +390,8 @@ export function parseActivation(
     return { ok: false, reason: "not-a-button" };
   }
   const restore = restoreOf(match, match[1] ?? "", id, signer);
-  if (restore === "bad") return { ok: false, reason: "malformed" };
+  // A real click on a toast whose tail this machine's key does not vouch for (a key made again, an edited tail): the caller says so.
+  if (restore === "bad") return { ok: false, reason: "tail-refused" };
   const tail = restore === null ? {} : { restore };
   if (match[1] === "open") {
     return { ok: true, activation: { id, scope: "address", action: REOPEN_CHOICE, ...tail } };

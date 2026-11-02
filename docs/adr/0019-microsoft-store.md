@@ -48,8 +48,10 @@ A toast outlives the app: it stays in the Action Center after the app quit or re
   claimable once more within the 24 hours. `store.add` is idempotent, so the cost is one sync on the clicked lane. Persisting spent ids
   would add a write for every answer; not done.
 - **Who may call the activator.** The manifest sets no `LaunchAndActivationPermission`, so the machine default applies (administrators,
-  SYSTEM, interactive users). Code running as the same user can call it, but it cannot sign, and it can already read the DPAPI-protected
-  passwords. Not measured from a low-integrity process.
+  SYSTEM, interactive users). Code running as the same user can call it. It can also decrypt `activation-key.json` (DPAPI protects
+  against other users, not against other apps of the same user) and read the signed tails from the toast database Windows keeps per user,
+  as it can already read the passwords. The tag stops a caller that can deliver an activation but cannot read this user's files. The
+  action choice (Junk, Trash, reject) is not signed: it is the person's pick in the toast. Not measured from a low-integrity process.
 - **The Store build is made on a developer machine**, not in `release.yml`, so it has no CI build and no attestation. Before the first
   upload it should be built there, with the built-in Gmail client step, and attested.
 - **A stray data folder.** After a cold start `%APPDATA%\Senderban` (9 files, 557 KB, caches only) appeared beside the package's own

@@ -620,7 +620,7 @@ describe("a click that outlives the app", () => {
       expect(parse(`act=sender;id=${ID}${tail()}`).ok).toBe(true);
       expect(parseActivation(click(`act=sender;id=${ID}${tail()}`), undefined, other)).toEqual({
         ok: false,
-        reason: "malformed",
+        reason: "tail-refused",
       });
     });
 
@@ -631,7 +631,7 @@ describe("a click that outlives the app", () => {
       ["an id changed after signing", { id: "1f8fad5b-d9cb-469f-a165-70867728950e" }],
       ["an action changed after signing", { act: "domain" }],
     ])("refuses %s", (_name, over) => {
-      expect(parse(forged(over))).toEqual({ ok: false, reason: "malformed" });
+      expect(parse(forged(over))).toEqual({ ok: false, reason: "tail-refused" });
     });
 
     it.each([

@@ -33,7 +33,8 @@ async function readKey(path: string, vault: KeyVault): Promise<Buffer | null> {
     const hex = await vault.decrypt(Buffer.from(cipher, "base64"));
     return KEY_HEX.test(hex) ? Buffer.from(hex, "hex") : null;
   } catch {
-    // Missing, unreadable, or a ciphertext this account cannot open: a new key then. The old toasts answer "expired".
+    // Missing, unreadable, or a ciphertext this account cannot open: a new key then. The tails of toasts still on screen no longer
+    // verify, and a click on one says "expired" (`tail-refused`, main.ts).
     return null;
   }
 }

@@ -359,6 +359,6 @@ describe("a click that outlives the app, through the toast", () => {
     activate.click({ arguments: buttonArguments().replace("from=a@", "from=b@") });
     await settle();
     expect(choose).not.toHaveBeenCalled();
-    expect(onIgnored).toHaveBeenCalledWith("malformed");
+    expect(onIgnored).toHaveBeenCalledWith("tail-refused");
   });
 });

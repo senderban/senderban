@@ -1405,6 +1405,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
       onIgnored: (reason) => {
         log("toast-ignored", { reason });
+        // The toast vanishes on a click, so a button that did nothing must say so (a key made again after the toast was shown).
+        if (reason === "tail-refused") {
+          notice("Senderban", "This message has expired, so nothing was blocked.");
+        }
       },
       onRefused: () => {
         log("toast-refused");
