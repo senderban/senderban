@@ -4,6 +4,18 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Changed
+
+- The new-mail notification has one button per action: **Junk**, **Trash**, **Block** and **Mute**. The
+  list above them now picks who it applies to, **Only this sender** or **Whole domain**, and starts on
+  the sender. The buttons are fixed words, so they no longer grow with a long domain. **Mute** is what
+  **Don't ask again** was in the list.
+- The notification shows the sender's domain in bold with the whole address under it, and the mailbox
+  the mail came to on the first line.
+- **Block** is on a notification only after you turn on **Block at server when the mailbox can** in
+  **Settings**. Before, it was always in the list and the switch only pre-selected it.
+- A Gmail notification has **Trash** and **Mute**; its button is no longer red. Red is for **Block**.
+
 ## [0.2.0] - 2026-11-01
 
 ### Added

@@ -104,7 +104,7 @@ describe("the person's settings", () => {
     };
   };
   const click = async (): Promise<void> => {
-    activate.click({ arguments: `act=sender;id=${ID}` });
+    activate.click({ arguments: `act=junk;id=${ID}` });
     await new Promise((resolve) => setImmediate(resolve));
   };
 
@@ -139,7 +139,7 @@ describe("the person's settings", () => {
       expect(created[0]?.options.toastXml).toContain(
         "the mail's own subject".replace("'", "&apos;"),
       );
-      expect(created[0]?.options.toastXml).toContain('content="This sender"');
+      expect(created[0]?.options.toastXml).toContain('<action content="Junk"');
     });
 
     it("uses what the app can rebuild for a toast of an earlier run", async () => {
@@ -188,24 +188,31 @@ describe("the person's settings", () => {
     expect(created[0]?.options.body).toBe(body);
   });
 
-  it("hands a click with no choice the default action of that moment", async () => {
+  it("hands a click on a toast of an earlier version, with no choice, the default action of that moment", async () => {
     const { choose } = make("ok");
     settings = { ...DEFAULT_SETTINGS, defaultAction: "trash" };
-    await click();
+    activate.click({ arguments: `act=sender;id=${ID}` });
+    await new Promise((resolve) => setImmediate(resolve));
     expect(choose).toHaveBeenCalledWith(ID, "address", "trash", undefined);
   });
 
   it("builds a toast from the settings of that moment", () => {
     const { toasts } = make("ok");
-    settings = { ...DEFAULT_SETTINGS, toastDuration: "short", defaultAction: "trash" };
-    toasts.show(toast(1));
+    settings = {
+      ...DEFAULT_SETTINGS,
+      toastDuration: "short",
+      defaultAction: "trash",
+      preferServerBlock: true,
+    };
+    toasts.show({ ...toast(1), domain: "example.com", rejectsAtServer: true });
     expect(created[0]?.options.toastXml).toContain('<toast duration="short"');
-    expect(created[0]?.options.toastXml).toContain('defaultInput="trash"');
+    expect(created[0]?.options.toastXml).toContain("A domain moves to Trash");
+    expect(created[0]?.options.toastXml).toContain('<action content="Block"');
   });
 
-  it("sends Don't ask again to the list, never to a block", async () => {
+  it("sends Mute to the Don't ask again list, never to a block", async () => {
     const { choose, quiet } = make("ok");
-    activate.click({ arguments: `act=sender;id=${ID}`, userInputs: { target: "quiet" } });
+    activate.click({ arguments: `act=quiet;id=${ID}` });
     await new Promise((resolve) => setImmediate(resolve));
     expect(quiet).toHaveBeenCalledWith(ID, "address", undefined);
     expect(choose).not.toHaveBeenCalled();
@@ -214,7 +221,7 @@ describe("the person's settings", () => {
   it("runs a block and a Don't ask again click as a held step, so a restart after an add waits for both", async () => {
     const { held } = make("ok");
     await click();
-    activate.click({ arguments: `act=sender;id=${ID}`, userInputs: { target: "quiet" } });
+    activate.click({ arguments: `act=quiet;id=${ID}` });
     await new Promise((resolve) => setImmediate(resolve));
     expect(held).toEqual(["start", "end", "start", "end"]);
   });
@@ -335,7 +342,7 @@ describe("a click that outlives the app, through the toast", () => {
   /** The `arguments` of the first button of the last toast shown. */
   const buttonArguments = (): string => {
     const xml = created.at(-1)?.options.toastXml ?? "";
-    const found = /action content="This sender" arguments="([^"]*)"/u.exec(xml);
+    const found = /action content="Junk" arguments="([^"]*)"/u.exec(xml);
     return found?.[1] ?? "";
   };
 
