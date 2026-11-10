@@ -52,6 +52,16 @@ describe("loadActivationSigner", () => {
     expect(await loadActivationSigner(path, vault())).not.toBeNull();
   });
 
+  it("says why a new key was made: the first time, then when the file could not be used", async () => {
+    const path = join(dir, "activation-key.json");
+    const reasons: string[] = [];
+    await loadActivationSigner(path, vault(), (r) => reasons.push(r));
+    await loadActivationSigner(path, vault(), (r) => reasons.push(r));
+    await writeFile(path, JSON.stringify({ version: 1, key: "AAAA", extra: true }), "utf8");
+    await loadActivationSigner(path, vault(), (r) => reasons.push(r));
+    expect(reasons).toEqual(["first", "replaced"]);
+  });
+
   it("refuses a key file with the wrong shape instead of trusting it", async () => {
     const path = join(dir, "activation-key.json");
     await writeFile(path, JSON.stringify({ version: 2, key: "AAAA" }), "utf8");

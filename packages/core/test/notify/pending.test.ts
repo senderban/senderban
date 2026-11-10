@@ -178,6 +178,39 @@ describe("PendingBlocks.restore", () => {
       now += HOUR / 10;
     }
     expect(pending.size).toBeLessThanOrEqual(10);
+    // Warm ids can never be restored, so they are not remembered as spent at all.
+    expect(pending.spentSize).toBe(0);
+  });
+
+  it("sweeps a restored spent id once its TTL and the slack have passed", () => {
+    let now = 10 * HOUR;
+    const pending = new PendingBlocks({ ttlMs: 2 * HOUR, now: () => now });
+    expect(pending.restore(ID, block, 9 * HOUR)).toBe(true);
+    expect(pending.consume(ID)).toEqual({ status: "ok", block });
+    expect(pending.spentSize).toBe(1);
+    // Exactly at the end of the TTL the mark stays: restore refuses this age on its own, the mark covers the rounding of the tail.
+    now = 11 * HOUR;
+    pending.peek(ID);
+    expect(pending.spentSize).toBe(1);
+    now = 11 * HOUR + 2 * 60_000;
+    pending.peek(ID);
+    expect(pending.spentSize).toBe(0);
+  });
+
+  it("keeps at most spentMax answered ids, oldest forgotten first", () => {
+    const now = 10 * HOUR;
+    const pending = new PendingBlocks({ spentMax: 2, now: () => now });
+    const ids = ["1", "2", "3"].map((n) => `0f8fad5b-d9cb-469f-a165-70867728950${n}`);
+    for (const id of ids) {
+      expect(pending.restore(id, block, 9 * HOUR)).toBe(true);
+      expect(pending.consume(id).status).toBe("ok");
+    }
+    expect(pending.spentSize).toBe(2);
+  });
+
+  it("refuses a restore at exactly the end of the TTL", () => {
+    const pending = new PendingBlocks({ ttlMs: HOUR, now: () => 10 * HOUR });
+    expect(pending.restore(ID, block, 9 * HOUR)).toBe(false);
   });
 
   it("refuses an id that is not a lowercase UUID", () => {

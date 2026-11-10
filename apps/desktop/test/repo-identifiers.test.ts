@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   EXACT_HOSTS,
   LINE_MAX_CHARS,
+  SITE_HOSTS,
   decode,
   isAllowedHost,
   loadDenylist,
@@ -321,6 +322,18 @@ describe("isAllowedHost", () => {
   it("keeps the exact-only list from growing (new tests use reserved names)", () => {
     // 23 test names, and one host the app itself names to people (ADR 0013).
     expect(EXACT_HOSTS.length).toBeLessThanOrEqual(24);
+  });
+
+  it("passes each website host as exactly itself, never its zone or a subdomain", () => {
+    for (const site of SITE_HOSTS) expect(isAllowedHost(site)).toBe(true);
+    expect(isAllowedHost(host("x", "schema", "org"))).toBe(false);
+    expect(isAllowedHost(host("linkedin", "com"))).toBe(false);
+    expect(isAllowedHost(host("apple", "com"))).toBe(false);
+    expect(isAllowedHost(host("evil", "support", "apple", "com"))).toBe(false);
+  });
+
+  it("keeps the website host list small (each entry is a host the site links)", () => {
+    expect(SITE_HOSTS.length).toBeLessThanOrEqual(8);
   });
 });
 

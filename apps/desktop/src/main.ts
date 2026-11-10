@@ -163,6 +163,7 @@ import { SettingsStore } from "./settings-file.js";
 import { loadActivationSigner } from "./activation-key.js";
 import { restoreClicked } from "./restore-click.js";
 import { STORE_TOAST_ACTIVATOR_CLSID } from "./toast-activator.js";
+import { ignoredClickHandler } from "./ignored-click.js";
 import { Toasts, spamStripUrls } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
 
@@ -1392,6 +1393,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         encrypt: (plain) => safeStorage.encryptStringAsync(plain),
         decrypt: async (cipher) => (await safeStorage.decryptStringAsync(cipher)).result,
       },
+      (reason) => {
+        log("toast-key", { result: "new", reason });
+      },
     );
     void activationSigner.then((signer) => {
       if (signer === null) log("toast-key", { result: "none" });
@@ -1403,13 +1407,14 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onActivation: () => {
         log("toast-activation");
       },
-      onIgnored: (reason) => {
-        log("toast-ignored", { reason });
-        // The toast vanishes on a click, so a button that did nothing must say so (a key made again after the toast was shown).
-        if (reason === "tail-refused") {
-          notice("Senderban", "This message has expired, so nothing was blocked.");
-        }
-      },
+      onIgnored: ignoredClickHandler({
+        log: (reason) => {
+          log("toast-ignored", { reason });
+        },
+        notice: (body) => {
+          notice("Senderban", body);
+        },
+      }),
       onRefused: () => {
         log("toast-refused");
       },

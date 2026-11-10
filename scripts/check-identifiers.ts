@@ -57,11 +57,6 @@ const PUBLIC_ZONES = [
 ];
 
 /**
- * Names allowed as exactly themselves, never their subdomains: a subdomain of a public suffix or a two-letter host is
- * somebody's real domain. Registrable test strings written before the reserved-name rule (2026-10-27; none is a maintainer's),
- * public suffixes the address parser is tested on, and single public hosts. New tests use reserved names; this list does not grow.
- */
-/**
  * Hosts the website links or names, each as exactly itself: a zone here would also pass any address at that domain. Kept apart from
  * EXACT_HOSTS, whose cap guards test names. The author's public profile (docs/index.html, docs/engineering/, docs/work/), the JSON-LD
  * `@context` vocabulary (docs/), the sitemap namespace (docs/sitemap.xml) and the Apple help page the post on blocked senders cites.
@@ -73,6 +68,11 @@ export const SITE_HOSTS: readonly string[] = [
   "support.apple.com",
 ];
 
+/**
+ * Names allowed as exactly themselves, never their subdomains: a subdomain of a public suffix or a two-letter host is
+ * somebody's real domain. Registrable test strings written before the reserved-name rule (2026-10-27; none is a maintainer's),
+ * public suffixes the address parser is tested on, and single public hosts. New tests use reserved names; this list does not grow.
+ */
 export const EXACT_HOSTS: readonly string[] = [
   // Where a personal Microsoft account takes an app's access away: the page tells the person (ADR 0013).
   "account.live.com",

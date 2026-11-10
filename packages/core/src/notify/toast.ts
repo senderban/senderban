@@ -25,6 +25,19 @@ export const ACTIVATION_ARGUMENTS_MAX = 430;
 
 /** Unit: bytes. The key of an `ActivationSigner` (HMAC-SHA-256 takes any length; 32 is the digest size, RFC 2104 section 3). */
 export const ACTIVATION_KEY_BYTES = 32;
+/** Unit: characters of base64 ciphertext. A hex key of 64 characters encrypts to about 100 on Windows (DPAPI); anything past this is not ours. */
+export const ACTIVATION_KEY_CIPHERTEXT_MAX = 2048;
+
+const ActivationKeyFile = z.strictObject({
+  version: z.literal(1),
+  key: z.string().min(1).max(ACTIVATION_KEY_CIPHERTEXT_MAX),
+});
+
+/** The base64 ciphertext of a well-formed key file, or null. The file sits in a folder other software can write to. */
+export function parseActivationKeyFile(json: unknown): string | null {
+  const parsed = ActivationKeyFile.safeParse(json);
+  return parsed.success ? parsed.data.key : null;
+}
 /** Unit: bytes of the tag kept (128 bits; RFC 2104 section 5 allows truncating to half the digest, no shorter than 80 bits). */
 const ACTIVATION_MAC_BYTES = 16;
 
@@ -368,9 +381,16 @@ const Details = z.looseObject({
   userInputs: z.record(z.string().max(32), z.string().max(32)).optional(),
 });
 
+/** A click on a toast whose tail this machine's key does not vouch for; the desktop app tells the person nothing was blocked. */
+export const TAIL_REFUSED = "tail-refused";
+
+/** Why a click was not acted on: fixed words, never the input. */
+export type IgnoredReason =
+  "malformed" | "not-a-button" | typeof TAIL_REFUSED | "unknown-choice" | "unknown-scope";
+
 export type ActivationResult =
   | { readonly ok: true; readonly activation: Activation }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: false; readonly reason: IgnoredReason };
 
 /**
  * A click on a toast -> what to block, or a fixed reason string (never the input). `defaultAction` stands in where no choice can be
@@ -391,7 +411,7 @@ export function parseActivation(
   }
   const restore = restoreOf(match, match[1] ?? "", id, signer);
   // A real click on a toast whose tail this machine's key does not vouch for (a key made again, an edited tail): the caller says so.
-  if (restore === "bad") return { ok: false, reason: "tail-refused" };
+  if (restore === "bad") return { ok: false, reason: TAIL_REFUSED };
   const tail = restore === null ? {} : { restore };
   if (match[1] === "open") {
     return { ok: true, activation: { id, scope: "address", action: REOPEN_CHOICE, ...tail } };

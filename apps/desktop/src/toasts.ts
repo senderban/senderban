@@ -10,6 +10,7 @@ import type {
   ActivationSigner,
   BlockAction,
   BlockScope,
+  IgnoredReason,
   MailToast,
   Settings,
   SpamLevel,
@@ -58,7 +59,7 @@ export interface ToastHandlers {
   /** Windows delivered an activation (any click on a toast of ours): the log line that tells "not delivered" from "ignored". */
   readonly onActivation: () => void;
   /** A click was not one of our buttons or was malformed; `reason` is a fixed string, never the input. */
-  readonly onIgnored: (reason: string) => void;
+  readonly onIgnored: (reason: IgnoredReason) => void;
   /** Windows refused a toast: a mail was announced and never shown. A fixed log line, not Windows' text. */
   readonly onRefused: () => void;
   /** A handler threw: the log gets the channel and a sanitised message, the person a generic failure. */
@@ -175,7 +176,12 @@ export class Toasts {
       signer ?? undefined,
     );
     if (!parsed.ok) {
-      this.#handlers.onIgnored(parsed.reason);
+      // `#activated` is not awaited by its caller: a throw here would be an unhandled rejection.
+      try {
+        this.#handlers.onIgnored(parsed.reason);
+      } catch {
+        // The handler only logs and shows a notice; nothing to undo.
+      }
       return;
     }
     const { id, scope, action, restore } = parsed.activation;

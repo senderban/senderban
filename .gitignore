@@ -25,14 +25,18 @@ settings.json
 mxroute-keys.json
 activation-key.json
 quiet.json
-logs/
-AppData/
-user-data/
+# A list the app could not read is kept aside under this suffix (quiet-file.ts); it holds the person's senders.
+*.unreadable
+# Anchored at the repo root, where a --user-data-dir would sit: a source folder named logs/ elsewhere stays tracked.
+/logs/
+/AppData/
+/user-data/
 Senderban*stray*/
 *.cer
 *.crt
 *.der
 *.pvk
+*.ppk
 *.snk
 *.p7b
 *.jks

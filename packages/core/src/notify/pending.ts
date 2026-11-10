@@ -2,13 +2,23 @@ import { randomUUID } from "node:crypto";
 
 // Scale budget: one entry per announced message, at most 5 announcements per drain per account
 // (watcher DEFAULT_MAX_PER_DRAIN), plus one entry per toast of an earlier run that is clicked (`restore`). One table for all accounts:
-// 50 accounts x 5 = 250 in one burst is above the cap, so the 50 oldest toasts lose their button. Memory is bounded by PENDING_MAX
-// regardless of accounts or mail volume.
+// 50 accounts x 5 = 250 in one burst is above the cap, so the 50 oldest toasts lose their button. `#slots` is bounded by PENDING_MAX
+// regardless of accounts or mail volume. `#spent` holds only answered toasts of an earlier run (a person's clicks after a restart; the busiest
+// measured day had 9 answered toasts of any kind, real log 2026-11-03) and is capped at PENDING_SPENT_MAX.
 
-/** Entries kept (spent ones included). Oldest is evicted first; a toast older than this loses its button. */
+/** Live entries kept. Oldest is evicted first; a toast older than this loses its button. */
 export const PENDING_MAX = 200;
 /** Bounds an id nobody ever answered. A toast can outlive it (Action Center, "Until I close them"): the click then says the mail expired. */
 export const PENDING_TTL_MS = 24 * 60 * 60_000;
+/**
+ * Answered restored ids remembered so eviction cannot make them claimable again. 5,000 is over 500 times the busiest measured day; past it the
+ * oldest is forgotten first (it could then be claimed once more, the same as after a restart, ADR 0019). About 121 bytes each, measured.
+ */
+export const PENDING_SPENT_MAX = 5_000;
+/** `#spent` is swept at most this often: a scan per call cost 145 us at 5,000 entries (performance review 2026-11-10). */
+const SPENT_SWEEP_MS = 60_000;
+/** The tail carries whole seconds, so a spent mark outlives the restore window by this margin. */
+const SPENT_SLACK_MS = 1_000;
 
 const TAG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -33,6 +43,7 @@ interface Slot {
 
 export interface PendingOptions {
   readonly max?: number;
+  readonly spentMax?: number;
   readonly ttlMs?: number;
   readonly now?: () => number;
   readonly newId?: () => string;
@@ -49,11 +60,13 @@ export interface PendingOptions {
 export class PendingBlocks {
   readonly #slots = new Map<string, Slot>();
   /**
-   * Ids already answered, by creation time, swept by the TTL only: eviction from `#slots` must not make a spent id claimable again by
-   * `restore`. One entry per answered click, so at most as many as announcements in one TTL (about 36 bytes each).
+   * Restored ids already answered, by creation time: eviction from `#slots` must not make a spent id claimable again by `restore`. Only ids
+   * issued before this process started are kept, because `restore` refuses every other one anyway. Capped at `#spentMax`, oldest first.
    */
   readonly #spent = new Map<string, number>();
+  #spentSweptAt = Number.NEGATIVE_INFINITY;
   readonly #max: number;
+  readonly #spentMax: number;
   readonly #ttlMs: number;
   readonly #now: () => number;
   readonly #newId: () => string;
@@ -62,6 +75,7 @@ export class PendingBlocks {
 
   constructor(options: PendingOptions = {}) {
     this.#max = options.max ?? PENDING_MAX;
+    this.#spentMax = options.spentMax ?? PENDING_SPENT_MAX;
     this.#ttlMs = options.ttlMs ?? PENDING_TTL_MS;
     this.#now = options.now ?? Date.now;
     this.#newId = options.newId ?? randomUUID;
@@ -70,6 +84,11 @@ export class PendingBlocks {
 
   get size(): number {
     return this.#slots.size;
+  }
+
+  /** Answered ids of an earlier run still remembered; read by tests to pin the sweep and the cap. */
+  get spentSize(): number {
+    return this.#spent.size;
   }
 
   /** Returns the notification id to put on the toast. */
@@ -99,7 +118,7 @@ export class PendingBlocks {
   restore(id: string, block: PendingBlock, issuedAtMs: number): boolean {
     this.#expire();
     if (!TAG.test(id) || this.#slots.has(id) || this.#spent.has(id)) return false;
-    if (issuedAtMs > this.#startedAt || issuedAtMs < this.#now() - this.#ttlMs) return false;
+    if (issuedAtMs > this.#startedAt || issuedAtMs <= this.#now() - this.#ttlMs) return false;
     this.#slots.set(id, { block, createdAt: issuedAtMs, spent: false });
     this.#evict();
     return true;
@@ -112,7 +131,14 @@ export class PendingBlocks {
     if (slot === undefined) return { status: "unknown" };
     if (slot.spent) return { status: "duplicate" };
     slot.spent = true;
-    this.#spent.set(id, slot.createdAt);
+    if (slot.createdAt <= this.#startedAt) {
+      this.#spent.set(id, slot.createdAt);
+      while (this.#spent.size > this.#spentMax) {
+        const oldest = this.#spent.keys().next();
+        if (oldest.done) break;
+        this.#spent.delete(oldest.value);
+      }
+    }
     return { status: "ok", block: slot.block };
   }
 
@@ -138,8 +164,12 @@ export class PendingBlocks {
     for (const [id, slot] of this.#slots) {
       if (slot.createdAt <= cutoff) this.#slots.delete(id);
     }
+    const now = this.#now();
+    if (now - this.#spentSweptAt < SPENT_SWEEP_MS) return;
+    this.#spentSweptAt = now;
+    const spentCutoff = cutoff - SPENT_SLACK_MS;
     for (const [id, createdAt] of this.#spent) {
-      if (createdAt <= cutoff) this.#spent.delete(id);
+      if (createdAt < spentCutoff) this.#spent.delete(id);
     }
   }
 }
