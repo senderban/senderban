@@ -1,0 +1,26 @@
+/*
+ * Tailwind v4 entry for the manage window (tailwindcss 4.3.5, measured 2026-11-10). Built by `npm run build` into
+ * assets/manage/app.css, a local file, so the window's CSP (`style-src 'self'`) holds; nothing loads from a CDN.
+ * Colours stay in assets/tokens.css (contrast measured there); the theme below only names them for utilities.
+ * Only the window's own markup and scripts are scanned.
+ */
+@import "tailwindcss" source(none);
+@source "../assets/manage";
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-control-border: var(--control-border);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-heading: var(--heading);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-error: var(--error);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}

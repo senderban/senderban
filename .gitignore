@@ -50,3 +50,5 @@ Senderban*stray*/
 .ci-local/
 release/
 release-store/
+# Built by `npm run build:css` from apps/desktop/styles/app.css (Tailwind); never edited by hand
+apps/desktop/assets/manage/app.css
