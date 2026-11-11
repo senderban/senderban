@@ -3,10 +3,13 @@
 const stApi = window.senderban;
 const stEls = {
   action: document.getElementById("setting-action"),
+  actionRow: document.getElementById("setting-action-row"),
   duration: document.getElementById("setting-duration"),
   server: document.getElementById("setting-server"),
   serverText: document.getElementById("setting-server-text"),
   confirm: document.getElementById("setting-confirm"),
+  updates: document.getElementById("setting-updates"),
+  updatesText: document.getElementById("setting-updates-text"),
   confirmText: document.getElementById("setting-confirm-text"),
   status: document.getElementById("settings-status"),
 };
@@ -33,8 +36,12 @@ function stDraw() {
   stDrawChoices(stEls.duration, stWanted.toastDuration);
   stEls.server.checked = stWanted.preferServerBlock;
   stEls.serverText.textContent = stWanted.preferServerBlock ? "On" : "Off";
+  // The domain fallback only matters while Block is offered (toast.ts missingNote / parseActivation).
+  stEls.actionRow.hidden = !stWanted.preferServerBlock;
   stEls.confirm.checked = stWanted.confirmBlocks;
   stEls.confirmText.textContent = stWanted.confirmBlocks ? "On" : "Off";
+  stEls.updates.checked = stWanted.checkUpdates;
+  stEls.updatesText.textContent = stWanted.checkUpdates ? "On" : "Off";
 }
 
 // One save at a time: quick clicks cost one write in flight plus one with the last choice, not one write per click.
@@ -80,6 +87,9 @@ stEls.server.addEventListener("change", () => {
 });
 stEls.confirm.addEventListener("change", () => {
   stChange({ confirmBlocks: stEls.confirm.checked });
+});
+stEls.updates.addEventListener("change", () => {
+  stChange({ checkUpdates: stEls.updates.checked });
 });
 
 document.addEventListener("senderban-view", (event) => {

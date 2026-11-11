@@ -1,0 +1,10 @@
+<desktop:Extension Category="windows.toastNotificationActivation">
+  <desktop:ToastNotificationActivation ToastActivatorCLSID="138129E3-3408-4E3A-9A4D-D3BF9A4F92E1" />
+</desktop:Extension>
+<com:Extension xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10" Category="windows.comServer">
+  <com:ComServer>
+    <com:ExeServer Executable="app\Senderban.exe" Arguments="-ToastActivated" DisplayName="Senderban toast activator">
+      <com:Class Id="138129E3-3408-4E3A-9A4D-D3BF9A4F92E1" DisplayName="Senderban toast activator" />
+    </com:ExeServer>
+  </com:ComServer>
+</com:Extension>

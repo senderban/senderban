@@ -1,0 +1,29 @@
+# Microsoft Store package (docs/adr/0019-microsoft-store.md). Same app as the NSIS installer (electron-builder.yml), packaged as an
+# AppX/MSIX file. electron-builder 26.18.0 (npm `latest`) has the `appx` target only: the `msix` target of the
+# electron-builder docs is in the 27.0.0-alpha line (`grep -ri msix node_modules/app-builder-lib/out` finds nothing in 26.18.0).
+# The Store re-signs the package, so no certificate is used for a Store build. `identityName`, `publisher` and `publisherDisplayName` are
+# placeholders until the Partner Center reserves the name (Product identity page); a Store upload must carry the values it shows there.
+extends: ./electron-builder.yml
+directories:
+  output: release-store
+win:
+  target:
+    - target: appx
+      arch: x64
+  icon: assets/icon.ico
+appx:
+  applicationId: Senderban
+  identityName: Senderban.Placeholder
+  publisher: CN=Placeholder
+  publisherDisplayName: Senderban contributors
+  displayName: Senderban
+  languages:
+    - en-US
+  backgroundColor: "#1f2937"
+  addAutoLaunchExtension: false
+  # Toast buttons need the COM activator; the probe that measured it ran on these two versions (.task/store-msix.md).
+  customExtensionsPath: build/appx-extensions.xml
+  minVersion: 10.0.17763.0
+  maxVersionTested: 10.0.26100.0
+  capabilities:
+    - runFullTrust

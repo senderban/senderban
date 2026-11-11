@@ -11,6 +11,11 @@ Thumbs.db
 .env.*
 *.pem
 *.key
+# Signing certificates (a sideload test certificate for the Store package is self-signed and never committed)
+*.pfx
+*.p12
+*.appx
+*.msix
 secrets/
 client_secret*.json
 # Desktop app data (normally in %APPDATA%, but a --user-data-dir inside the repo must not leak it)
@@ -18,6 +23,24 @@ accounts.json
 google-client.json
 settings.json
 mxroute-keys.json
+activation-key.json
+quiet.json
+# A list the app could not read is kept aside under this suffix (quiet-file.ts); it holds the person's senders.
+*.unreadable
+# Anchored at the repo root, where a --user-data-dir would sit: a source folder named logs/ elsewhere stays tracked.
+/logs/
+/AppData/
+/user-data/
+Senderban*stray*/
+*.cer
+*.crt
+*.der
+*.pvk
+*.ppk
+*.snk
+*.p7b
+*.jks
+*.keystore
 *.tmp
 *.db
 *.db-wal
@@ -26,3 +49,6 @@ mxroute-keys.json
 
 .ci-local/
 release/
+release-store/
+# Built by `npm run build:css` from apps/desktop/styles/app.css (Tailwind); never edited by hand
+apps/desktop/assets/manage/app.css

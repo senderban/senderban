@@ -30,8 +30,11 @@ version used. Measured on Windows 11 build 26200, 1920×1080 at 125%, light them
 
 - The small note (`placement="attribution"`) sits under the first line and above the group. It cannot go below the buttons.
 - The colours of the card follow the person's Windows theme.
-- A third button narrows the others: `All of deals.example` read `All of deals.exampl`, so a toast with the domain button carries
-  two buttons at most (`DOMAIN_BUTTON_MAX` was measured for two).
+- A third button narrows the others: `All of deals.example` read `All of deals.exampl`, so a toast with the domain button carried
+  two buttons at most. Amended 2026-11-10 (ADR 0007): no domain goes on a button any more; the toast has up to four fixed one-word
+  buttons, and the note is a group of its own under the subject, because an attribution text would stand between the mailbox line and
+  the sender. Two rows of the table changed meaning with that: **Default action** is where a whole domain goes when "Block" is pressed
+  (and what a click on an older toast does), and **Block at server when the mailbox can** puts the "Block" button on the toast.
 - Text takes a style only inside a `<group>` (schema, Microsoft Learn), and that draws: the subject bold, the account subtle, the score
   in a right-hand column. A subtle style fades an emoji too, so the coloured dot sits in the `base` line.
 - An image is the one way to put colour on the card. A full-width line (`<image>`, 728×12) reads as a coloured strip. A `hero` image

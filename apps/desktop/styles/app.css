@@ -1,0 +1,704 @@
+/*
+ * Tailwind v4 entry for the manage window, built by `npm run build` into assets/manage/app.css, a local file,
+ * so the window's CSP (`style-src 'self'`) holds; nothing loads from a CDN.
+ * Compiled on tailwindcss 4.3.5 (2026-11-10): the @theme names, the three @utility recipes and the
+ * custom variant below build, and `pane`, `card`, `focus-ring`, `font-data`, `bg-glass-1`,
+ * `rounded-pane`, `glass-off:` come out as classes.
+ * Colours stay in assets/tokens.css; this file only names them for utilities.
+ */
+@import "tailwindcss" source(none);
+@source "../assets/manage";
+
+@theme inline {
+  --color-*: initial;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-error: var(--error);
+  --color-line: var(--line);
+  --color-control-border: var(--control-border);
+  --color-glass-1: var(--glass-1);
+  --color-glass-2: var(--glass-2);
+  --color-glass-3: var(--glass-3);
+  --color-tint-card: var(--tint-card);
+  --color-tint-active: var(--tint-active);
+  --color-tint-hover: var(--tint-hover);
+  --color-field: var(--field);
+  --color-glass-edge: var(--glass-edge);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --radius-*: initial;
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-pane: var(--radius-pane);
+  --radius-full: 9999px;
+
+  --font-sans: var(--font-ui);
+  --font-display: var(--font-display);
+  --font-data: var(--font-data);
+
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-md: var(--text-md);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+
+  --ease-glass: var(--ease);
+}
+
+/* The one blurred surface. Add a fill: `pane bg-glass-1`. Three per window at most. */
+@utility pane {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-pane);
+  box-shadow:
+    inset 0 1px 0 var(--glass-shine),
+    var(--shadow-pane);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+/* Tint only, never blurred: it sits on a pane that already is. */
+@utility card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--tint-card);
+}
+/* Two-colour focus ring (WCAG C40). Put it on every focusable element's focus-visible state. */
+@utility focus-ring {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+/* Rarely needed: the tokens already turn opaque. For layout that only makes sense with glass. */
+@custom-variant glass-off {
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+    @slot;
+  }
+}
+
+/*
+ * The manage window's own recipes, after Tailwind's preflight. The look is the sea-glass reference
+ * (.claude/skills/ui-design/reference/shell.css); markup keeps its semantic class names because the page's
+ * scripts build rows with them (className = "what" | "value" | "meta" | "small" ...), and layout tweaks
+ * go in utilities. Colours, radii and type come from assets/tokens.css only.
+ */
+@layer base {
+  html {
+    height: 100%;
+    background: var(--water-base);
+  }
+  body {
+    height: 100%;
+    margin: 0;
+    color: var(--fg);
+    font: var(--text-sm) / 1.45 var(--font-ui);
+    /* The water: fixed, static, three soft lights on one base; a pane's blur only ever mixes these stops. */
+    background:
+      radial-gradient(62% 58% at 10% 6%, var(--water-1) 0%, transparent 72%),
+      radial-gradient(58% 62% at 94% 98%, var(--water-2) 0%, transparent 72%),
+      linear-gradient(180deg, transparent 45%, var(--water-3) 100%), var(--water-base);
+    background-attachment: fixed;
+  }
+  svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  h1 {
+    font: 600 var(--text-xl) / 1.2 var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+  /* Controls: near-opaque fills, so a control never borrows its edge from the water (SC 1.4.11). */
+  button {
+    min-height: 28px;
+    padding: 0 12px;
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius-control);
+    background: var(--field);
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) var(--ease),
+      border-color var(--dur-fast) var(--ease);
+  }
+  button:hover:not(:disabled) {
+    border-color: var(--fg);
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  input:not([type="checkbox"]),
+  select {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius-control);
+    background: var(--field);
+  }
+  select option {
+    background: var(--surface);
+    color: var(--fg);
+  }
+  input::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+  summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  /* Two-colour focus ring (WCAG C40): holds 3:1 whatever the water shows behind it. Never removed from a
+     control; a heading the script focuses for screen readers (tabindex -1, out of the tab order) draws none. */
+  :focus-visible:not([tabindex="-1"]) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+  [tabindex="-1"]:focus {
+    outline: none;
+  }
+}
+
+@layer components {
+  .app {
+    display: flex;
+    gap: var(--gutter);
+    height: 100%;
+    padding: var(--gutter);
+  }
+
+  /* Sidebar: glass 1. */
+  .sidebar {
+    flex: 0 0 208px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 12px;
+    background: var(--glass-1);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    font: 600 var(--text-md) / 1.2 var(--font-display);
+    letter-spacing: -0.005em;
+  }
+  .sidebar nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+    padding: 0 10px;
+    border-color: transparent;
+    background: none;
+    text-align: left;
+  }
+  .nav svg {
+    color: var(--muted);
+  }
+  .nav span:first-of-type {
+    flex: 1;
+    min-width: 0;
+  }
+  .nav:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--tint-hover);
+  }
+  .nav[aria-current="page"],
+  .nav[aria-current="page"]:hover {
+    border-color: var(--glass-edge);
+    background: var(--tint-active);
+    box-shadow: inset 0 1px 0 var(--glass-shine);
+    font-weight: 600;
+  }
+  .nav[aria-current="page"] svg {
+    color: var(--accent);
+  }
+  .count {
+    color: var(--muted);
+    font: var(--text-xs) / 1 var(--font-data);
+  }
+  .health {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+  }
+  .health-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+  .health-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Sheet: glass 2, the one scrolling surface. */
+  .sheet {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px 24px;
+    background: var(--glass-2);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--control-border) transparent;
+    scrollbar-gutter: stable;
+  }
+  .sheet-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .sheet-head .primary {
+    margin-left: auto;
+    align-self: center;
+  }
+  .view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .narrow {
+    max-width: 520px;
+  }
+  .grow {
+    flex: 1;
+    min-width: 0;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .muted,
+  .meta {
+    color: var(--muted);
+  }
+  .meta {
+    font-size: var(--text-xs);
+  }
+  .data {
+    font-family: var(--font-data);
+  }
+  .status {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .status:empty {
+    display: none;
+  }
+  .lead {
+    font-size: var(--text-md);
+  }
+
+  button.primary {
+    min-height: 32px;
+    padding: 0 16px;
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 600;
+  }
+  button.primary:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 88%, var(--fg));
+  }
+  button.small {
+    min-height: 24px;
+    padding: 0 10px;
+    font-size: var(--text-xs);
+  }
+
+  /* A notice that asks for an action (restart). */
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: var(--radius-card);
+    background: var(--tint-card);
+  }
+  .notice-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .notice-row:has(> [hidden]:first-child):has(> [hidden]:last-child) {
+    display: none;
+  }
+
+  /* Filter chips and the provider switch: one pressed at a time. */
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tab {
+    min-height: 24px;
+    padding: 0 10px;
+    border-color: transparent;
+    border-radius: 12px;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+  .tab:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--tint-hover);
+  }
+  .tab[aria-pressed="true"],
+  .tab[aria-pressed="true"]:hover {
+    border-color: var(--glass-edge);
+    background: var(--tint-active);
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .tabs-lg .tab {
+    min-height: 30px;
+    padding: 0 14px;
+    border-radius: 15px;
+    font-size: var(--text-sm);
+  }
+
+  /* Lists: one tinted card, rows divided by a line. */
+  /* Sized to its rows; a long list shrinks to the sheet and scrolls inside. */
+  .list {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: var(--tint-card);
+  }
+  .list:empty {
+    display: none;
+  }
+  .list > li,
+  .rows > li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 9px 14px;
+    border-top: 1px solid var(--line);
+  }
+  .list > li:first-child {
+    border-top: 0;
+  }
+  .list > li:hover {
+    background: var(--tint-hover);
+  }
+  .list-section {
+    flex: 1;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .what {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  /* The address is the content: data face, the local part quiet, the domain carries the weight. */
+  .value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-data);
+  }
+  .value .local {
+    color: var(--muted);
+  }
+  .value .domain,
+  .value.plain {
+    font-weight: 700;
+  }
+  .line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 12px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--text-xs);
+  }
+  .pill .dot {
+    width: 6px;
+    height: 6px;
+  }
+
+  /* Cards on the sheet: tint only (the `card` utility), never blurred. */
+  .groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card {
+    flex: none;
+  }
+  .card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 12px 14px;
+  }
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .spam-filter {
+    flex-basis: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .spam-filter .row {
+    flex-wrap: wrap;
+  }
+  .key-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 8px 0;
+  }
+  .key-list .status {
+    flex-basis: 100%;
+  }
+  details > .meta,
+  details > div {
+    margin-top: 8px;
+  }
+
+  /* First run: the empty Blocked view. */
+  .first-run {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    max-width: 520px;
+    padding: 4px 0;
+  }
+  .first-run ol {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-left: 20px;
+    list-style: decimal;
+  }
+
+  /* Settings rows. */
+  .setting {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--line);
+  }
+  .setting-row,
+  .switch-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .switch-row {
+    gap: 8px;
+    font-size: var(--text-xs);
+  }
+  .setting-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .setting-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-left: 4px;
+    padding-left: 12px;
+    border-left: 2px solid var(--line);
+  }
+  .state {
+    min-width: 24px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    text-align: right;
+  }
+  .choices {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius-control);
+    background: var(--field);
+  }
+  .choices button {
+    border-color: transparent;
+    border-radius: 6px;
+    background: none;
+  }
+  .choices button:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--tint-hover);
+  }
+  .choices button[aria-pressed="true"],
+  .choices button[aria-pressed="true"]:hover {
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 600;
+  }
+  input[type="checkbox"][role="switch"] {
+    appearance: none;
+    flex: none;
+    display: flex;
+    align-items: center;
+    width: 40px;
+    height: 24px;
+    margin: 0;
+    padding: 3px;
+    border: 1px solid var(--control-border);
+    border-radius: 12px;
+    background: var(--field);
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease);
+  }
+  input[type="checkbox"][role="switch"]::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--control-border);
+    transition: transform var(--dur) var(--ease);
+  }
+  input[type="checkbox"][role="switch"]:checked {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+  input[type="checkbox"][role="switch"]:checked::before {
+    background: var(--accent-fg);
+    transform: translateX(16px);
+  }
+
+  /* Forms. */
+  .panel,
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .panel {
+    gap: 12px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field label {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+  .field input,
+  .field select {
+    width: 100%;
+  }
+
+  [data-tone="ok"] {
+    color: var(--ok);
+  }
+  [data-tone="warn"] {
+    color: var(--warn);
+  }
+  [data-tone="error"] {
+    color: var(--error);
+  }
+  [data-tone="working"] {
+    color: var(--muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before {
+    transition: none !important;
+  }
+}
+/* Windows contrast themes: the system paints. No water, no blur, every edge a real border. */
+@media (forced-colors: active) {
+  html,
+  body {
+    background: Canvas;
+  }
+  .pane {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-color: CanvasText;
+  }
+  .dot {
+    background: CanvasText;
+  }
+  .nav[aria-current="page"],
+  .tab[aria-pressed="true"],
+  .choices button[aria-pressed="true"] {
+    border-color: Highlight;
+    outline: 1px solid Highlight;
+  }
+}

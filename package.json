@@ -18,14 +18,17 @@
     "test": "vitest run",
     "ci:local": "node scripts/ci-local.mjs",
     "test:contract": "vitest run --config vitest.contract.config.js",
-    "build": "tsc -p packages/core/tsconfig.build.json && tsc -p apps/desktop/tsconfig.build.json"
+    "build": "tsc -p packages/core/tsconfig.build.json && tsc -p apps/desktop/tsconfig.build.json && npm run build:css",
+    "build:css": "tailwindcss -i apps/desktop/styles/app.css -o apps/desktop/assets/manage/app.css --minify"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@tailwindcss/cli": "4.3.5",
     "@types/node": "24.19.2",
     "@typescript/native": "npm:typescript@7.0.2",
     "eslint": "10.13.0",
     "prettier": "3.9.10",
+    "tailwindcss": "4.3.5",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.72.1",
     "vite": "8.3.5",

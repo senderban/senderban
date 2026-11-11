@@ -8,10 +8,10 @@ A sender that is not unwanted but keeps arriving (a service's own mail, for exam
 gets **Don't ask again**, and a list keeps those senders in `quiet.json` beside `settings.json` (`packages/core/src/notify/quiet.ts`,
 `apps/desktop/src/quiet-file.ts`).
 
-- **It lives where the toast already says what happens.** On a toast with a choice it is the last entry, and the two buttons say who, as
-  for a block: **This sender** or **All of <domain>**. A Gmail toast has no choice, so it is the second button, in place of the system's
-  Dismiss; the toast's own close button still dismisses it. A Gmail filter takes single addresses, and this list follows that toast's
-  one scope.
+- **It lives where the toast already says what happens.** It is the last button, **Mute** ("Don't ask again" does not fit a row of four
+  buttons, ADR 0007; amended 2026-11-10, before that it was the last entry of the toast's choice), and the choice above the buttons says
+  who, as for a block: **Only this sender** or **Whole domain <domain>**. A Gmail toast has no choice, so there it is this sender; the
+  toast's own close button still dismisses it. A Gmail filter takes single addresses, and this list follows that toast's one scope.
 - **It only keeps a toast from showing.** No mail moves, no rule is written, no provider is called, and it needs no new permission. It
   is local to the device. A forged From costs a notification and nothing else, which is why the check needs no proof of the sender.
 - **It is not a block.** Never the default, never pre-selected. An entry does not undo a block or stop one. The "claims to come from your

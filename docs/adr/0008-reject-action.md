@@ -16,7 +16,9 @@ address is refused and kept nowhere until the person unblocks it. So:
 1. It is off by default: the toast lists it last and pre-selects the default action (Junk or Trash). Amended 2026-10-31 at the
    owner's request: a person who turns on **Block at server when the mailbox can** on the Settings page gets it pre-selected on the
    toasts that offer it (ADR 0015). It is a separate switch, never a value of the default action, and the page says that refused
-   mail leaves no copy. A click that carries no choice uses the default action, so it never refuses mail.
+   mail leaves no copy. A click that carries no choice uses the default action, so it never refuses mail. Amended 2026-11-10: the
+   toast has one button per effect (ADR 0007), so there is nothing to pre-select. The same switch now decides whether the red
+   **Block** button is on the toast at all: off by default, and with it off a toast cannot refuse mail.
 2. Single addresses only. A whole domain is never refused at the server (its reach on the blacklist is not measured):
    `blockPending` refuses `reject` for the domain scope and the domain button turns it into the default action.
 3. Never for one of the person's own login addresses, nor for an address on the mail domain of any configured account (a

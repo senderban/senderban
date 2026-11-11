@@ -17,6 +17,7 @@
   "homepage": "https://senderban.com/",
   "scripts": {
     "dist": "electron-builder --config electron-builder.yml --win nsis --publish never",
-    "dist:dir": "electron-builder --config electron-builder.yml --win --dir --publish never"
+    "dist:dir": "electron-builder --config electron-builder.yml --win --dir --publish never",
+    "dist:store": "npm --prefix ../.. run build && electron-builder --config electron-builder.store.yml --win appx --publish never"
   }
 }

@@ -15,6 +15,7 @@ const CHOSEN: Settings = {
   preferServerBlock: true,
   confirmBlocks: true,
   toastDuration: "short",
+  checkUpdates: false,
 };
 
 let dir: string;
@@ -49,6 +50,18 @@ describe("SettingsStore", () => {
     const next = new SettingsStore(path);
     await next.load(() => undefined);
     expect(next.current).toEqual(CHOSEN);
+  });
+
+  it("reads a 0.2 file, which has no update switch, with the check on and the rest kept", async () => {
+    writeFileSync(
+      path,
+      '{"version":1,"settings":{"defaultAction":"trash","preferServerBlock":true,"confirmBlocks":true,"toastDuration":"short"}}',
+    );
+    const store = new SettingsStore(path);
+    const unreadable = vi.fn();
+    await store.load(unreadable);
+    expect(store.current).toEqual({ ...CHOSEN, checkUpdates: true });
+    expect(unreadable).not.toHaveBeenCalled();
   });
 
   it.each([

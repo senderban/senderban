@@ -6,14 +6,24 @@ on.
 ## Decision
 
 A new mail is announced with a native Windows toast (`Notification` with `toastXml`, `apps/desktop/src/toasts.ts`), not a window
-of ours. Windows stacks it with other apps' toasts, honours Focus Assist and keeps it in the Action Center. The toast carries a
-selection (what happens to future mail) and the buttons "This sender" and "All of <domain>". Windows 11 at 125% shows "All of" and one
-more line of about 21 characters and cuts the rest with no ellipsis (measured 2026-10-30: `All of bank.example.attacker.test` read
-`All of bank.example.attacker`), so past 16 characters the button keeps the end of the domain behind its own mark: `All of …attacker.test`.
-Only an all-`w` domain of 16 still loses a few letters. The domain is offered only when it is nobody's shared space: not a mail provider,
+of ours. Windows stacks it with other apps' toasts, honours Focus Assist and keeps it in the Action Center. The toast carries
+one button per thing that can happen to the sender's future mail ("Junk", "Trash", "Block" where the server can refuse the sender and the
+person switched it on, ADR 0008, and "Mute", ADR 0016) and above them a selection of who it applies to ("Only this sender",
+"Whole domain <domain>"), which starts on the sender. Amended 2026-11-10; until then the selection said what and two buttons said who
+("This sender", "All of <domain>"), and the domain on a button wrapped to a second line and made both buttons two lines tall. Measured on
+Windows 11 build 26200 at 100%, light theme, development build (2026-11-10): the buttons share the width equally; with four, a label of up
+to 7 characters stays on one line and 8 ("Not spam") or 9 ("Don't ask") wrap, so every label is a fixed word of at most 7 characters
+(`BUTTON_LABEL_MAX`) and no mail text goes on a button. The title line is drawn regular whatever it holds, and without one Windows writes
+"New notification"; text is bold only inside a group. So the title is the mailbox ("To: ..."), and the first line of the group is the
+sender's domain in bold with the whole address small under it (on a free-mail domain the address is the bold line). The bold line does not
+break inside a domain: it showed 32 characters beside the score column and cut the end; the closed selection showed 27 after
+"Whole domain " and cut with no ellipsis. Past 24 and 20 characters (`DOMAIN_LINE_MAX`, `DOMAIN_CHOICE_MAX`) the domain keeps its end
+behind a mark: `…example.attacker.test`. Not measured: 125% and 150% scaling, dark theme, the installed build, an open selection list.
+The domain is offered only when it is nobody's shared space: not a mail provider,
 not on the Public Suffix List (ICANN or private section, `tldts`: 19 ms at start-up, about 1.5 µs a check, one check per announced
-IMAP mail or domain click, measured 2026-10-31). The buttons say who, the selection says what: they do not
-say "Block", which would be untrue for Junk and Trash. The click comes back as a string.
+IMAP mail or domain click, measured 2026-10-31). A button says what it does, so "Block" is only the
+button that refuses mail at the server. A click on a toast of an earlier version (`act=sender`, `act=domain` and a `target` input) is
+still read, because a toast stays in the notification list. The click comes back as a string.
 
 - **Untrusted both ways.** The XML is built from mail-controlled text (sender, subject): every text node is escaped and bounded
   (`escapeXml`, `TOAST_TEXT_MAX`). The click is parsed with fixed patterns and a Zod envelope (`parseActivation`) before anything

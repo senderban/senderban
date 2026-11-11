@@ -8,30 +8,57 @@
     />
     <title>Senderban</title>
     <link rel="stylesheet" href="../tokens.css" />
-    <link rel="stylesheet" href="manage.css" />
+    <link rel="stylesheet" href="app.css" />
   </head>
   <body>
     <div class="app">
-      <aside>
+      <aside class="pane sidebar">
         <div class="brand">
-          <img class="icon" src="../icon.png" alt="" width="20" height="20" />
+          <img src="../icon.png" alt="" width="20" height="20" />
           <span>Senderban</span>
         </div>
         <nav aria-label="Main">
           <button type="button" id="nav-blocked" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.75" />
+              <path d="m4 12 8-8" />
+            </svg>
             <span>Blocked senders</span>
             <span id="nav-blocked-count" class="count"></span>
           </button>
           <button type="button" id="nav-accounts" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" />
+              <path d="M2.25 5 8 9l5.75-4" />
+            </svg>
             <span>Accounts</span>
             <span id="nav-accounts-count" class="count"></span>
           </button>
           <button type="button" id="nav-quiet" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.5 11.25V7a3.5 3.5 0 0 1 5.6-2.8M11.5 7.5v3.75l1 1.25h-9" />
+              <path d="M6.75 13.75h2.5M2.5 2.5l11 11" />
+            </svg>
             <span>Don't ask again</span>
             <span id="nav-quiet-count" class="count"></span>
           </button>
           <button type="button" id="nav-settings" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.5 4.5h6M11.5 4.5h2M2.5 8h2M7.5 8h6M2.5 11.5h7M12.5 11.5h1" />
+              <circle cx="10" cy="4.5" r="1.5" />
+              <circle cx="6" cy="8" r="1.5" />
+              <circle cx="11" cy="11.5" r="1.5" />
+            </svg>
             <span>Settings</span>
+          </button>
+          <button type="button" id="nav-help" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.75" />
+              <path d="M6.25 6.5a1.75 1.75 0 1 1 2.5 1.6c-.5.25-.75.6-.75 1.15v.25" />
+              <path d="M8 11.5h.01" />
+            </svg>
+            <span>Help</span>
+            <span id="nav-help-count" class="count"></span>
           </button>
         </nav>
         <div class="health">
@@ -39,13 +66,15 @@
             <span class="dot" aria-hidden="true"></span>
             <span id="health-text"></span>
           </p>
-          <button type="button" id="pause" class="small" hidden></button>
-          <span id="version" class="meta"></span>
+          <div class="health-foot">
+            <button type="button" id="pause" class="small" hidden></button>
+            <span id="version" class="meta data"></span>
+          </div>
         </div>
       </aside>
 
-      <main>
-        <header>
+      <main class="pane sheet">
+        <header class="sheet-head">
           <h1 id="title" tabindex="-1"></h1>
           <span id="count" class="muted"></span>
           <button type="button" id="go-add" class="primary" hidden>Add mailbox</button>
@@ -81,7 +110,7 @@
             </ol>
             <button type="button" id="first-add" class="primary">Add mailbox</button>
           </div>
-          <div id="list-section">
+          <div id="list-section" class="list-section">
             <input
               id="filter"
               type="search"
@@ -92,7 +121,7 @@
             />
             <div id="tabs" class="tabs" role="group" aria-label="Show"></div>
             <p id="behind" class="status" data-tone="warn" role="status" hidden></p>
-            <ul id="list" aria-label="Blocked senders"></ul>
+            <ul id="list" class="list" aria-label="Blocked senders"></ul>
             <p id="empty" class="muted" hidden></p>
             <p id="list-cap" class="meta" data-tone="warn" hidden></p>
             <p id="status" class="status" role="status" hidden></p>
@@ -157,16 +186,16 @@
               <details>
                 <summary>How Block at server works</summary>
                 <p class="meta">
-                  New-mail notifications then offer “Block at server” for one sender: the server
-                  refuses their mail at the door, so the sender gets an error and the mail does not
-                  reach Junk or Trash. Junk and Trash stay available and never touch MXroute.
-                  MXroute says its blacklist applies across your hosting account's domains, so a
-                  refused address may be refused for the mailboxes of all those domains, including
-                  any where Block at server is off. An address already on your blacklist is treated
-                  as Senderban's own and taken off again when you unblock it. A whole domain is
-                  never refused at the server. Whether MXroute drops a sender also depends on the
-                  spam-score limit in your MXroute panel, so try one block and check. Takes effect
-                  when Senderban starts; switching it off takes back what Senderban added.
+                  New-mail notifications then offer “Block” for one sender: the server refuses their
+                  mail at the door, so the sender gets an error and the mail does not reach Junk or
+                  Trash. Junk and Trash stay available and never touch MXroute. MXroute says its
+                  blacklist applies across your hosting account's domains, so a refused address may
+                  be refused for the mailboxes of all those domains, including any where Block at
+                  server is off. An address already on your blacklist is treated as Senderban's own
+                  and taken off again when you unblock it. A whole domain is never refused at the
+                  server. Whether MXroute drops a sender also depends on the spam-score limit in
+                  your MXroute panel, so try one block and check. Takes effect when Senderban
+                  starts; switching it off takes back what Senderban added.
                 </p>
               </details>
             </div>
@@ -179,26 +208,33 @@
               <h2 id="settings-notifications">Notifications</h2>
             </div>
             <div class="setting">
-              <div class="setting-text">
-                <span id="action-label">Default action</span>
-                <span class="meta">
-                  Picked for you on each notification, and you can still change it there. Gmail
-                  always moves to Trash.
-                </span>
-              </div>
-              <div id="setting-action" class="choices" role="group" aria-labelledby="action-label">
-                <button type="button" data-value="junk">Move to Junk</button>
-                <button type="button" data-value="trash">Move to Trash</button>
-              </div>
               <div class="setting-row">
                 <div class="setting-text">
                   <label for="setting-server">Block at server when the mailbox can</label>
                   <span class="meta">
-                    Refused mail leaves no copy to recover. Other mailboxes use the default action.
+                    Adds a Block button to notifications where the server can refuse the sender.
+                    Refused mail leaves no copy to recover.
                   </span>
                 </div>
-                <span id="setting-server-text" class="meta"></span>
+                <span id="setting-server-text" class="state"></span>
                 <input id="setting-server" type="checkbox" role="switch" />
+              </div>
+              <div id="setting-action-row" class="setting-sub" hidden>
+                <div class="setting-text">
+                  <span id="action-label">When Block is used on a whole domain</span>
+                  <span class="meta">
+                    The server refuses single senders only, so a domain's mail is moved instead.
+                  </span>
+                </div>
+                <div
+                  id="setting-action"
+                  class="choices"
+                  role="group"
+                  aria-labelledby="action-label"
+                >
+                  <button type="button" data-value="junk">Move to Junk</button>
+                  <button type="button" data-value="trash">Move to Trash</button>
+                </div>
               </div>
             </div>
             <div class="setting">
@@ -209,7 +245,7 @@
                     Shows a notification when a block works. Warnings and failures always show.
                   </span>
                 </div>
-                <span id="setting-confirm-text" class="meta"></span>
+                <span id="setting-confirm-text" class="state"></span>
                 <input id="setting-confirm" type="checkbox" role="switch" />
               </div>
             </div>
@@ -233,7 +269,92 @@
               </div>
             </div>
           </section>
+          <section id="settings-updates-card" class="card" aria-labelledby="settings-updates">
+            <div class="card-head">
+              <h2 id="settings-updates">Updates</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label for="setting-updates">Check for a new version once a day</label>
+                  <span class="meta">
+                    Asks GitHub for the latest release, which shows GitHub your IP address. Nothing
+                    is downloaded or installed for you.
+                  </span>
+                </div>
+                <span id="setting-updates-text" class="state"></span>
+                <input id="setting-updates" type="checkbox" role="switch" />
+              </div>
+            </div>
+          </section>
           <p id="settings-status" class="status" role="status" hidden></p>
+        </section>
+
+        <section id="view-help" class="view narrow" hidden>
+          <section class="card" aria-labelledby="help-get">
+            <div class="card-head">
+              <h2 id="help-get">Get help</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Report a problem or ask a question</span>
+                  <span class="meta">
+                    Opens a new issue on GitHub. Issues are public, so leave out mail addresses and
+                    passwords.
+                  </span>
+                </div>
+                <button type="button" class="small" data-help="issues">Open GitHub</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Report a security problem</span>
+                  <span class="meta">Private: only you and the maintainers see it.</span>
+                </div>
+                <button type="button" class="small" data-help="security">Report privately</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Log files</span>
+                  <span class="meta">
+                    Attach the newest one to an issue if you are asked. It holds no passwords and no
+                    mail content, but it can name mail domains, so read it first.
+                  </span>
+                </div>
+                <button type="button" class="small" data-help="logs">Open folder</button>
+              </div>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="help-about">
+            <div class="card-head">
+              <h2 id="help-about">About</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Senderban <span id="help-version" class="data"></span></span>
+                  <span id="help-version-note" class="meta"
+                    >Free and open source. What changed in each version.</span
+                  >
+                </div>
+                <button type="button" class="small" data-help="releases">Release notes</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>senderban.com</span>
+                  <span class="meta">The project's website, with setup guides.</span>
+                </div>
+                <button type="button" class="small" data-help="website">Open website</button>
+              </div>
+            </div>
+          </section>
+          <p id="help-status" class="status" role="status" hidden></p>
         </section>
 
         <section id="view-quiet" class="view" hidden>
@@ -241,7 +362,7 @@
             No notification for these senders. Their mail is left alone, and nothing is written to
             your mailbox.
           </p>
-          <div id="quiet-section">
+          <div id="quiet-section" class="list-section">
             <input
               id="quiet-filter"
               type="search"
@@ -251,7 +372,7 @@
               spellcheck="false"
               hidden
             />
-            <ul id="quiet-list" aria-label="Don't ask again"></ul>
+            <ul id="quiet-list" class="list" aria-label="Don't ask again"></ul>
             <p id="quiet-empty" class="muted" hidden></p>
             <p id="quiet-cap" class="meta" data-tone="warn" hidden></p>
             <p id="quiet-status" class="status" role="status" hidden></p>
@@ -259,7 +380,7 @@
         </section>
 
         <section id="view-add" class="view narrow" hidden>
-          <form id="detect-form" autocomplete="off">
+          <form id="detect-form" class="form" autocomplete="off">
             <div class="field">
               <label for="detect-address">Mail address</label>
               <input
@@ -281,7 +402,7 @@
             </div>
           </form>
 
-          <div class="tabs" role="group" aria-label="Provider">
+          <div class="tabs tabs-lg" role="group" aria-label="Provider">
             <button type="button" id="provider-mx" class="tab">Mail server</button>
             <button type="button" id="provider-gmail" class="tab">Gmail</button>
             <button type="button" id="provider-microsoft" class="tab">Microsoft</button>
@@ -294,7 +415,7 @@
               encrypted on this device. The address's mail domain then counts as your own: Senderban
               will not block that domain, and blocks already on your list for it stop applying.
             </p>
-            <form id="account-form" autocomplete="off">
+            <form id="account-form" class="form" autocomplete="off">
               <div class="field">
                 <label for="account-provider">Provider</label>
                 <select id="account-provider">
@@ -363,7 +484,7 @@
               At the next start Senderban also moves the last 30 days of mail from everyone on your
               block list out of this inbox, to Junk or Trash as each entry says.
             </p>
-            <form id="clean-form" autocomplete="off">
+            <form id="clean-form" class="form" autocomplete="off">
               <div class="field">
                 <label for="clean-address">Mail address</label>
                 <input
@@ -432,7 +553,7 @@
                 and secret here. The secret is stored encrypted on this device.
               </p>
               <p id="google-client-state" class="muted"></p>
-              <form id="google-client-form" autocomplete="off">
+              <form id="google-client-form" class="form" autocomplete="off">
                 <div class="field">
                   <label for="google-client-id">Client ID</label>
                   <input
@@ -493,5 +614,6 @@
     <script src="settings.js"></script>
     <script src="spam-filter.js"></script>
     <script src="quiet.js"></script>
+    <script src="help.js"></script>
   </body>
 </html>

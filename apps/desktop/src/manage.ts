@@ -22,6 +22,7 @@ import {
   isVouchedServer,
   SettingsSchema,
   WatchPausedSchema,
+  HelpTargetSchema,
   formServer,
   isEntryId,
   SpamFilterRequestSchema,
@@ -32,6 +33,7 @@ import type {
   CleanAddInput,
   Detection,
   GoogleClientInput,
+  HelpTarget,
   MxrouteEnableInput,
   MxrouteInput,
   MxrouteKeyRef,
@@ -122,6 +124,10 @@ export interface AccountAddRequest {
 /** What the window's side bar and account rows show. `state`: null when no watcher runs for the account yet (added, restart due). */
 export interface WatchStatus {
   readonly version: string;
+  /** A newer release GitHub named at the last daily check, or null (update-check.ts). */
+  readonly update: string | null;
+  /** A Store install: the Store updates it, the page hides the update switch. */
+  readonly storeManaged: boolean;
   readonly paused: boolean;
   /** Mailboxes whose last sync failed: a block may be missing there until a sync works. */
   readonly behind: readonly string[];
@@ -212,6 +218,8 @@ export interface ManageHandlers {
   readonly settings: () => Settings;
   /** Writes the choices to disk; they apply from then on. The input has already passed the core schema. */
   readonly saveSettings: (next: Settings) => Promise<void>;
+  /** Opens one fixed Help address in the browser, or the log folder. The input has already passed the core schema. */
+  readonly openHelp: (target: HelpTarget) => Promise<void>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -299,6 +307,7 @@ export class ManageWindow {
       this.#saveSpamFilter(event, value),
     );
     ipcMain.handle("manage:settings", (event) => this.#settings(event));
+    ipcMain.handle("manage:open-help", (event, value: unknown) => this.#openHelp(event, value));
     ipcMain.handle("manage:settings-save", (event, value: unknown) =>
       this.#settingsSave(event, value),
     );
@@ -332,7 +341,8 @@ export class ManageWindow {
       title: "Senderban",
       icon: join(this.#assets, "icon.ico"),
       autoHideMenuBar: true,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#07182b" : "#f4f8fb",
+      // --water-base in assets/tokens.css: the first frame matches the backdrop, no flash.
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#051322" : "#e3edf6",
       webPreferences: {
         preload: join(this.#assets, "manage/preload.cjs"),
         sandbox: true,
@@ -470,6 +480,23 @@ export class ManageWindow {
       return "saved";
     } catch (error) {
       this.#handlers.onError("manage:settings-save", error);
+      return "failed";
+    }
+  }
+
+  /** The page names a Help target; the address is looked up in main (core HELP_LINKS), never taken from the page. */
+  async #openHelp(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<"done" | "denied" | "invalid" | "failed"> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = HelpTargetSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      await this.#handlers.openHelp(parsed.data);
+      return "done";
+    } catch (error) {
+      this.#handlers.onError("manage:open-help", error);
       return "failed";
     }
   }

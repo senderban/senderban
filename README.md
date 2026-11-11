@@ -44,17 +44,17 @@ provider's own server (a Gmail filter or a Sieve script), so the block also appl
 in webmail and in whichever mail client you use. The block list is shared by all your accounts, a
 warning or a failure shows as a notification, and every block can be undone in the **Blocked senders**
 window. **Settings** picks the default action, whether a block that worked is confirmed, and how long
-new-mail notifications stay on screen. **Don't ask again** on a notification stops the questions about a
-sender without blocking it; its own page lists those senders, filters them and can take them back.
+new-mail notifications stay on screen. **Mute** on a notification stops the questions about a
+sender without blocking it; the **Don't ask again** page lists those senders, filters them and can take them back.
 Each mailbox on a mail server can also have a **spam filter** in **Accounts**: the server moves mail at or
 over the score you pick, or the notification asks. It needs a mail server that adds a spam score.
 
-| On                | Choices                                                            | Whole domain |
-| ----------------- | ------------------------------------------------------------------ | ------------ |
-| MXroute           | **Move to Junk** (default), **Move to Trash**, **Block at server** | yes          |
-| Other mail server | **Move to Junk** (default), **Move to Trash**                      | yes          |
-| Gmail / Workspace | **Move this sender to Trash**                                      | no           |
-| Other (IMAP)      | **Move to Junk** (default), **Move to Trash**                      | yes          |
+| On                | Buttons on the notification                                   | Whole domain |
+| ----------------- | ------------------------------------------------------------- | ------------ |
+| MXroute           | **Junk**, **Trash**, **Block** (once switched on in Settings) | yes          |
+| Other mail server | **Junk**, **Trash**                                           | yes          |
+| Gmail / Workspace | **Trash**                                                     | no           |
+| Other (IMAP)      | **Junk**, **Trash**                                           | yes          |
 
 **Other (IMAP)** is no rule on a server: Senderban moves the mail itself, only while it runs. With
 Senderban closed a blocked sender's mail stays in the inbox, and your phone sees it. Blocking someone
@@ -87,8 +87,8 @@ It is not an email client. It does not send, sync, search or download message bo
   alone. The exception is the MXroute blacklist, which has no tag: Unblock removes an address there
   even if you had listed it yourself. An **Other (IMAP)** mailbox gets no rule: Senderban moves mail
   from blocked senders out of its inbox, and Unblock does not bring that mail back.
-- **The default action is reversible** (Junk or Trash). There is no permanent delete. **Block at
-  server** is the one choice that can leave no copy, and you have to switch it on and pick it.
+- **Junk and Trash are reversible.** There is no permanent delete. **Block** (refuse at the server) is
+  the one button that can leave no copy, and it is not on a notification until you switch it on.
 - **Secrets** are stored encrypted with Windows DPAPI, for your Windows user, in
   `%APPDATA%\Senderban`. They never go to logs.
 
