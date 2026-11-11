@@ -1,4 +1,4 @@
-/* global VISIBLE_MAX, els, senderValue, view, accountChoices, accountHolds */
+/* global VISIBLE_MAX, els, senderValue, view, accountChoices, accountHolds, accountEmpty */
 // The Don't ask again page of the sandboxed manage page. Entries came from mail headers (untrusted): `senderValue` and `textContent` only.
 // Each row is { value, source? }: source is the mailbox it was chosen in, absent before 0.3.
 // Scale: QUIET_MAX (2,000) short rows in memory, filtered per keystroke with no IPC, and at most VISIBLE_MAX rows drawn.
@@ -83,7 +83,7 @@ function qtDraw() {
   qtEls.empty.textContent =
     qtEntries.length === 0
       ? "Choose Don't ask again on a notification to add a sender."
-      : "No sender matches this filter.";
+      : (accountEmpty(qtEls.account, qtEntries, needle) ?? "No sender matches this filter.");
   qtEls.cap.hidden = matching.length <= shown.length;
   qtEls.cap.textContent = `Showing the first ${String(VISIBLE_MAX)} of ${String(matching.length)}. Type to narrow the list.`;
 }

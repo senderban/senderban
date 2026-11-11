@@ -1832,17 +1832,18 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           ...gmailSkipped.map((s) => s.email),
           ...microsoftSkipped.map((s) => s.email),
         ],
-        accounts: (await loadAccounts(accountsPath)).map((a) => ({
-          accountId: a.id,
-          state:
-            states.get(
-              isGmailAccount(a)
-                ? gmailLaneId(a.id)
-                : isMicrosoftAccount(a)
-                  ? graphLaneId(a.id)
-                  : a.id,
-            ) ?? null,
-        })),
+        accounts: (await loadAccounts(accountsPath)).map((a) => {
+          const lane = isGmailAccount(a)
+            ? gmailLaneId(a.id)
+            : isMicrosoftAccount(a)
+              ? graphLaneId(a.id)
+              : a.id;
+          return {
+            accountId: a.id,
+            state: states.get(lane) ?? null,
+            label: runtime?.labels.get(lane) ?? null,
+          };
+        }),
       }),
       pause: (value) => setPaused(value, "window"),
       quiet: () => quiet.rows,

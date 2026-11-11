@@ -6,11 +6,14 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Added
 
-- **Home**, the first view of the Senderban window: how many mailboxes are watched, how many senders
-  are blocked, and the five newest blocks.
+- **Home**, the first view of the Senderban window: how many senders are blocked, with the blocks of
+  each of the last 12 weeks as a bar and where their mail goes; three status lines (**Watch**,
+  **Blocks**, **Servers**) that open the view they report on; your mailboxes with what each watcher
+  is doing; and the four newest blocks.
 - Each block and each **Don't ask again** entry shows the mailbox it was made from, and both lists
-  have a mailbox filter with **All accounts**. Entries made before 0.3 have no mailbox and show under
-  **All accounts** only.
+  have a mailbox filter. It lists every mailbox you have set up, each with its count. Entries made
+  before 0.3 have no mailbox: they show under **All accounts** and under **Not recorded (before
+  0.3)**.
 - **Start Senderban when you sign in to Windows** in **Settings**, **Startup**. Off unless you turn it
   on; Windows keeps the choice. Not in the Microsoft Store version.
 - **Sponsor** at the foot of the menu opens the maintainer's GitHub Sponsors page. Not in the

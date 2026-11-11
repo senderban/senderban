@@ -1,4 +1,4 @@
-/* exported stateBadge, leaveAddView, senderValue, accountChoices, accountHolds */
+/* exported stateBadge, leaveAddView, senderValue, accountChoices, accountHolds, accountEmpty */
 // Runs in the sandboxed manage page. Every sender value came from a mail header (untrusted), so it
 // is only ever assigned through textContent. This file holds the frame (views, side bar, restart
 // bar) and the block list; the other page scripts share its global scope.
@@ -25,12 +25,23 @@ const els = {
   navHome: $("nav-home"),
   navSponsor: $("nav-sponsor"),
   homeBody: $("home-body"),
-  homeAccounts: $("home-accounts"),
-  homeAccountsNum: $("home-accounts-num"),
-  homeAccountsText: $("home-accounts-text"),
-  homeBlocked: $("home-blocked"),
+  homeBlockedLabel: $("home-blocked-label"),
   homeBlockedNum: $("home-blocked-num"),
-  homeBlockedText: $("home-blocked-text"),
+  homeWeek: $("home-week"),
+  homeTrace: $("home-trace"),
+  homeChart: $("home-chart"),
+  homeChartFrom: $("home-chart-from"),
+  homeSplit: $("home-split"),
+  lampWatch: $("lamp-watch"),
+  lampWatchText: $("lamp-watch-text"),
+  lampBlocks: $("lamp-blocks"),
+  lampBlocksText: $("lamp-blocks-text"),
+  lampSync: $("lamp-sync"),
+  lampSyncText: $("lamp-sync-text"),
+  homeBoxes: $("home-boxes"),
+  homeBoxesMore: $("home-boxes-more"),
+  homeBoxesEmpty: $("home-boxes-empty"),
+  homeManage: $("home-manage"),
   homeRecent: $("home-recent"),
   homeRecentEmpty: $("home-recent-empty"),
   homeAll: $("home-all"),
@@ -70,7 +81,9 @@ const OUTLOOK_PILL = {
   no: ["warn", "Outlook: not applied"],
 };
 const OWN_PILL = ["warn", "Not applied: your own mail"];
-const HOME_RECENT = 5;
+const HOME_RECENT = 4;
+const HOME_WEEKS = 12;
+const HOME_BOXES = 6;
 
 const TABS = [
   { id: "all", label: "All", holds: () => true },
@@ -198,21 +211,51 @@ function option(value, text) {
   return node;
 }
 
-/** Offers the mailboxes the rows came from. Rebuilt only when that set changes, so a choice survives a refresh; a choice that is gone falls back to all. */
+/** The mailboxes that are set up, under the name a block made from them keeps as its source (null until the watcher exists). */
+function watchedNames() {
+  return (watch?.accounts ?? []).map((a) => a.label).filter((name) => typeof name === "string");
+}
+
+/**
+ * Offers every mailbox that is set up and every one a row came from, each with its count, so the choice explains itself: a list
+ * made before 0.3 shows its mailboxes at 0 and its rows under "Not recorded". Rebuilt only when a name or a count changes, so a
+ * choice survives a refresh; a choice that is gone falls back to all.
+ */
 function accountChoices(select, rows) {
-  const names = [...new Set(rows.map((r) => r.source).filter((s) => s !== undefined))].sort();
-  const values = ["", ...names];
-  if (names.length > 0 && rows.some((r) => r.source === undefined)) values.push(NOT_RECORDED);
-  const key = values.join("\n");
+  const counts = new Map(watchedNames().map((name) => [name, 0]));
+  let unrecorded = 0;
+  for (const r of rows) {
+    if (r.source === undefined) unrecorded += 1;
+    else counts.set(r.source, (counts.get(r.source) ?? 0) + 1);
+  }
+  const choices = [["", "All accounts"]];
+  for (const name of [...counts.keys()].sort()) {
+    choices.push([name, `${name} · ${String(counts.get(name))}`]);
+  }
+  if (unrecorded > 0 && counts.size > 0) {
+    choices.push([NOT_RECORDED, `Not recorded (before 0.3) · ${String(unrecorded)}`]);
+  }
+  const key = choices.map(([, text]) => text).join("\n");
   if (select.dataset.key === key) return;
   const wanted = select.value;
-  select.replaceChildren(
-    ...values.map((v) =>
-      option(v, v === "" ? "All accounts" : v === NOT_RECORDED ? "Not recorded (before 0.3)" : v),
-    ),
-  );
+  select.replaceChildren(...choices.map(([value, text]) => option(value, text)));
   select.dataset.key = key;
-  select.value = values.includes(wanted) ? wanted : "";
+  select.value = choices.some(([value]) => value === wanted) ? wanted : "";
+}
+
+/**
+ * Why a mailbox's list is empty when the reason is the list's age: rows made before 0.3 carry no mailbox. Null when another
+ * filter (the text, a tab) is the reason.
+ */
+function accountEmpty(select, rows, needle) {
+  const wanted = select.value;
+  if (needle !== "" || wanted === "" || wanted === NOT_RECORDED) return null;
+  if (rows.some((r) => r.source === wanted)) return null;
+  const unrecorded = rows.filter((r) => r.source === undefined).length;
+  if (unrecorded === 0) return "Nothing was added from this mailbox.";
+  return `Nothing was added from this mailbox since 0.3. ${String(unrecorded)} older ${
+    unrecorded === 1 ? "entry is" : "entries are"
+  } under "Not recorded (before 0.3)": Senderban did not keep the mailbox then.`;
 }
 
 function accountHolds(select, row) {
@@ -228,7 +271,7 @@ const DATE = new Intl.DateTimeFormat(undefined, {
 });
 
 /** One quiet line: the mailbox the block came from (entries before 0.3 have none), where the mail goes, the date. */
-function rowLine(entry) {
+function rowLine(entry, withSource) {
   const words = [];
   const scope = MATCH_WORD[entry.match];
   if (scope !== undefined) words.push(scope);
@@ -244,7 +287,7 @@ function rowLine(entry) {
   const rest = document.createElement("span");
   rest.className = "facts";
   rest.textContent = words.join(" · ");
-  if (entry.source !== undefined) {
+  if (withSource && entry.source !== undefined) {
     const from = document.createElement("span");
     from.className = "source";
     from.textContent = `from ${entry.source}`;
@@ -269,12 +312,12 @@ function rowPills(entry) {
   return pills;
 }
 
-function row(entry, { unblockButton = true } = {}) {
+function row(entry, { unblockButton = true, source = true } = {}) {
   const li = document.createElement("li");
 
   const what = document.createElement("div");
   what.className = "what";
-  what.append(senderValue(entry.value), rowLine(entry));
+  what.append(senderValue(entry.value), rowLine(entry, source));
   li.append(what);
   const pills = rowPills(entry);
   if (pills.length > 0) {
@@ -347,7 +390,8 @@ function render() {
   els.empty.textContent =
     entries.length === 0
       ? "Nothing is blocked yet. Block a sender from the notification that appears with a new mail."
-      : "No blocked sender matches this filter.";
+      : (accountEmpty(els.filterAccount, entries, needle) ??
+        "No blocked sender matches this filter.");
   els.listCap.hidden = matching.length <= shown.length;
   els.listCap.textContent = `Showing the first ${String(VISIBLE_MAX)} of ${String(matching.length)}. Type to narrow the list.`;
 }
@@ -358,40 +402,276 @@ function drawFirstRun() {
   els.homeBody.hidden = firstRun;
 }
 
-/** The Home view: two counts that open their views, and the newest blocks. Drawn from the list and status already held. */
-function drawHome() {
-  els.homeRecentEmpty.hidden = true;
-  if (!entriesLoaded) {
-    els.homeBlockedNum.textContent = "–";
-    els.homeBlockedText.textContent = "senders blocked";
-    els.homeAll.hidden = true;
-    drawHomeAccounts();
-    return;
-  }
-  const recent = entries.slice(-HOME_RECENT).reverse();
-  els.homeRecent.replaceChildren(...recent.map((e) => row(e, { unblockButton: false })));
-  els.homeRecentEmpty.hidden = recent.length > 0;
-  els.homeAll.hidden = entries.length === 0;
-  els.homeBlockedNum.textContent = String(entries.length);
-  els.homeBlockedText.textContent = entries.length === 1 ? "sender blocked" : "senders blocked";
-  drawHomeAccounts();
+// Home, the cockpit: one readout that leads (the count beside its twelve-week trace), three lamps that say whether anything
+// needs a look, the mailboxes on watch and the newest blocks. All of it is drawn from the list and the status the page already
+// holds: no request of its own. Scale: one pass over the list per list change (never per status signal), 12 bars, at most
+// HOME_BOXES mailbox rows and HOME_RECENT block rows.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const SVG_NS = "http://www.w3.org/2000/svg";
+// CSS px. The top band holds a value label; the corner radius below the baseline is cut by the viewport, so a bar is round at
+// the data end and square where it stands.
+const CHART = { height: 76, top: 18, radius: 3, least: 3 };
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
+const LAST_BLOCK = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+// The provider word main adds to a mailbox's name: shown beside the address, not as part of its domain.
+const BOX_TAG = / \((Gmail|Outlook|MXroute)\)$/;
+const SPLIT = [
+  ["Junk", "junk"],
+  ["Trash", "trash"],
+  [AT_SERVER_WORD, "server"],
+];
+
+// How many blocks need a look, counted when the list changes; null until the list was read. The lamps redraw on every status
+// signal and must not walk the list for it.
+let homeLook = null;
+
+function tabCount(id) {
+  const holds = TABS.find((t) => t.id === id)?.holds ?? (() => false);
+  return entries.filter(holds).length;
 }
 
-function drawHomeAccounts() {
+function svgNode(name, attrs) {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+/** Blocks per rolling week, oldest first. The last bucket is the last 7 days: the span the line under the count names. */
+function weekCounts(now) {
+  const counts = new Array(HOME_WEEKS).fill(0);
+  for (const e of entries) {
+    // A clock that ran ahead when the block was made: it counts as now.
+    const age = Math.max(0, Math.floor((now - Date.parse(e.createdAt)) / WEEK_MS));
+    if (age < HOME_WEEKS) counts[HOME_WEEKS - 1 - age] += 1;
+  }
+  return counts;
+}
+
+/** One bar a week. Only the newest week wears the accent; it and the tallest week carry their number, the rest answer the pointer. */
+function drawChart(counts, now) {
+  const peak = Math.max(...counts);
+  const peakAt = counts.lastIndexOf(peak);
+  const newest = HOME_WEEKS - 1;
+  const slot = 100 / HOME_WEEKS;
+  const plot = CHART.height - CHART.top;
+  const columns = counts.map((count, i) => {
+    const from = new Date(now - (HOME_WEEKS - i) * WEEK_MS);
+    const to = new Date(now - (newest - i) * WEEK_MS);
+    const column = svgNode("g", {});
+    const title = svgNode("title", {});
+    title.textContent = `${SHORT_DATE.format(from)} to ${SHORT_DATE.format(to)}: ${String(count)} ${
+      count === 1 ? "block" : "blocks"
+    }`;
+    column.append(
+      title,
+      svgNode("rect", {
+        class: "wk-hit",
+        x: `${String(i * slot)}%`,
+        y: 0,
+        width: `${String(slot)}%`,
+        height: CHART.height,
+      }),
+    );
+    if (count === 0) return column;
+    const tall = Math.max(CHART.least, Math.round((count / peak) * plot));
+    column.append(
+      svgNode("rect", {
+        class: i === newest ? "wk wk-now" : "wk",
+        x: `${String((i + 0.2) * slot)}%`,
+        y: CHART.height - tall,
+        width: `${String(0.6 * slot)}%`,
+        height: tall + CHART.radius,
+        rx: CHART.radius,
+      }),
+    );
+    if (i === newest || i === peakAt) {
+      const label = svgNode("text", {
+        class: "wk-label",
+        x: `${String((i + 0.5) * slot)}%`,
+        y: CHART.height - tall - 5,
+        "text-anchor": "middle",
+      });
+      label.textContent = String(count);
+      column.append(label);
+    }
+    return column;
+  });
+  const base = svgNode("line", {
+    class: "wk-base",
+    x1: 0,
+    x2: "100%",
+    y1: CHART.height - 0.5,
+    y2: CHART.height - 0.5,
+  });
+  els.homeChart.replaceChildren(base, ...columns);
+  // The same numbers as words, for a reader that cannot see the bars.
+  els.homeChart.setAttribute(
+    "aria-label",
+    `Blocks per week for the last ${String(HOME_WEEKS)} weeks, oldest first: ${counts.join(", ")}.`,
+  );
+  els.homeChartFrom.textContent = SHORT_DATE.format(new Date(now - HOME_WEEKS * WEEK_MS));
+}
+
+/** Where the mail of the blocked senders goes, as counts; a part with nothing in it is left out. */
+function drawSplit() {
+  const parts = [];
+  for (const [word, id] of SPLIT) {
+    const count = tabCount(id);
+    if (count === 0) continue;
+    const part = document.createElement("span");
+    part.className = "fact";
+    const num = document.createElement("span");
+    num.className = "data";
+    num.textContent = String(count);
+    part.append(`${word} `, num);
+    parts.push(part);
+  }
+  els.homeSplit.replaceChildren(...parts);
+  els.homeSplit.hidden = parts.length === 0;
+}
+
+function setLamp(text, tone, words) {
+  text.parentElement.dataset.tone = tone;
+  // Written only when it changed: the strip is redrawn on every status signal.
+  if (text.textContent !== words) text.textContent = words;
+}
+
+/** Three lamps, each in words: the watchers, the blocks that need a look, the servers a block has not reached. */
+function drawLamps() {
+  if (homeLook === null) setLamp(els.lampBlocksText, "working", "–");
+  else if (entries.length === 0) setLamp(els.lampBlocksText, "working", "None yet");
+  else {
+    const look = homeLook;
+    if (look === 0) setLamp(els.lampBlocksText, "ok", "Nothing to check");
+    else {
+      setLamp(
+        els.lampBlocksText,
+        "warn",
+        `${String(look)} ${look === 1 ? "needs" : "need"} a look`,
+      );
+    }
+  }
   if (watch === null) {
-    // Status not read (yet): the tile still has a name.
-    els.homeAccountsNum.textContent = "–";
-    els.homeAccountsText.textContent = "mailboxes";
+    setLamp(els.lampWatchText, "working", "–");
+    setLamp(els.lampSyncText, "working", "–");
     return;
   }
   const total = watch.accounts.length;
   const running = watch.accounts.filter((a) => a.state === "watching").length;
-  // The same words as the side bar ("Watching 2 of 3").
-  els.homeAccountsNum.textContent =
-    running === total ? String(total) : `${String(running)} of ${String(total)}`;
-  els.homeAccountsText.textContent = watch.paused
-    ? "mailboxes, paused"
-    : `${total === 1 ? "mailbox" : "mailboxes"} watched`;
+  // The same words as the side bar.
+  if (total === 0) setLamp(els.lampWatchText, "working", "No mailbox yet");
+  else if (watch.paused) setLamp(els.lampWatchText, "warn", "Paused");
+  else if (running < total) {
+    setLamp(els.lampWatchText, "warn", `${String(running)} of ${String(total)} watching`);
+  } else
+    setLamp(els.lampWatchText, "ok", total === 1 ? "Watching" : `All ${String(total)} watching`);
+  const behind = watch.behind.length;
+  if (total === 0) setLamp(els.lampSyncText, "working", "No mailbox yet");
+  else if (behind === 0) setLamp(els.lampSyncText, "ok", "Up to date");
+  else {
+    setLamp(
+      els.lampSyncText,
+      "warn",
+      `${String(behind)} ${behind === 1 ? "mailbox" : "mailboxes"} behind`,
+    );
+  }
+}
+
+function boxRow(account) {
+  const li = document.createElement("li");
+  const what = document.createElement("div");
+  what.className = "what";
+  // Under the address, as on a block's row: the watcher word, then the provider word.
+  const line = document.createElement("div");
+  line.className = "meta line";
+  line.append(stateBadge(account.accountId));
+  if (typeof account.label === "string") {
+    const tag = BOX_TAG.exec(account.label);
+    const name = senderValue(tag === null ? account.label : account.label.slice(0, tag.index));
+    name.title = account.label;
+    what.append(name);
+    if (tag !== null) line.append(` · ${tag[1]}`);
+  } else {
+    // Added, and waiting for the restart that starts its watcher: main has no name for it yet.
+    const name = document.createElement("div");
+    name.textContent = "New mailbox";
+    what.append(name);
+  }
+  what.append(line);
+  li.append(what);
+  return li;
+}
+
+/** The mailboxes and their watcher words. Rows are rebuilt only when the set changes; the words follow by themselves (`drawStates`). */
+function drawBoxes() {
+  if (watch === null) return;
+  const accounts = watch.accounts;
+  const key = accounts.map((a) => `${a.accountId}\n${a.label ?? ""}`).join("\n\n");
+  if (els.homeBoxes.dataset.key !== key || els.homeBoxes.childElementCount === 0) {
+    els.homeBoxes.dataset.key = key;
+    els.homeBoxes.replaceChildren(...accounts.slice(0, HOME_BOXES).map(boxRow));
+  }
+  const more = accounts.length - HOME_BOXES;
+  els.homeBoxesMore.hidden = more <= 0;
+  els.homeBoxesMore.textContent = `And ${String(more)} more in Accounts.`;
+  els.homeBoxesEmpty.hidden = accounts.length > 0;
+}
+
+/** The part of Home that follows the block list: the count, its trace, where the mail goes, the newest blocks. */
+function drawHome() {
+  els.homeRecentEmpty.hidden = true;
+  homeLook = entriesLoaded ? tabCount("not") : null;
+  drawLamps();
+  if (!entriesLoaded) {
+    // Not "0": that would be a claim about a list that was not read.
+    els.homeBlockedNum.textContent = "–";
+    els.homeWeek.textContent = "";
+    els.homeTrace.hidden = true;
+    els.homeSplit.hidden = true;
+    els.homeAll.hidden = true;
+    return;
+  }
+  const now = Date.now();
+  const counts = weekCounts(now);
+  const total = entries.length;
+  const week = counts[HOME_WEEKS - 1];
+  const traced = counts.some((count) => count > 0);
+  els.homeBlockedLabel.textContent = total === 1 ? "Sender blocked" : "Senders blocked";
+  els.homeBlockedNum.textContent = String(total);
+  els.homeWeek.textContent =
+    total === 0
+      ? "Block a sender from the notification that appears with a new mail."
+      : week > 0
+        ? `${String(week)} in the last 7 days`
+        : traced
+          ? "None in the last 7 days"
+          : `None in the last ${String(HOME_WEEKS)} weeks`;
+  els.homeTrace.hidden = !traced;
+  if (traced) drawChart(counts, now);
+  drawSplit();
+  const recent = entries.slice(-HOME_RECENT).reverse();
+  // Without the mailbox it came from: the list has it, and here the line stays whole in a narrow column.
+  els.homeRecent.replaceChildren(
+    ...recent.map((e) => row(e, { unblockButton: false, source: false })),
+  );
+  els.homeRecentEmpty.hidden = recent.length > 0;
+  els.homeAll.hidden = total === 0;
+  if (view === "home") {
+    // The store keeps the list oldest first: the last entry is the newest block.
+    els.count.textContent =
+      total === 0 ? "" : `Last block ${LAST_BLOCK.format(new Date(entries[total - 1].createdAt))}`;
+  }
+}
+
+/** The part of Home that follows the status: the lamps and the mailboxes. Runs on every status signal, so it reads no list. */
+function drawHomeWatch() {
+  drawLamps();
+  drawBoxes();
 }
 
 /**
@@ -469,7 +749,9 @@ function drawWatch() {
   // A link to a payment page is left out of the Store build until the Store's rules on it are read.
   els.navSponsor.hidden = watch.storeManaged === true;
   drawStates();
-  drawHome();
+  drawHomeWatch();
+  // A mailbox that came or went changes what the list's account choice offers; the rows stay as they are.
+  accountChoices(els.filterAccount, entries);
   // Not the whole list: this runs on every status signal, and a rebuild would take focus off the row being used.
   drawFirstRun();
 }
@@ -552,14 +834,23 @@ els.filterAccount.addEventListener("change", render);
 els.navHome.addEventListener("click", () => {
   showView("home");
 });
-els.homeAccounts.addEventListener("click", () => {
-  showView("accounts");
+// A lamp opens the view that holds what it reports. The control that was clicked hides with Home, so the title takes the focus.
+els.lampWatch.addEventListener("click", () => {
+  showView("accounts", { focusTitle: true });
 });
-els.homeBlocked.addEventListener("click", () => {
-  showView("blocked");
+els.lampSync.addEventListener("click", () => {
+  showView("accounts", { focusTitle: true });
+});
+els.lampBlocks.addEventListener("click", () => {
+  tab = homeLook !== null && homeLook > 0 ? "not" : "all";
+  showView("blocked", { focusTitle: true });
+});
+els.homeManage.addEventListener("click", () => {
+  showView("accounts", { focusTitle: true });
 });
 els.homeAll.addEventListener("click", () => {
-  showView("blocked");
+  tab = "all";
+  showView("blocked", { focusTitle: true });
 });
 // Opens the maintainer's GitHub Sponsors page; main owns the address (core HELP_LINKS), the page sends one word.
 els.navSponsor.addEventListener("click", () => {

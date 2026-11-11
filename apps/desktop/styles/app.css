@@ -453,6 +453,7 @@
     overflow: hidden;
     white-space: nowrap;
     font-family: var(--font-data);
+    align-items: baseline;
   }
   /* The local part gives way first: the domain is what a look-alike has to change, so it stays whole. */
   .value .local {
@@ -575,33 +576,174 @@
     min-width: 0;
   }
 
-  /* Home: two counts that open their views, and the newest blocks in a card. */
+  /*
+   * Home, the cockpit. One readout leads: the count in the data face at instrument size, beside its twelve-week trace. Under it
+   * three lamps say in words whether anything needs a look, then the mailboxes on watch and the newest blocks.
+   * Tint only: nothing here is blurred. The newest week is the one accent on the page; every other bar is neutral.
+   */
   .home {
     display: flex;
     flex-direction: column;
     gap: 12px;
   }
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
+  .eyebrow {
+    color: var(--muted);
+    font: 600 var(--text-xs) / 1.3 var(--font-ui);
   }
-  /* A tinted tile, but a control: its edge is the control border (SC 1.4.11), and hover shows like any button's. */
-  button.stat {
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(220px, auto) minmax(0, 1fr);
+    gap: 14px 32px;
+    padding: 16px 20px;
+  }
+  .readout {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .hero-num {
+    font: 300 var(--text-hero) / 0.95 var(--font-data);
+    letter-spacing: -0.04em;
+  }
+  .trace {
+    justify-self: end;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    max-width: 380px;
+    min-width: 0;
+  }
+  .trace-head,
+  .trace-axis {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  svg.chart {
+    width: 100%;
+    height: 76px;
+    stroke: none;
+  }
+  .chart .wk {
+    fill: var(--control-border);
+  }
+  .chart .wk-now {
+    fill: var(--accent);
+  }
+  .chart g:hover .wk {
+    fill: var(--fg);
+  }
+  /* The whole column answers the pointer, not only the bar. */
+  .chart .wk-hit {
+    pointer-events: all;
+  }
+  .chart .wk-base {
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+  .chart .wk-label {
+    fill: var(--muted);
+    font: var(--text-xs) / 1 var(--font-data);
+  }
+  /* Where the mail of the blocked senders goes: the count above, in parts. */
+  .split {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    font-size: var(--text-xs);
+  }
+  .fact .data {
+    font-weight: 700;
+  }
+
+  /* The lamps: one strip, three cells. Each is a control without an edge of its own, like a menu item; its words carry the state. */
+  .lamps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: var(--tint-card);
+  }
+  .lamp {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
-    padding: 14px 16px;
-    border-radius: var(--radius-card);
-    background: var(--tint-card);
+    gap: 4px;
+    min-height: 56px;
+    padding: 9px 14px;
+    border: 0;
+    border-left: 1px solid var(--line);
+    border-radius: 0;
+    background: none;
     text-align: left;
   }
-  button.stat:hover:not(:disabled) {
+  .lamp:first-child {
+    border-left: 0;
+    border-radius: calc(var(--radius-card) - 1px) 0 0 calc(var(--radius-card) - 1px);
+  }
+  .lamp:last-child {
+    border-radius: 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px) 0;
+  }
+  .lamp:hover:not(:disabled) {
+    border-color: var(--line);
     background: var(--tint-hover);
   }
-  .stat-num {
-    font: 600 var(--text-xl) / 1.2 var(--font-data);
+  .lamp-value {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding-left: 3px;
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+  /* The lamp in its housing: a flat ring in the state's own colour, no glow. */
+  .lamp-value .dot {
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+  }
+
+  .home-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    align-items: start;
+    gap: 12px;
+  }
+  .home-cols .what {
+    flex-basis: 120px;
+  }
+  .home-cols .list > li {
+    flex-wrap: nowrap;
+    padding: 6px 14px;
+  }
+  .home-cols .card-head {
+    padding-block: 10px;
+  }
+  /* A mailbox row's second line: the watcher word first, at the left like the rest of the line. */
+  .home-cols .state {
+    min-width: 0;
+    text-align: left;
+  }
+  .home-cols .line {
+    column-gap: 0;
+    white-space: pre;
+  }
+  @media (max-width: 760px) {
+    .hero,
+    .home-cols {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .hero-num {
+      font-size: 48px;
+    }
+    .trace {
+      max-width: none;
+    }
+    .lamp-value {
+      font-size: var(--text-sm);
+    }
   }
   .list.flush {
     border: 0;
@@ -796,6 +938,18 @@
   }
   .dot {
     background: CanvasText;
+  }
+  .chart .wk {
+    fill: CanvasText;
+  }
+  .chart .wk-now {
+    fill: Highlight;
+  }
+  .chart .wk-label {
+    fill: CanvasText;
+  }
+  .chart .wk-base {
+    stroke: CanvasText;
   }
   .nav[aria-current="page"],
   .tab[aria-pressed="true"],

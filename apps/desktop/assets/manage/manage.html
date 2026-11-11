@@ -135,27 +135,72 @@
             <button type="button" id="first-add" class="primary">Add mailbox</button>
           </div>
           <div id="home-body" class="home">
-            <div class="stats">
-              <button type="button" id="home-accounts" class="stat">
-                <span id="home-accounts-num" class="stat-num"></span>
-                <span id="home-accounts-text" class="meta"></span>
+            <section class="card hero" aria-labelledby="home-blocked-label">
+              <div class="readout">
+                <h2 id="home-blocked-label" class="eyebrow">Senders blocked</h2>
+                <p id="home-blocked-num" class="hero-num"></p>
+                <p id="home-week" class="meta"></p>
+                <p id="home-split" class="split" aria-label="Where their mail goes" hidden></p>
+              </div>
+              <div id="home-trace" class="trace" hidden>
+                <div class="trace-head">
+                  <h2 class="eyebrow">Blocks per week</h2>
+                  <span class="meta">last 12 weeks</span>
+                </div>
+                <svg id="home-chart" class="chart" role="img"></svg>
+                <div class="trace-axis meta data" aria-hidden="true">
+                  <span id="home-chart-from"></span>
+                  <span>Last 7 days</span>
+                </div>
+              </div>
+            </section>
+            <div class="lamps" role="group" aria-label="Status">
+              <button type="button" id="lamp-watch" class="lamp">
+                <span class="eyebrow">Watch</span>
+                <span class="lamp-value">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span id="lamp-watch-text"></span>
+                </span>
               </button>
-              <button type="button" id="home-blocked" class="stat">
-                <span id="home-blocked-num" class="stat-num"></span>
-                <span id="home-blocked-text" class="meta"></span>
+              <button type="button" id="lamp-blocks" class="lamp">
+                <span class="eyebrow">Blocks</span>
+                <span class="lamp-value">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span id="lamp-blocks-text"></span>
+                </span>
+              </button>
+              <button type="button" id="lamp-sync" class="lamp">
+                <span class="eyebrow">Servers</span>
+                <span class="lamp-value">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span id="lamp-sync-text"></span>
+                </span>
               </button>
             </div>
-            <section class="card recent" aria-labelledby="home-recent-title">
-              <div class="card-head">
-                <h2 id="home-recent-title" class="grow">Recently blocked</h2>
-                <button type="button" id="home-all" class="small">See all</button>
-              </div>
-              <ul id="home-recent" class="list flush" aria-labelledby="home-recent-title"></ul>
-              <p id="home-recent-empty" class="meta card-body" hidden>
-                Nothing is blocked yet. Block a sender from the notification that appears with a new
-                mail.
-              </p>
-            </section>
+            <div class="home-cols">
+              <section class="card" aria-labelledby="home-boxes-title">
+                <div class="card-head">
+                  <h2 id="home-boxes-title" class="grow">Mailboxes</h2>
+                  <button type="button" id="home-manage" class="small">Manage</button>
+                </div>
+                <ul id="home-boxes" class="list flush" aria-labelledby="home-boxes-title"></ul>
+                <p id="home-boxes-more" class="meta card-body" hidden></p>
+                <p id="home-boxes-empty" class="meta card-body" hidden>
+                  No mailbox is set up. Add one in Accounts.
+                </p>
+              </section>
+              <section class="card recent" aria-labelledby="home-recent-title">
+                <div class="card-head">
+                  <h2 id="home-recent-title" class="grow">Recently blocked</h2>
+                  <button type="button" id="home-all" class="small">See all</button>
+                </div>
+                <ul id="home-recent" class="list flush" aria-labelledby="home-recent-title"></ul>
+                <p id="home-recent-empty" class="meta card-body" hidden>
+                  Nothing is blocked yet. Block a sender from the notification that appears with a
+                  new mail.
+                </p>
+              </section>
+            </div>
           </div>
         </section>
 

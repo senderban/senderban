@@ -136,6 +136,8 @@ export interface WatchStatus {
   readonly accounts: readonly {
     readonly accountId: string;
     readonly state: string | null;
+    /** The name a block made from this mailbox keeps as its source; null until its watcher exists (added, restart due). */
+    readonly label: string | null;
   }[];
 }
 
