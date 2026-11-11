@@ -1,3 +1,9 @@
+/* Until this file goes (plan step 3): the names it used before the sea-glass tokens. */
+:root {
+  --heading: var(--accent);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-card);
+}
 * {
   box-sizing: border-box;
 }

@@ -332,7 +332,8 @@ export class ManageWindow {
       title: "Senderban",
       icon: join(this.#assets, "icon.ico"),
       autoHideMenuBar: true,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#07182b" : "#f4f8fb",
+      // --water-base in assets/tokens.css: the first frame matches the backdrop, no flash.
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#051322" : "#e3edf6",
       webPreferences: {
         preload: join(this.#assets, "manage/preload.cjs"),
         sandbox: true,

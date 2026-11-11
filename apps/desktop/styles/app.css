@@ -1,26 +1,82 @@
 /*
- * Tailwind v4 entry for the manage window (tailwindcss 4.3.5, measured 2026-11-10). Built by `npm run build` into
- * assets/manage/app.css, a local file, so the window's CSP (`style-src 'self'`) holds; nothing loads from a CDN.
- * Colours stay in assets/tokens.css (contrast measured there); the theme below only names them for utilities.
- * Only the window's own markup and scripts are scanned.
+ * Tailwind v4 entry for the manage window, built by `npm run build` into assets/manage/app.css, a local file,
+ * so the window's CSP (`style-src 'self'`) holds; nothing loads from a CDN.
+ * Compiled on tailwindcss 4.3.5 (2026-11-10): the @theme names, the three @utility recipes and the
+ * custom variant below build, and `pane`, `card`, `focus-ring`, `font-data`, `bg-glass-1`,
+ * `rounded-pane`, `glass-off:` come out as classes.
+ * Colours stay in assets/tokens.css; this file only names them for utilities.
  */
 @import "tailwindcss" source(none);
 @source "../assets/manage";
 
 @theme inline {
+  --color-*: initial;
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
-  --color-line: var(--line);
-  --color-control-border: var(--control-border);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
-  --color-heading: var(--heading);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-error: var(--error);
-  --radius-sm: var(--radius-sm);
-  --radius-md: var(--radius-md);
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --color-line: var(--line);
+  --color-control-border: var(--control-border);
+  --color-glass-1: var(--glass-1);
+  --color-glass-2: var(--glass-2);
+  --color-glass-3: var(--glass-3);
+  --color-tint-card: var(--tint-card);
+  --color-tint-active: var(--tint-active);
+  --color-tint-hover: var(--tint-hover);
+  --color-field: var(--field);
+  --color-glass-edge: var(--glass-edge);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --radius-*: initial;
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-pane: var(--radius-pane);
+  --radius-full: 9999px;
+
+  --font-sans: var(--font-ui);
+  --font-display: var(--font-display);
+  --font-data: var(--font-data);
+
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-md: var(--text-md);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+
+  --ease-glass: var(--ease);
+}
+
+/* The one blurred surface. Add a fill: `pane bg-glass-1`. Three per window at most. */
+@utility pane {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-pane);
+  box-shadow:
+    inset 0 1px 0 var(--glass-shine),
+    var(--shadow-pane);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+/* Tint only, never blurred: it sits on a pane that already is. */
+@utility card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--tint-card);
+}
+/* Two-colour focus ring (WCAG C40). Put it on every focusable element's focus-visible state. */
+@utility focus-ring {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+/* Rarely needed: the tokens already turn opaque. For layout that only makes sense with glass. */
+@custom-variant glass-off {
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+    @slot;
+  }
 }

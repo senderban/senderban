@@ -1,42 +1,131 @@
 /*
- * Design tokens: the one place colours are defined. Every page links this file before its own
- * stylesheet. Palette: deep sea blue, one accent. Contrast (WCAG 2.2, measured 2026-10-25 with the
- * relative-luminance formula): on --bg and on --surface, text (fg, muted, accent, ok, warn, error) is
- * >= 4.5:1 in both themes (lowest: ok 5.02 light, error 6.79 dark); --control-border >= 3:1 (lowest
- * 3.61); --accent-fg on --accent 7.21 light / 9.04 dark. --line is a divider only and must not be the
- * sole edge of a control (SC 1.4.11). --heading (card titles, on --surface only): 4.56 light / 5.91 dark,
- * measured 2026-10-31.
+ * Senderban design tokens, "sea glass" (2026-11-10).
+ * The one place colours, glass, radius, type and motion are defined. Every page links this file first.
+ *
+ * Model: a still water backdrop (--water-*), frosted panes on it (--glass-*), untinted text on the panes.
+ * Contrast is measured on the WORST composite of pane over backdrop, not on a flat colour:
+ *   node .claude/skills/ui-design/tools/contrast.mjs <this file>
+ * The numbers live in the ui-design skill, section 4. Change a value here, run the tool, update the skill.
  */
 :root {
   color-scheme: light dark;
+
+  /* Opaque pair: what the window falls back to (reduced transparency, more contrast, forced colours). */
   --bg: #f4f8fb;
   --surface: #ffffff;
+
+  /* Text and state. Never tinted, never translucent. */
   --fg: #0b2239;
-  --muted: #4d6379;
-  --line: #d9e3ec;
-  --control-border: #6f8499;
+  --muted: #465b70;
   --accent: #0a5c8a;
-  --heading: #0a6cff;
   --accent-fg: #ffffff;
-  --ok: #0f7a4f;
-  --warn: #8a5a00;
-  --error: #b42318;
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --ok: #0b6b44;
+  --warn: #7a4f00;
+  --error: #a81f15;
+
+  /* Edges. --line divides; it is never the only edge of a control (SC 1.4.11). */
+  --line: rgb(11 34 57 / 0.12);
+  --control-border: #5d7287;
+
+  /* Water: the backdrop. Four stops; a blur can only mix them, so they bound every pixel behind a pane. */
+  --water-base: #e3edf6;
+  --water-1: #9cc6f3;
+  --water-2: #a6e0ec;
+  --water-3: #d3e0f0;
+
+  /* Glass: pane fills. 1 = navigation pane, 2 = content sheet, 3 = anything that may sit over text. */
+  --glass-1: rgb(255 255 255 / 0.62);
+  --glass-2: rgb(255 255 255 / 0.78);
+  --glass-3: rgb(255 255 255 / 0.92);
+  --tint-card: rgb(255 255 255 / 0.55);
+  --tint-active: rgb(255 255 255 / 0.72);
+  --tint-hover: rgb(11 34 57 / 0.06);
+  --field: rgb(255 255 255 / 0.86);
+  --glass-edge: rgb(11 34 57 / 0.1);
+  --glass-shine: rgb(255 255 255 / 0.85);
+  --glass-blur: 24px;
+  --glass-saturate: 1.2;
+  --shadow-pane: 0 1px 2px rgb(7 24 43 / 0.06), 0 12px 32px rgb(7 24 43 / 0.1);
+
+  /* Shape. Concentric: an inner radius is the outer one minus the gap between them. */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-pane: 16px;
+  --gutter: 8px;
+
+  /* Type. System faces only: no font file ships, the CSP has no font-src. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-data: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+
+  /* Motion: state changes only. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
 }
+
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #07182b;
     --surface: #0c2540;
     --fg: #e4eef7;
-    --muted: #93aac0;
-    --line: #1b3956;
-    --control-border: #5f7d9a;
-    --accent: #4cc2e6;
-    --heading: #4da3ff;
+    --muted: #9db3c8;
+    --accent: #5fcbec;
     --accent-fg: #04141f;
-    --ok: #3ecf9a;
-    --warn: #e3b04b;
-    --error: #ff8a80;
+    --ok: #4ad6a3;
+    --warn: #e8b955;
+    --error: #ff948b;
+    --line: rgb(228 238 247 / 0.12);
+    --control-border: #7f9bb6;
+    --water-base: #051322;
+    --water-1: #0c3a6b;
+    --water-2: #0a4d60;
+    --water-3: #071d36;
+    --glass-1: rgb(8 26 46 / 0.58);
+    --glass-2: rgb(9 30 52 / 0.72);
+    --glass-3: rgb(10 32 56 / 0.92);
+    --tint-card: rgb(255 255 255 / 0.045);
+    --tint-active: rgb(255 255 255 / 0.1);
+    --tint-hover: rgb(255 255 255 / 0.06);
+    --field: rgb(4 16 30 / 0.55);
+    --glass-edge: rgb(0 0 0 / 0.4);
+    --glass-shine: rgb(255 255 255 / 0.12);
+    --shadow-pane: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.35);
+  }
+}
+
+/*
+ * The three fallbacks. Each turns glass into the opaque pair; nothing else in the app has to know.
+ * Windows: Settings > Personalization > Colors > Transparency effects (off) sets the first one.
+ */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --water-base: var(--bg);
+    --water-1: var(--bg);
+    --water-2: var(--bg);
+    --water-3: var(--bg);
+    --glass-1: var(--bg);
+    --glass-2: var(--surface);
+    --glass-3: var(--surface);
+    --tint-card: var(--surface);
+    --tint-active: var(--surface);
+    --field: var(--surface);
+    --glass-blur: 0px;
+    --glass-saturate: 1;
+    --glass-shine: transparent;
+    --shadow-pane: 0 0 0 transparent;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --muted: var(--fg);
+    --control-border: var(--fg);
+    --line: var(--fg);
+    --glass-edge: var(--fg);
   }
 }
