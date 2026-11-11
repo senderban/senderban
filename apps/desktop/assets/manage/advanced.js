@@ -159,6 +159,7 @@ function keyBlock(key) {
 // One form, under the keys: saving for a login that already has a key replaces it.
 function keyForm() {
   const form = document.createElement("form");
+  form.className = "form";
   form.autocomplete = "off";
   const server = textInput(mxLimits.server);
   server.placeholder = "e.g. eagle.mxlogin.com";

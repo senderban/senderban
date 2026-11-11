@@ -9,29 +9,46 @@
     <title>Senderban</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="app.css" />
-    <link rel="stylesheet" href="manage.css" />
   </head>
   <body>
     <div class="app">
-      <aside>
+      <aside class="pane sidebar">
         <div class="brand">
-          <img class="icon" src="../icon.png" alt="" width="20" height="20" />
+          <img src="../icon.png" alt="" width="20" height="20" />
           <span>Senderban</span>
         </div>
         <nav aria-label="Main">
           <button type="button" id="nav-blocked" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.75" />
+              <path d="m4 12 8-8" />
+            </svg>
             <span>Blocked senders</span>
             <span id="nav-blocked-count" class="count"></span>
           </button>
           <button type="button" id="nav-accounts" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" />
+              <path d="M2.25 5 8 9l5.75-4" />
+            </svg>
             <span>Accounts</span>
             <span id="nav-accounts-count" class="count"></span>
           </button>
           <button type="button" id="nav-quiet" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.5 11.25V7a3.5 3.5 0 0 1 5.6-2.8M11.5 7.5v3.75l1 1.25h-9" />
+              <path d="M6.75 13.75h2.5M2.5 2.5l11 11" />
+            </svg>
             <span>Don't ask again</span>
             <span id="nav-quiet-count" class="count"></span>
           </button>
           <button type="button" id="nav-settings" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.5 4.5h6M11.5 4.5h2M2.5 8h2M7.5 8h6M2.5 11.5h7M12.5 11.5h1" />
+              <circle cx="10" cy="4.5" r="1.5" />
+              <circle cx="6" cy="8" r="1.5" />
+              <circle cx="11" cy="11.5" r="1.5" />
+            </svg>
             <span>Settings</span>
           </button>
         </nav>
@@ -40,13 +57,15 @@
             <span class="dot" aria-hidden="true"></span>
             <span id="health-text"></span>
           </p>
-          <button type="button" id="pause" class="small" hidden></button>
-          <span id="version" class="meta"></span>
+          <div class="health-foot">
+            <button type="button" id="pause" class="small" hidden></button>
+            <span id="version" class="meta data"></span>
+          </div>
         </div>
       </aside>
 
-      <main>
-        <header>
+      <main class="pane sheet">
+        <header class="sheet-head">
           <h1 id="title" tabindex="-1"></h1>
           <span id="count" class="muted"></span>
           <button type="button" id="go-add" class="primary" hidden>Add mailbox</button>
@@ -82,7 +101,7 @@
             </ol>
             <button type="button" id="first-add" class="primary">Add mailbox</button>
           </div>
-          <div id="list-section">
+          <div id="list-section" class="list-section">
             <input
               id="filter"
               type="search"
@@ -93,7 +112,7 @@
             />
             <div id="tabs" class="tabs" role="group" aria-label="Show"></div>
             <p id="behind" class="status" data-tone="warn" role="status" hidden></p>
-            <ul id="list" aria-label="Blocked senders"></ul>
+            <ul id="list" class="list" aria-label="Blocked senders"></ul>
             <p id="empty" class="muted" hidden></p>
             <p id="list-cap" class="meta" data-tone="warn" hidden></p>
             <p id="status" class="status" role="status" hidden></p>
@@ -179,27 +198,33 @@
               <h2 id="settings-notifications">Notifications</h2>
             </div>
             <div class="setting">
-              <div class="setting-text">
-                <span id="action-label">Default action</span>
-                <span class="meta">
-                  Where a whole domain goes when you press Block on a notification. Junk and Trash
-                  each have a button of their own there. Gmail always moves to Trash.
-                </span>
-              </div>
-              <div id="setting-action" class="choices" role="group" aria-labelledby="action-label">
-                <button type="button" data-value="junk">Move to Junk</button>
-                <button type="button" data-value="trash">Move to Trash</button>
-              </div>
               <div class="setting-row">
                 <div class="setting-text">
                   <label for="setting-server">Block at server when the mailbox can</label>
                   <span class="meta">
-                    Adds a red Block button to notifications where the server can refuse the sender.
+                    Adds a Block button to notifications where the server can refuse the sender.
                     Refused mail leaves no copy to recover.
                   </span>
                 </div>
-                <span id="setting-server-text" class="meta"></span>
+                <span id="setting-server-text" class="state"></span>
                 <input id="setting-server" type="checkbox" role="switch" />
+              </div>
+              <div id="setting-action-row" class="setting-sub" hidden>
+                <div class="setting-text">
+                  <span id="action-label">When Block is used on a whole domain</span>
+                  <span class="meta">
+                    The server refuses single senders only, so a domain's mail is moved instead.
+                  </span>
+                </div>
+                <div
+                  id="setting-action"
+                  class="choices"
+                  role="group"
+                  aria-labelledby="action-label"
+                >
+                  <button type="button" data-value="junk">Move to Junk</button>
+                  <button type="button" data-value="trash">Move to Trash</button>
+                </div>
               </div>
             </div>
             <div class="setting">
@@ -210,7 +235,7 @@
                     Shows a notification when a block works. Warnings and failures always show.
                   </span>
                 </div>
-                <span id="setting-confirm-text" class="meta"></span>
+                <span id="setting-confirm-text" class="state"></span>
                 <input id="setting-confirm" type="checkbox" role="switch" />
               </div>
             </div>
@@ -242,7 +267,7 @@
             No notification for these senders. Their mail is left alone, and nothing is written to
             your mailbox.
           </p>
-          <div id="quiet-section">
+          <div id="quiet-section" class="list-section">
             <input
               id="quiet-filter"
               type="search"
@@ -252,7 +277,7 @@
               spellcheck="false"
               hidden
             />
-            <ul id="quiet-list" aria-label="Don't ask again"></ul>
+            <ul id="quiet-list" class="list" aria-label="Don't ask again"></ul>
             <p id="quiet-empty" class="muted" hidden></p>
             <p id="quiet-cap" class="meta" data-tone="warn" hidden></p>
             <p id="quiet-status" class="status" role="status" hidden></p>
@@ -260,7 +285,7 @@
         </section>
 
         <section id="view-add" class="view narrow" hidden>
-          <form id="detect-form" autocomplete="off">
+          <form id="detect-form" class="form" autocomplete="off">
             <div class="field">
               <label for="detect-address">Mail address</label>
               <input
@@ -282,7 +307,7 @@
             </div>
           </form>
 
-          <div class="tabs" role="group" aria-label="Provider">
+          <div class="tabs tabs-lg" role="group" aria-label="Provider">
             <button type="button" id="provider-mx" class="tab">Mail server</button>
             <button type="button" id="provider-gmail" class="tab">Gmail</button>
             <button type="button" id="provider-microsoft" class="tab">Microsoft</button>
@@ -295,7 +320,7 @@
               encrypted on this device. The address's mail domain then counts as your own: Senderban
               will not block that domain, and blocks already on your list for it stop applying.
             </p>
-            <form id="account-form" autocomplete="off">
+            <form id="account-form" class="form" autocomplete="off">
               <div class="field">
                 <label for="account-provider">Provider</label>
                 <select id="account-provider">
@@ -364,7 +389,7 @@
               At the next start Senderban also moves the last 30 days of mail from everyone on your
               block list out of this inbox, to Junk or Trash as each entry says.
             </p>
-            <form id="clean-form" autocomplete="off">
+            <form id="clean-form" class="form" autocomplete="off">
               <div class="field">
                 <label for="clean-address">Mail address</label>
                 <input
@@ -433,7 +458,7 @@
                 and secret here. The secret is stored encrypted on this device.
               </p>
               <p id="google-client-state" class="muted"></p>
-              <form id="google-client-form" autocomplete="off">
+              <form id="google-client-form" class="form" autocomplete="off">
                 <div class="field">
                   <label for="google-client-id">Client ID</label>
                   <input

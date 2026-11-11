@@ -3,6 +3,7 @@
 const stApi = window.senderban;
 const stEls = {
   action: document.getElementById("setting-action"),
+  actionRow: document.getElementById("setting-action-row"),
   duration: document.getElementById("setting-duration"),
   server: document.getElementById("setting-server"),
   serverText: document.getElementById("setting-server-text"),
@@ -33,6 +34,8 @@ function stDraw() {
   stDrawChoices(stEls.duration, stWanted.toastDuration);
   stEls.server.checked = stWanted.preferServerBlock;
   stEls.serverText.textContent = stWanted.preferServerBlock ? "On" : "Off";
+  // The domain fallback only matters while Block is offered (toast.ts missingNote / parseActivation).
+  stEls.actionRow.hidden = !stWanted.preferServerBlock;
   stEls.confirm.checked = stWanted.confirmBlocks;
   stEls.confirmText.textContent = stWanted.confirmBlocks ? "On" : "Off";
 }
