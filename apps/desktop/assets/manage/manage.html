@@ -51,6 +51,14 @@
             </svg>
             <span>Settings</span>
           </button>
+          <button type="button" id="nav-help" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.75" />
+              <path d="M6.25 6.5a1.75 1.75 0 1 1 2.5 1.6c-.5.25-.75.6-.75 1.15v.25" />
+              <path d="M8 11.5h.01" />
+            </svg>
+            <span>Help</span>
+          </button>
         </nav>
         <div class="health">
           <p id="health" class="health-line" role="status">
@@ -260,6 +268,71 @@
             </div>
           </section>
           <p id="settings-status" class="status" role="status" hidden></p>
+        </section>
+
+        <section id="view-help" class="view narrow" hidden>
+          <section class="card" aria-labelledby="help-get">
+            <div class="card-head">
+              <h2 id="help-get">Get help</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Report a problem or ask a question</span>
+                  <span class="meta">
+                    Opens a new issue on GitHub. Issues are public, so leave out mail addresses and
+                    passwords.
+                  </span>
+                </div>
+                <button type="button" class="small" data-help="issues">Open GitHub</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Report a security problem</span>
+                  <span class="meta">Private: only you and the maintainers see it.</span>
+                </div>
+                <button type="button" class="small" data-help="security">Report privately</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Log files</span>
+                  <span class="meta">
+                    Attach the newest one to an issue if you are asked. It holds no passwords and no
+                    mail content, but it can name mail domains, so read it first.
+                  </span>
+                </div>
+                <button type="button" class="small" data-help="logs">Open folder</button>
+              </div>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="help-about">
+            <div class="card-head">
+              <h2 id="help-about">About</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>Senderban <span id="help-version" class="data"></span></span>
+                  <span class="meta">Free and open source. What changed in each version.</span>
+                </div>
+                <button type="button" class="small" data-help="releases">Release notes</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span>senderban.com</span>
+                  <span class="meta">The project's website, with setup guides.</span>
+                </div>
+                <button type="button" class="small" data-help="website">Open website</button>
+              </div>
+            </div>
+          </section>
+          <p id="help-status" class="status" role="status" hidden></p>
         </section>
 
         <section id="view-quiet" class="view" hidden>
@@ -519,5 +592,6 @@
     <script src="settings.js"></script>
     <script src="spam-filter.js"></script>
     <script src="quiet.js"></script>
+    <script src="help.js"></script>
   </body>
 </html>

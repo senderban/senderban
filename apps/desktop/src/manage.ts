@@ -22,6 +22,7 @@ import {
   isVouchedServer,
   SettingsSchema,
   WatchPausedSchema,
+  HelpTargetSchema,
   formServer,
   isEntryId,
   SpamFilterRequestSchema,
@@ -32,6 +33,7 @@ import type {
   CleanAddInput,
   Detection,
   GoogleClientInput,
+  HelpTarget,
   MxrouteEnableInput,
   MxrouteInput,
   MxrouteKeyRef,
@@ -212,6 +214,8 @@ export interface ManageHandlers {
   readonly settings: () => Settings;
   /** Writes the choices to disk; they apply from then on. The input has already passed the core schema. */
   readonly saveSettings: (next: Settings) => Promise<void>;
+  /** Opens one fixed Help address in the browser, or the log folder. The input has already passed the core schema. */
+  readonly openHelp: (target: HelpTarget) => Promise<void>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
 }
@@ -299,6 +303,7 @@ export class ManageWindow {
       this.#saveSpamFilter(event, value),
     );
     ipcMain.handle("manage:settings", (event) => this.#settings(event));
+    ipcMain.handle("manage:open-help", (event, value: unknown) => this.#openHelp(event, value));
     ipcMain.handle("manage:settings-save", (event, value: unknown) =>
       this.#settingsSave(event, value),
     );
@@ -471,6 +476,23 @@ export class ManageWindow {
       return "saved";
     } catch (error) {
       this.#handlers.onError("manage:settings-save", error);
+      return "failed";
+    }
+  }
+
+  /** The page names a Help target; the address is looked up in main (core HELP_LINKS), never taken from the page. */
+  async #openHelp(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): Promise<"done" | "denied" | "invalid" | "failed"> {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = HelpTargetSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      await this.#handlers.openHelp(parsed.data);
+      return "done";
+    } catch (error) {
+      this.#handlers.onError("manage:open-help", error);
       return "failed";
     }
   }

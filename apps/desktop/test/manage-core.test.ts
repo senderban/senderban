@@ -62,6 +62,7 @@ let pause: Mock<(value: boolean) => Promise<void>>;
 let saveSettings: Mock<(next: unknown) => Promise<void>>;
 let quietRemove: Mock<(value: string) => Promise<void>>;
 let saveSpamFilter: Mock<(accountId: string, filter: unknown) => Promise<string>>;
+let openHelp: Mock<(target: string) => Promise<void>>;
 let page: InstanceType<typeof ManageWindow>;
 
 beforeEach(() => {
@@ -74,6 +75,7 @@ beforeEach(() => {
   saveSettings = vi.fn(() => Promise.resolve());
   quietRemove = vi.fn(() => Promise.resolve());
   saveSpamFilter = vi.fn(() => Promise.resolve("saved"));
+  openHelp = vi.fn(() => Promise.resolve());
   list = vi.fn(() => []);
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "Unblocked." }));
   onError = vi.fn();
@@ -87,6 +89,7 @@ beforeEach(() => {
     quiet: () => ["deals.example"],
     quietRemove,
     saveSpamFilter,
+    openHelp,
     mxrouteList: () => Promise.resolve({ accounts: [], keys: [], keysUnreadable: false }),
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
@@ -102,6 +105,37 @@ describe("manage:settings", () => {
     for (const event of [otherFrame, otherWindow, noFrame]) {
       expect(await call("manage:settings", event)).toBeNull();
     }
+  });
+});
+
+describe("manage:open-help", () => {
+  it.each(["issues", "security", "releases", "website", "logs"])("passes %s on", async (target) => {
+    expect(await call("manage:open-help", trusted, target)).toBe("done");
+    expect(openHelp).toHaveBeenCalledExactlyOnceWith(target);
+  });
+
+  it("refuses any other sender", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:open-help", event, "issues")).toBe("denied");
+    }
+    expect(openHelp).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a URL", "https://example.com/"],
+    ["an unknown word", "sponsor"],
+    ["a word in another case", "Issues"],
+    ["an object", { target: "issues" }],
+    ["nothing", undefined],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:open-help", trusted, payload)).toBe("invalid");
+    expect(openHelp).not.toHaveBeenCalled();
+  });
+
+  it("answers failed and logs the channel when opening throws", async () => {
+    openHelp.mockRejectedValueOnce(new Error("no browser"));
+    expect(await call("manage:open-help", trusted, "logs")).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:open-help", expect.any(Error));
   });
 });
 

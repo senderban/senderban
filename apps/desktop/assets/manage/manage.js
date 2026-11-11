@@ -24,6 +24,7 @@ const els = {
   navAccounts: $("nav-accounts"),
   navQuiet: $("nav-quiet"),
   navSettings: $("nav-settings"),
+  navHelp: $("nav-help"),
   navBlockedCount: $("nav-blocked-count"),
   navAccountsCount: $("nav-accounts-count"),
   health: $("health"),
@@ -95,6 +96,7 @@ const VIEW_TITLE = {
   add: "Add mailbox",
   quiet: "Don't ask again",
   settings: "Settings",
+  help: "Help",
 };
 
 let entries = [];
@@ -275,9 +277,14 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   els.navAccounts.toggleAttribute("aria-current", false);
   els.navQuiet.toggleAttribute("aria-current", false);
   els.navSettings.toggleAttribute("aria-current", false);
+  els.navHelp.toggleAttribute("aria-current", false);
   const current =
-    { blocked: els.navBlocked, quiet: els.navQuiet, settings: els.navSettings }[name] ??
-    els.navAccounts;
+    {
+      blocked: els.navBlocked,
+      quiet: els.navQuiet,
+      settings: els.navSettings,
+      help: els.navHelp,
+    }[name] ?? els.navAccounts;
   current.setAttribute("aria-current", "page");
   if (!keepNotice && els.notice.dataset.tone !== "working") setNotice("", "");
   els.count.textContent = "";
@@ -413,6 +420,9 @@ els.navQuiet.addEventListener("click", () => {
 });
 els.navSettings.addEventListener("click", () => {
   showView("settings");
+});
+els.navHelp.addEventListener("click", () => {
+  showView("help");
 });
 els.goAdd.addEventListener("click", () => {
   showView("add", { focusTitle: true });

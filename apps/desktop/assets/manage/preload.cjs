@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld("senderban", {
   quietRemove: (value) => ipcRenderer.invoke("manage:quiet-remove", value),
   settings: () => ipcRenderer.invoke("manage:settings"),
   saveSettings: (value) => ipcRenderer.invoke("manage:settings-save", value),
+  /** One fixed word (core HELP_TARGETS); main owns the addresses. */
+  openHelp: (target) => ipcRenderer.invoke("manage:open-help", target),
   /** The list changed behind the page's back (a popup blocked something): ask for it again. */
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {

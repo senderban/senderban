@@ -44,6 +44,7 @@ import {
   withSpamFilter,
   initialGmailState,
   gmailLaneId,
+  HELP_LINKS,
 } from "@senderban/core";
 import type {
   MailToast,
@@ -174,7 +175,8 @@ const builtInClientPath = join(import.meta.dirname, BUILTIN_CLIENT_FILE);
 const APP_USER_MODEL_ID = "com.senderban.desktop";
 
 app.setName("Senderban");
-const log = createLog(join(app.getPath("userData"), "logs"));
+const logDir = join(app.getPath("userData"), "logs");
+const log = createLog(logDir);
 const settings = new SettingsStore(join(app.getPath("userData"), "settings.json"));
 const quiet = new QuietStore(join(app.getPath("userData"), "quiet.json"));
 /** The mailboxes with a spam filter: read per announced mail and per sync round, so no disk read there. */
@@ -1604,6 +1606,16 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         });
       },
       onError: logIpcError,
+      openHelp: async (target) => {
+        log("help-open", { target });
+        if (target !== "logs") {
+          await shell.openExternal(HELP_LINKS[target]);
+          return;
+        }
+        // openPath answers with an error text, empty when the folder opened; it does not throw.
+        const failed = await shell.openPath(logDir);
+        if (failed !== "") throw new Error("the log folder did not open");
+      },
       mxrouteList: async () => {
         const page = await listMxroute(keysPath, accountsPath);
         if (page.keysUnreadable) log("mxroute-keys-failed", {});
