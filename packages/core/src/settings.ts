@@ -22,6 +22,8 @@ export const SettingsSchema = z.strictObject({
   /** Shows the notification that says a block worked; a warning or a failure always shows. */
   confirmBlocks: z.boolean(),
   toastDuration: z.enum(TOAST_DURATIONS),
+  /** Asks GitHub once a day whether a newer version is out (update.ts). A file from before 0.3 has no such key: on. */
+  checkUpdates: z.boolean().default(true),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preferServerBlock: false,
   confirmBlocks: false,
   toastDuration: "long",
+  checkUpdates: true,
 };
 
 export const SettingsFileSchema = z.strictObject({

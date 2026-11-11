@@ -5,6 +5,7 @@ export * from "./freemail.js";
 export * from "./registry.js";
 export * from "./settings.js";
 export * from "./help.js";
+export * from "./update.js";
 export * from "./spam-filter.js";
 export * from "./tls-refusal.js";
 export * from "./sieve/adapter.js";

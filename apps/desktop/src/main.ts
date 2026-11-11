@@ -74,7 +74,7 @@ import {
   signInMicrosoft,
 } from "@senderban/core/node";
 import { Store, openDatabase } from "@senderban/core/store";
-import { Menu, Tray, app, nativeImage, powerMonitor, safeStorage, shell } from "electron";
+import { Menu, Tray, app, nativeImage, net, powerMonitor, safeStorage, shell } from "electron";
 import { checkAccount, checkCleanAccount } from "./account-check.js";
 import { cleanGapListener, cleanLane } from "./clean-lane.js";
 import type { AccountCheckStage } from "./account-check.js";
@@ -86,7 +86,13 @@ import {
   addAccountFromForm,
   addCleanFromForm,
 } from "./add-account.js";
-import { decryptPassword, loadAccounts, saveAccounts, serialized } from "./accounts-file.js";
+import {
+  decryptPassword,
+  loadAccounts,
+  saveAccounts,
+  serialized,
+  writeJsonAtomic,
+} from "./accounts-file.js";
 import {
   cancelGoogleSignIn,
   googleState,
@@ -144,6 +150,7 @@ import { collectOwnMail, createOwnMail, refreshOwnOnChange } from "./own-mail.js
 import type { OwnMailSet } from "./own-mail.js";
 import { applyPause } from "./pause.js";
 import { accountTag, createLog } from "./log.js";
+import { UpdateChecker } from "./update-check.js";
 import { ManageWindow } from "./manage.js";
 import type { ManageOutcome } from "./manage.js";
 import {
@@ -167,6 +174,9 @@ import { STORE_TOAST_ACTIVATOR_CLSID } from "./toast-activator.js";
 import { ignoredClickHandler } from "./ignored-click.js";
 import { Toasts, spamStripUrls } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
+
+// Electron types process.windowsStore as boolean, but it is undefined outside a Store (appx) install (process docs).
+const STORE_INSTALL = (process as { readonly windowsStore?: boolean }).windowsStore === true;
 
 /** Written next to this file by the release build; absent in a build from source (scripts/write-builtin-client.mjs). */
 const builtInClientPath = join(import.meta.dirname, BUILTIN_CLIENT_FILE);
@@ -225,6 +235,8 @@ const states = new Map<string, WatcherState | GmailWatcherState>();
 let tray: Tray | null = null;
 let toasts: Toasts | null = null;
 let manage: ManageWindow | null = null;
+/** The once-a-day release check; null until start() has read the settings. */
+let updates: UpdateChecker | null = null;
 /** Set once start() has finished; the manage window reads the list from it. */
 let runtime: Runtime | null = null;
 let startFailed = false;
@@ -593,6 +605,22 @@ async function start(): Promise<Runtime> {
   await settings.load((reason) => {
     log("settings-unreadable", { reason });
   });
+  updates = new UpdateChecker({
+    statePath: join(dir, "update.json"),
+    current: app.getVersion(),
+    fetch: (url, init) => net.fetch(url, init),
+    writeState: writeJsonAtomic,
+    // A Store install is updated by the Store; asking GitHub there would only offer a second, different installer.
+    enabled: () => settings.current.checkUpdates && !STORE_INSTALL,
+    onNew: (version) => {
+      notice(
+        `Senderban ${version} is out`,
+        "Open Senderban, then Help, for the release notes and the download.",
+      );
+    },
+    log,
+  });
+  void updates.start();
   await quiet.load((reason) => {
     log("quiet-unreadable", { reason });
   });
@@ -1231,6 +1259,7 @@ async function start(): Promise<Runtime> {
 }
 
 async function shutdown(): Promise<void> {
+  updates?.stop();
   cancelGoogleSignIn();
   cancelMicrosoftSignIn();
   const current = await ready.promise.catch(() => null);
@@ -1785,6 +1814,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
       status: async () => ({
         version: app.getVersion(),
+        update: updates?.available ?? null,
+        storeManaged: STORE_INSTALL,
         paused,
         behind: [
           ...[...new Set([...unsynced, ...unconfirmed])]

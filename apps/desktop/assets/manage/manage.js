@@ -25,6 +25,8 @@ const els = {
   navQuiet: $("nav-quiet"),
   navSettings: $("nav-settings"),
   navHelp: $("nav-help"),
+  navHelpCount: $("nav-help-count"),
+  updatesCard: $("settings-updates-card"),
   navBlockedCount: $("nav-blocked-count"),
   navAccountsCount: $("nav-accounts-count"),
   health: $("health"),
@@ -331,6 +333,9 @@ function drawWatch() {
   const behind = `Blocks may be missing from ${watch.behind.join(", ")}. See Accounts.`;
   // A live region: written only when the text changes, so a reconnect elsewhere does not read it out again.
   if (els.behind.textContent !== behind) els.behind.textContent = behind;
+  // A newer release from the daily check: a word on Help, and the Help page says which (help.js). Text only, never a link.
+  els.navHelpCount.textContent = watch.update ? "New" : "";
+  els.updatesCard.hidden = watch.storeManaged === true;
   drawStates();
   // Not the whole list: this runs on every status signal, and a rebuild would take focus off the row being used.
   drawFirstRun();

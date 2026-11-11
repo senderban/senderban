@@ -124,6 +124,10 @@ export interface AccountAddRequest {
 /** What the window's side bar and account rows show. `state`: null when no watcher runs for the account yet (added, restart due). */
 export interface WatchStatus {
   readonly version: string;
+  /** A newer release GitHub named at the last daily check, or null (update-check.ts). */
+  readonly update: string | null;
+  /** A Store install: the Store updates it, the page hides the update switch. */
+  readonly storeManaged: boolean;
   readonly paused: boolean;
   /** Mailboxes whose last sync failed: a block may be missing there until a sync works. */
   readonly behind: readonly string[];

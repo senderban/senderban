@@ -58,6 +58,7 @@
               <path d="M8 11.5h.01" />
             </svg>
             <span>Help</span>
+            <span id="nav-help-count" class="count"></span>
           </button>
         </nav>
         <div class="health">
@@ -267,6 +268,24 @@
               </div>
             </div>
           </section>
+          <section id="settings-updates-card" class="card" aria-labelledby="settings-updates">
+            <div class="card-head">
+              <h2 id="settings-updates">Updates</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label for="setting-updates">Check for a new version once a day</label>
+                  <span class="meta">
+                    Asks GitHub for the latest release, which shows GitHub your IP address. Nothing
+                    is downloaded or installed for you.
+                  </span>
+                </div>
+                <span id="setting-updates-text" class="state"></span>
+                <input id="setting-updates" type="checkbox" role="switch" />
+              </div>
+            </div>
+          </section>
           <p id="settings-status" class="status" role="status" hidden></p>
         </section>
 
@@ -317,7 +336,9 @@
               <div class="setting-row">
                 <div class="setting-text">
                   <span>Senderban <span id="help-version" class="data"></span></span>
-                  <span class="meta">Free and open source. What changed in each version.</span>
+                  <span id="help-version-note" class="meta"
+                    >Free and open source. What changed in each version.</span
+                  >
                 </div>
                 <button type="button" class="small" data-help="releases">Release notes</button>
               </div>
