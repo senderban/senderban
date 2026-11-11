@@ -106,31 +106,57 @@
           </p>
         </div>
 
-        <figure class="toast-figure">
-          <div class="toast" aria-hidden="true">
-            <div class="toast-app">
-              <img src="/assets/icon.png" alt="" width="16" height="16" /><span>Senderban</span
-              ><span>now</span>
+        <figure class="stage">
+          <div class="stage-scene" aria-hidden="true">
+            <ul class="stage-mail">
+              <li>
+                <span class="addr">offers@<b>deals.example</b></span
+                ><span>Final hours: your coupon expires tonight</span>
+              </li>
+              <li>
+                <span class="addr">offers@<b>deals.example</b></span
+                ><span>We miss you: 80% off is back</span>
+              </li>
+              <li>
+                <span class="addr">offers@<b>deals.example</b></span
+                ><span>Only for you: one more day</span>
+              </li>
+              <li>
+                <span class="addr">offers@<b>deals.example</b></span
+                ><span>Last chance: 80% off everything</span>
+              </li>
+            </ul>
+            <div class="stage-rule">
+              <p class="stage-rule-name">Rule on the server</p>
+              <p class="stage-rule-line">
+                <span class="addr">offers@<b>deals.example</b></span> &rarr; Junk
+              </p>
             </div>
-            <p class="toast-sender">🚫 offers@deals.example</p>
-            <div class="toast-row">
-              <div>
-                <p class="toast-subject">Last chance: 80% off everything</p>
-                <p class="toast-small">To: you@example.com</p>
+            <div class="toast">
+              <div class="toast-app">
+                <img src="/assets/icon.png" alt="" width="16" height="16" /><span>Senderban</span
+                ><span>now</span>
               </div>
-              <div class="toast-score">
-                <p class="toast-small">Spam 7.4</p>
-                <strong><span class="dot"></span>high</strong>
+              <p class="toast-sender">🚫 offers@deals.example</p>
+              <div class="toast-row">
+                <div>
+                  <p class="toast-subject">Last chance: 80% off everything</p>
+                  <p class="toast-small">To: you@example.com</p>
+                </div>
+                <div class="toast-score">
+                  <p class="toast-small">Spam 7.4</p>
+                  <strong><span class="dot"></span>high</strong>
+                </div>
               </div>
-            </div>
-            <div class="toast-select">Move to Junk</div>
-            <div class="toast-buttons">
-              <span class="critical">This sender</span><span>All of deals.example</span>
+              <div class="toast-select">Move to Junk</div>
+              <div class="toast-buttons">
+                <span class="critical">This sender</span><span>All of deals.example</span>
+              </div>
             </div>
           </div>
           <figcaption>
-            The notification, drawn with sample data. You pick what happens to later mail, then who
-            it applies to.
+            Drawn with sample data: the notification that offers the block, and the rule one click
+            writes where the provider has one. Later mail from that sender goes to Junk.
           </figcaption>
         </figure>
       </div>
