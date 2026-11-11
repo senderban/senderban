@@ -64,6 +64,7 @@
   --text-xl: 20px;
   /* The one readout Home leads with, in the data face. */
   --text-hero: 64px;
+  --text-hero-sm: 48px;
 
   /* Motion: state changes only. */
   --ease: cubic-bezier(0.2, 0, 0, 1);

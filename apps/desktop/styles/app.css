@@ -579,7 +579,8 @@
   /*
    * Home, the cockpit. One readout leads: the count in the data face at instrument size, beside its twelve-week trace. Under it
    * three lamps say in words whether anything needs a look, then the mailboxes on watch and the newest blocks.
-   * Tint only: nothing here is blurred. The newest week is the one accent on the page; every other bar is neutral.
+   * Tint only: nothing here is blurred. The newest week is solid and the one accent on the page; an older week is an outline,
+   * so the two are told apart by shape too. A lamp that is fine is quiet; one that is not takes colour and the top of the page.
    */
   .home {
     display: flex;
@@ -628,12 +629,18 @@
     stroke: none;
   }
   .chart .wk {
-    fill: var(--control-border);
+    fill: none;
+    stroke: var(--control-border);
+    stroke-width: 1.5;
   }
   .chart .wk-now {
     fill: var(--accent);
+    stroke: var(--accent);
   }
   .chart g:hover .wk {
+    stroke: var(--fg);
+  }
+  .chart g:hover .wk-now {
     fill: var(--fg);
   }
   /* The whole column answers the pointer, not only the bar. */
@@ -641,7 +648,7 @@
     pointer-events: all;
   }
   .chart .wk-base {
-    stroke: var(--line);
+    stroke: var(--control-border);
     stroke-width: 1;
   }
   .chart .wk-label {
@@ -694,15 +701,24 @@
   .lamp-value {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
-    padding-left: 3px;
     font-size: var(--text-md);
     font-weight: 600;
   }
-  /* The lamp in its housing: a flat ring in the state's own colour, no glow. */
-  .lamp-value .dot {
-    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+  /* A lamp that is fine keeps its lit dot and says its word without colour: colour is for what needs a look. */
+  .lamp-value[data-tone="ok"] {
+    color: var(--fg);
+  }
+  .lamp-value[data-tone="ok"] .dot {
+    color: var(--ok);
+  }
+  .home:has(.lamp-value:is([data-tone="warn"], [data-tone="error"])) .lamps {
+    order: -1;
+  }
+  /* The same for a mailbox whose watcher runs. */
+  .home-cols .pill[data-tone="ok"] {
+    color: var(--muted);
   }
 
   .home-cols {
@@ -736,7 +752,7 @@
       grid-template-columns: minmax(0, 1fr);
     }
     .hero-num {
-      font-size: 48px;
+      font-size: var(--text-hero-sm);
     }
     .trace {
       max-width: none;
@@ -940,10 +956,12 @@
     background: CanvasText;
   }
   .chart .wk {
-    fill: CanvasText;
+    fill: Canvas;
+    stroke: CanvasText;
   }
   .chart .wk-now {
     fill: Highlight;
+    stroke: Highlight;
   }
   .chart .wk-label {
     fill: CanvasText;

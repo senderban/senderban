@@ -130,6 +130,8 @@ let busy = false;
 let tab = "all";
 let view = "home";
 let watch = null;
+// The mailbox names of the last status, to tell when the account choice of a list has to be rebuilt.
+let watchedKey = "";
 let pausing = false;
 let restarting = false;
 
@@ -404,8 +406,11 @@ function drawFirstRun() {
 
 // Home, the cockpit: one readout that leads (the count beside its twelve-week trace), three lamps that say whether anything
 // needs a look, the mailboxes on watch and the newest blocks. All of it is drawn from the list and the status the page already
-// holds: no request of its own. Scale: one pass over the list per list change (never per status signal), 12 bars, at most
-// HOME_BOXES mailbox rows and HOME_RECENT block rows.
+// holds: no request of its own.
+// Scale: the list holds at most 5,000 entries (core MAX_ENTRIES) and the status at most 50 mailboxes (MAX_ACCOUNTS). Home is
+// drawn only while it is the view: five passes over the list per list change or per entry into Home (measured 1.7 ms median at
+// 5,000 entries, plain JS), 12 bars, at most HOME_BOXES mailbox rows and HOME_RECENT block rows. A status signal (at most 2 a
+// second, manage.ts STATUS_PUSH_GAP_MS) walks the mailboxes, never the list.
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const SVG_NS = "http://www.w3.org/2000/svg";
 // CSS px. The top band holds a value label; the corner radius below the baseline is cut by the viewport, so a bar is round at
@@ -419,7 +424,7 @@ const LAST_BLOCK = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 // The provider word main adds to a mailbox's name: shown beside the address, not as part of its domain.
-const BOX_TAG = / \((Gmail|Outlook|MXroute)\)$/;
+const BOX_TAG = / \((Gmail|Outlook)\)$/;
 const SPLIT = [
   ["Junk", "junk"],
   ["Trash", "trash"],
@@ -478,6 +483,7 @@ function drawChart(counts, now) {
       }),
     );
     if (count === 0) return column;
+    // An older week is an outline and the newest is solid: told apart by shape, not by colour alone.
     const tall = Math.max(CHART.least, Math.round((count / peak) * plot));
     column.append(
       svgNode("rect", {
@@ -509,12 +515,13 @@ function drawChart(counts, now) {
     y2: CHART.height - 0.5,
   });
   els.homeChart.replaceChildren(base, ...columns);
+  const since = SHORT_DATE.format(new Date(now - HOME_WEEKS * WEEK_MS));
   // The same numbers as words, for a reader that cannot see the bars.
   els.homeChart.setAttribute(
     "aria-label",
-    `Blocks per week for the last ${String(HOME_WEEKS)} weeks, oldest first: ${counts.join(", ")}.`,
+    `Blocks per week for the last ${String(HOME_WEEKS)} weeks, from ${since}, oldest first: ${counts.join(", ")}.`,
   );
-  els.homeChartFrom.textContent = SHORT_DATE.format(new Date(now - HOME_WEEKS * WEEK_MS));
+  els.homeChartFrom.textContent = since;
 }
 
 /** Where the mail of the blocked senders goes, as counts; a part with nothing in it is left out. */
@@ -523,7 +530,7 @@ function drawSplit() {
   for (const [word, id] of SPLIT) {
     const count = tabCount(id);
     if (count === 0) continue;
-    const part = document.createElement("span");
+    const part = document.createElement("li");
     part.className = "fact";
     const num = document.createElement("span");
     num.className = "data";
@@ -541,7 +548,10 @@ function setLamp(text, tone, words) {
   if (text.textContent !== words) text.textContent = words;
 }
 
-/** Three lamps, each in words: the watchers, the blocks that need a look, the servers a block has not reached. */
+/**
+ * Three lamps, each in words: the watchers, the blocks that need a look, the servers a block has not reached. A lamp that is
+ * fine stays quiet (the stylesheet gives its words no colour) and one that is not takes the strip above the count.
+ */
 function drawLamps() {
   if (homeLook === null) setLamp(els.lampBlocksText, "working", "–");
   else if (entries.length === 0) setLamp(els.lampBlocksText, "working", "None yet");
@@ -563,23 +573,29 @@ function drawLamps() {
   }
   const total = watch.accounts.length;
   const running = watch.accounts.filter((a) => a.state === "watching").length;
-  // The same words as the side bar.
+  const signIn = watch.accounts.filter((a) => a.state === "halted-auth").length;
+  const halted = watch.accounts.filter(
+    (a) => a.state === "halted" || a.state === "halted-rejected",
+  ).length;
+  // The same words as the side bar; a watcher that stopped for good is said first, in the tone its row has.
   if (total === 0) setLamp(els.lampWatchText, "working", "No mailbox yet");
   else if (watch.paused) setLamp(els.lampWatchText, "warn", "Paused");
+  else if (signIn > 0) {
+    setLamp(
+      els.lampWatchText,
+      "error",
+      `${String(signIn)} ${signIn === 1 ? "needs" : "need"} sign-in`,
+    );
+  } else if (halted > 0) setLamp(els.lampWatchText, "error", `${String(halted)} stopped`);
   else if (running < total) {
     setLamp(els.lampWatchText, "warn", `${String(running)} of ${String(total)} watching`);
   } else
     setLamp(els.lampWatchText, "ok", total === 1 ? "Watching" : `All ${String(total)} watching`);
-  const behind = watch.behind.length;
+  // `behind` names what a sync failed on. Empty is not proof that every server holds every block (a first sync may still
+  // run), so the quiet word claims only that; and it is a list of lanes, not of mailboxes, so it is not counted.
   if (total === 0) setLamp(els.lampSyncText, "working", "No mailbox yet");
-  else if (behind === 0) setLamp(els.lampSyncText, "ok", "Up to date");
-  else {
-    setLamp(
-      els.lampSyncText,
-      "warn",
-      `${String(behind)} ${behind === 1 ? "mailbox" : "mailboxes"} behind`,
-    );
-  }
+  else if (watch.behind.length === 0) setLamp(els.lampSyncText, "ok", "No failed sync");
+  else setLamp(els.lampSyncText, "warn", "Blocks may be missing");
 }
 
 function boxRow(account) {
@@ -597,9 +613,9 @@ function boxRow(account) {
     what.append(name);
     if (tag !== null) line.append(` · ${tag[1]}`);
   } else {
-    // Added, and waiting for the restart that starts its watcher: main has no name for it yet.
+    // Main has no name for it: added and waiting for the restart that starts its watcher, or a watcher that never started.
     const name = document.createElement("div");
-    name.textContent = "New mailbox";
+    name.textContent = watch?.restartPending === true ? "New mailbox" : "Mailbox";
     what.append(name);
   }
   what.append(line);
@@ -618,15 +634,18 @@ function drawBoxes() {
   }
   const more = accounts.length - HOME_BOXES;
   els.homeBoxesMore.hidden = more <= 0;
-  els.homeBoxesMore.textContent = `And ${String(more)} more in Accounts.`;
+  if (more > 0) els.homeBoxesMore.textContent = `And ${String(more)} more in Accounts.`;
   els.homeBoxesEmpty.hidden = accounts.length > 0;
 }
 
 /** The part of Home that follows the block list: the count, its trace, where the mail goes, the newest blocks. */
 function drawHome() {
+  // Only while Home shows: `render` also runs on every keystroke in a list's filter.
+  if (view !== "home") return;
   els.homeRecentEmpty.hidden = true;
   homeLook = entriesLoaded ? tabCount("not") : null;
   drawLamps();
+  drawBoxes();
   if (!entriesLoaded) {
     // Not "0": that would be a claim about a list that was not read.
     els.homeBlockedNum.textContent = "–";
@@ -670,6 +689,7 @@ function drawHome() {
 
 /** The part of Home that follows the status: the lamps and the mailboxes. Runs on every status signal, so it reads no list. */
 function drawHomeWatch() {
+  if (view !== "home") return;
   drawLamps();
   drawBoxes();
 }
@@ -750,8 +770,13 @@ function drawWatch() {
   els.navSponsor.hidden = watch.storeManaged === true;
   drawStates();
   drawHomeWatch();
-  // A mailbox that came or went changes what the list's account choice offers; the rows stay as they are.
-  accountChoices(els.filterAccount, entries);
+  // A mailbox that came or went changes what the list's account choice offers. The list is drawn again then, so that the
+  // choice and the rows agree, and only then: this runs on every status signal.
+  const names = watchedNames().join("\n");
+  if (names !== watchedKey) {
+    watchedKey = names;
+    if (view === "blocked") render();
+  }
   // Not the whole list: this runs on every status signal, and a rebuild would take focus off the row being used.
   drawFirstRun();
 }
@@ -842,6 +867,9 @@ els.lampSync.addEventListener("click", () => {
   showView("accounts", { focusTitle: true });
 });
 els.lampBlocks.addEventListener("click", () => {
+  // The lamp counted the whole list: a filter left from an earlier visit would hide what it points at.
+  els.filter.value = "";
+  els.filterAccount.value = "";
   tab = homeLook !== null && homeLook > 0 ? "not" : "all";
   showView("blocked", { focusTitle: true });
 });
