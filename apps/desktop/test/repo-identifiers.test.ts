@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   EXACT_HOSTS,
-  LINE_MAX_CHARS,
   SITE_HOSTS,
+  LINE_MAX_CHARS,
   decode,
   isAllowedHost,
   loadDenylist,
@@ -324,16 +324,15 @@ describe("isAllowedHost", () => {
     expect(EXACT_HOSTS.length).toBeLessThanOrEqual(24);
   });
 
-  it("passes each website host as exactly itself, never its zone or a subdomain", () => {
-    for (const site of SITE_HOSTS) expect(isAllowedHost(site)).toBe(true);
-    expect(isAllowedHost(host("x", "schema", "org"))).toBe(false);
-    expect(isAllowedHost(host("linkedin", "com"))).toBe(false);
+  it("passes the site's hosts as exactly themselves, not their domains", () => {
+    expect(SITE_HOSTS.length).toBeLessThanOrEqual(4);
+    expect(isAllowedHost(host("www", "linkedin", "com"))).toBe(true);
+    expect(isAllowedHost(host("support", "apple", "com"))).toBe(true);
     expect(isAllowedHost(host("apple", "com"))).toBe(false);
-    expect(isAllowedHost(host("evil", "support", "apple", "com"))).toBe(false);
-  });
-
-  it("keeps the website host list small (each entry is a host the site links)", () => {
-    expect(SITE_HOSTS.length).toBeLessThanOrEqual(8);
+    expect(isAllowedHost(host("mail", "support", "apple", "com"))).toBe(false);
+    expect(isAllowedHost(host("linkedin", "com"))).toBe(false);
+    expect(isAllowedHost(host("mail", "linkedin", "com"))).toBe(false);
+    expect(isAllowedHost(host("sitemaps", "org"))).toBe(false);
   });
 });
 

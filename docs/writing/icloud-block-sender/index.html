@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Block email on iCloud: Apple's ways and limits - Senderban</title>
+    <meta
+      name="description"
+      content="To block email on iCloud, use Block this Contact in iPhone Mail (mail goes to Trash) or an iCloud.com rule. Senderban moves iCloud mail only while it runs."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta
+      property="og:title"
+      content="How do I block email on iCloud, and what does each way cover? - Senderban"
+    />
+    <meta
+      property="og:description"
+      content="To block email on iCloud, use Block this Contact in iPhone Mail (mail goes to Trash) or an iCloud.com rule. Senderban moves iCloud mail only while it runs."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/icloud-block-sender/" />
+    <meta
+      property="og:image"
+      content="https://senderban.com/assets/writing/icloud-block-sender/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="How do I block email on iCloud, and what does each way cover? Apple's Block this Contact sends mail to Trash. Senderban writes no rule on iCloud: one block moved 3 mails while it ran, 1 November 2026."
+    />
+    <meta property="article:published_time" content="2026-11-02" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "How do I block email on iCloud, and what does each way cover?",
+        "datePublished": "2026-11-02",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/writing/icloud-block-sender/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/icloud-block-sender/"
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/writing/icloud-block-sender/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Guide · <time datetime="2026-11-02">2 November 2026</time></p>
+        <h1>How do I block email on iCloud, and what does each way cover?</h1>
+        <p class="lead">
+          To block email on iCloud from an iPhone or iPad, open the sender's mail in Mail, tap their
+          address, then <strong>View Contact Card</strong> and <strong>Block this Contact</strong>.
+          Apple says that sender's mail then goes to the Trash. On iCloud.com a rule can sort a
+          sender's mail into a folder. Senderban writes no rule on iCloud: it moves the mail itself,
+          and only while it runs.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <div class="key-facts">
+            <p class="key-facts-title">Key facts</p>
+            <ul>
+              <li>
+                Apple's page on blocking, read on 2 November 2026, says: "When you block an email
+                address from Mail, it goes to the trash folder. Email blocking works across all your
+                Apple devices."
+              </li>
+              <li>
+                On iCloud.com, Apple's guide describes rules, "up to 500 rules", and says a new rule
+                can take "up to 15 minutes" to act on incoming mail. Its contents list no page on
+                blocking a sender.
+              </li>
+              <li>
+                Moving a mail to Junk on iCloud marks the same sender's later mail as junk, except
+                mail from your contacts and recent conversations. Junk is deleted after 30 days.
+              </li>
+              <li>
+                On iCloud Senderban writes no server rule. On 1 November 2026 one address block
+                moved 2 earlier mails and 1 new mail out of the Inbox, 0 failed, while the app ran.
+              </li>
+              <li>
+                Senderban runs on Windows today. Apple's own steps on this page need no extra app.
+              </li>
+            </ul>
+          </div>
+
+          <nav class="toc" aria-label="On this page">
+            <p class="toc-title">On this page</p>
+            <ol>
+              <li><a href="#can-i-block-email-on-icloud">Can I block email on iCloud?</a></li>
+              <li>
+                <a href="#block-a-sender-on-iphone"
+                  >How do I block a sender in Mail on iPhone or iPad?</a
+                >
+              </li>
+              <li>
+                <a href="#block-emails-on-icloud-mail-web"
+                  >How do I block emails on iCloud Mail at iCloud.com?</a
+                >
+              </li>
+              <li>
+                <a href="#what-apple-does-not-say">What do Apple's pages leave open?</a>
+              </li>
+              <li>
+                <a href="#what-senderban-does-on-icloud"
+                  >What does Senderban do on iCloud, and what does it not do?</a
+                >
+              </li>
+              <li><a href="#how-we-measured">How was this measured?</a></li>
+              <li><a href="#what-was-not-measured">What was not measured?</a></li>
+              <li><a href="#related-reading">Related reading</a></li>
+            </ol>
+          </nav>
+
+          <h2 id="can-i-block-email-on-icloud">Can I block email on iCloud?</h2>
+          <p>
+            Yes, for one address at a time. On the Apple pages read for this post, the block button
+            is in Mail on iPhone and iPad; a rule and the Junk folder, both on iCloud.com in a
+            browser, are Apple's other two tools. None of those pages, read on 2 November 2026,
+            describes blocking a whole domain.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Apple's three ways to stop a sender on iCloud"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Apple's way</th>
+                  <th scope="col">Where you do it</th>
+                  <th scope="col">What it covers</th>
+                  <th scope="col">Where the mail goes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Block this Contact</td>
+                  <td>Mail on iPhone or iPad</td>
+                  <td>That sender's address</td>
+                  <td>Trash</td>
+                </tr>
+                <tr>
+                  <td>A rule</td>
+                  <td>iCloud.com, Mail settings, Rules</td>
+                  <td>What you set in the rule; Apple's example is mail from one sender</td>
+                  <td>Not read; Apple's example is a folder</td>
+                </tr>
+                <tr>
+                  <td>Move to Junk</td>
+                  <td>iCloud.com or the Mail app</td>
+                  <td>That sender's later mail, unless they are a contact</td>
+                  <td>Junk, deleted after 30 days</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="block-a-sender-on-iphone">How do I block a sender in Mail on iPhone or iPad?</h2>
+          <p>
+            These are the steps on Apple's support page
+            <a href="https://support.apple.com/en-us/111104" rel="noopener"
+              >"Block phone numbers, contacts, and emails on your iPhone or iPad"</a
+            >
+            and in the
+            <a
+              href="https://support.apple.com/guide/iphone/flag-or-block-emails-iph3caefa61/ios"
+              rel="noopener"
+              >iPhone User Guide</a
+            >, both read on 2 November 2026:
+          </p>
+          <ol>
+            <li>Open the Mail app.</li>
+            <li>Tap a message from the sender you want to block.</li>
+            <li>Tap their email address at the top.</li>
+            <li>Tap <strong>View Contact Card</strong>.</li>
+            <li>Tap <strong>Block this Contact</strong>.</li>
+          </ol>
+          <p>
+            Apple's page says that mail from a blocked address "goes to the trash folder", and that
+            "Email blocking works across all your Apple devices". To see or undo a block in iOS 26,
+            the same page gives <strong>Settings</strong>, <strong>Privacy &amp; Security</strong>,
+            <strong>Blocked Contacts</strong>, then <strong>Edit</strong> and
+            <strong>Unblock</strong>. You can also add an address there with
+            <strong>Add Blocked Contact</strong>.
+          </p>
+          <p>
+            If you read your iCloud mail only on an iPhone, this is the way to use. It needs no
+            other app, and Senderban does not run on a phone.
+          </p>
+
+          <h2 id="block-emails-on-icloud-mail-web">
+            How do I block emails on iCloud Mail at iCloud.com?
+          </h2>
+          <p>
+            iCloud.com has no block button in Apple's guide; its contents list no page on blocking a
+            sender (read 2 November 2026). What it offers is a rule. Apple's page
+            <a
+              href="https://support.apple.com/guide/icloud/set-up-filtering-rules-mm6b1a3f8a/icloud"
+              rel="noopener"
+              >"Set up rules to filter email in Mail on iCloud.com"</a
+            >
+            gives the example of "a rule that sorts emails from a particular sender into a specific
+            folder", and these steps:
+          </p>
+          <ol>
+            <li>Go to icloud.com/mail and sign in to your Apple Account.</li>
+            <li>
+              Select the <strong>Settings</strong> button at the top of the Mailboxes list, then
+              choose <strong>Settings</strong>.
+            </li>
+            <li>
+              Select <strong>Rules</strong> in the sidebar, then the <strong>Add</strong> button in
+              the top-right corner.
+            </li>
+            <li>Enter a name for the rule.</li>
+            <li>
+              Below <strong>Message</strong>, use the pop-up menu and text field to say which mail
+              the rule takes, such as the sender's address.
+            </li>
+            <li>Below <strong>Action</strong>, choose what the rule does with it.</li>
+            <li>Select <strong>Add</strong>.</li>
+          </ol>
+          <p>
+            Apple's page does not list the choices in those two menus, and we did not open them. It
+            says "You can have up to 500 rules", that rules apply "in the order in which they appear
+            in the list", and that "It may take up to 15 minutes for new or changed rules to take
+            effect on incoming emails".
+          </p>
+          <p>
+            The second way is Junk. Apple's page
+            <a
+              href="https://support.apple.com/guide/icloud/manage-junk-mail-mm6b1a2ced/icloud"
+              rel="noopener"
+              >"Manage junk mail in Mail on iCloud.com"</a
+            >
+            (read 2 November 2026): select the mail, select <strong>Mark</strong> or the
+            <strong>More</strong> button, then <strong>Move to Junk</strong>. "Subsequent emails
+            from the same sender are automatically marked as junk." Two limits on the same page:
+            "Emails from people in your iCloud contacts, or from recent conversations, won't go to
+            the Junk folder", and mail in Junk is "automatically deleted after 30 days". Apple's
+            article
+            <a href="https://support.apple.com/en-us/102376" rel="noopener"
+              >"Report and reduce spam in iCloud Mail"</a
+            >
+            gives the same step in Mail on iPhone or iPad: swipe left on the message, tap
+            <strong>More</strong>, then <strong>Move to Junk</strong>.
+          </p>
+
+          <h2 id="what-apple-does-not-say">What do Apple's pages leave open?</h2>
+          <p>
+            Each page answers how to start a block. Several things a reader may count on are not on
+            them. This table lists what the pages say and what they leave out; none of it was tested
+            here.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="What Apple's pages say and leave open, read 2 November 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Question</th>
+                  <th scope="col">What Apple's pages say</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Does a block from iPhone Mail hold on iCloud.com or in a Windows mail app?
+                  </td>
+                  <td>
+                    "works across all your Apple devices"; nothing on iCloud.com or other apps
+                  </td>
+                </tr>
+                <tr>
+                  <td>Can I block a whole domain?</td>
+                  <td>Not described on any page read</td>
+                </tr>
+                <tr>
+                  <td>Is the blocked mail refused?</td>
+                  <td>No: it "goes to the trash folder"</td>
+                </tr>
+                <tr>
+                  <td>Does an iCloud.com rule run on Apple's server?</td>
+                  <td>Not said; a rule acts on "incoming emails" within up to 15 minutes</td>
+                </tr>
+                <tr>
+                  <td>Does Move to Junk hold for a contact?</td>
+                  <td>
+                    No: mail from contacts and recent conversations "won't go to the Junk folder"
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            One way to check a block yourself: block a second address of your own, send a mail from
+            it, and look on iCloud.com and on the phone. Where the mail sits is the answer for your
+            account.
+          </p>
+
+          <h2 id="what-senderban-does-on-icloud">
+            What does Senderban do on iCloud, and what does it not do?
+          </h2>
+          <p>
+            Senderban is a free, open-source app. It shows a notification for new mail and blocks
+            the sender from it, with one block list for every account you add. On Gmail, Outlook and
+            Sieve servers that block is a rule on the provider's server. iCloud lets a program read
+            and move mail over IMAP but gives it no way to write a rule, so Senderban adds an iCloud
+            mailbox as <strong>Other (IMAP)</strong> and moves the blocked sender's mail itself (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0014-imap-clean.md"
+              >ADR 0014</a
+            >).
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/icloud-block-sender/where-senderban-acts.svg"
+              width="420"
+              height="444"
+              loading="lazy"
+              alt="Diagram: with Senderban running, it moves the blocked mail from the iCloud Inbox to Trash or Junk on Apple's server. With it closed there is no rule, and the mail stays in the Inbox."
+            />
+            <figcaption>
+              The move happens in the mailbox on Apple's server, but only while Senderban runs.
+              Measured on one iCloud mailbox, 1 November 2026. Source:
+              <a href="https://github.com/senderban/senderban#provider-support"
+                >Senderban README, provider support</a
+              >.
+            </figcaption>
+          </figure>
+          <p>
+            On 1 November 2026, on one iCloud mailbox, a click on a notification blocked one
+            address. Senderban moved that sender's 2 earlier mails out of the Inbox 2.6 s after the
+            click, and 53 s after that moved a new mail from the address without showing a
+            notification for it. Nothing failed. The run, step by step, is under
+            <a href="#how-we-measured">How was this measured?</a>
+          </p>
+          <figure class="figure figure-shot">
+            <picture>
+              <source
+                srcset="/assets/shots/accounts-dark.webp"
+                media="(prefers-color-scheme: dark)"
+              />
+              <img
+                src="/assets/shots/accounts-light.webp"
+                width="1109"
+                height="754"
+                loading="lazy"
+                decoding="async"
+                alt="Senderban's Accounts window with sample data. The Other (IMAP) card reads: Local only: Senderban moves mail itself while it runs. No rule on the server."
+              />
+            </picture>
+            <figcaption>
+              The Accounts window, Senderban v0.2.0, sample data. An iCloud mailbox is added as
+              <strong>Other (IMAP)</strong>, and the card says what that means.
+            </figcaption>
+          </figure>
+          <p>What it does not do on iCloud, as the README and ADR 0014 state for v0.2.0:</p>
+          <ul>
+            <li>
+              <strong>No rule on Apple's server.</strong> With Senderban closed or the PC off, a
+              blocked sender's mail stays in the Inbox, and your phone and iCloud.com show it.
+            </li>
+            <li>
+              <strong>No block on the phone itself.</strong> It runs on the PC. A phone sees the
+              result only after the PC has moved the mail.
+            </li>
+            <li>
+              <strong>No refusal.</strong> IMAP cannot refuse a mail; it is moved to Junk or Trash,
+              as each entry says.
+            </li>
+            <li>
+              <strong>Unblock does not bring mail back.</strong> Mail it moved stays where it is.
+            </li>
+            <li>
+              <strong>It needs an app-specific password.</strong> Apple's
+              <a href="https://support.apple.com/en-us/102525" rel="noopener"
+                >iCloud Mail server settings page</a
+              >
+              (read 2 November 2026) asks other mail apps for one, and Senderban stores it encrypted
+              on the PC with Windows DPAPI.
+            </li>
+          </ul>
+          <p>
+            A block does reach past mail: it also moves that sender's mail of the last 30 days out
+            of the Inbox, reading senders of up to 50,000 messages on your PC. If you read iCloud
+            mail on a phone and do not keep a Windows PC running, Apple's
+            <strong>Block this Contact</strong> above is the better fit. Senderban fits a reader who
+            wants one block list across iCloud and other accounts. See
+            <a href="/#providers">where Senderban works</a>.
+          </p>
+
+          <h2 id="how-we-measured">How was this measured?</h2>
+          <figure class="figure">
+            <img
+              src="/assets/writing/icloud-block-sender/measured-run.svg"
+              width="420"
+              height="392"
+              loading="lazy"
+              alt="Timeline of one block on iCloud: a notification, a click on Move to Trash, 2 earlier mails moved 2.6 s after the click, and a new mail moved later with no notification."
+            />
+            <figcaption>
+              One block on one iCloud mailbox, 1 November 2026, times in UTC from Senderban's log.
+              The steps are drawn evenly, not to scale.
+            </figcaption>
+          </figure>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="One block on iCloud, measured 1 November 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Time (UTC)</th>
+                  <th scope="col">Event</th>
+                  <th scope="col">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>12:41:40.1</td>
+                  <td>Notification for a new mail</td>
+                  <td>Shown</td>
+                </tr>
+                <tr>
+                  <td>12:41:45.8</td>
+                  <td>Click: Move to Trash, this address</td>
+                  <td>Click recorded</td>
+                </tr>
+                <tr>
+                  <td>12:41:48.4</td>
+                  <td>Past-mail pass over the last 30 days</td>
+                  <td>2 moved, 0 failed, 2.6 s</td>
+                </tr>
+                <tr>
+                  <td>12:42:41.6</td>
+                  <td>New mail from the blocked address</td>
+                  <td>1 moved, 0 failed, the move took 0.9 s; no notification</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <dl class="spec">
+            <div>
+              <dt>Apple's pages</dt>
+              <dd>
+                The six support.apple.com pages linked above were read on 2 November 2026. Quotes
+                are copied from them; Apple can change them later.
+              </dd>
+            </div>
+            <div>
+              <dt>Senderban on iCloud</dt>
+              <dd>
+                1 November 2026, one iCloud mailbox, Windows 11. Built from commit 383fa34; the
+                IMAP-cleaning code is unchanged in v0.2.0. Times and counts come from Senderban's
+                own JSON-lines log of the run. The 0.9 s covers the move step (the folder lookup and
+                the move command); the time from delivery to the move was not logged.
+              </dd>
+            </div>
+            <div>
+              <dt>Record</dt>
+              <dd>
+                <a href="https://github.com/senderban/senderban#provider-support"
+                  >README, provider support</a
+                >: "On iCloud, one address block moved two earlier mails and one new mail out of the
+                Inbox with no failure."
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0014-imap-clean.md"
+                  >ADR 0014</a
+                >
+                for how the cleaning works and its limits.
+              </dd>
+            </div>
+          </dl>
+
+          <h2 id="what-was-not-measured">What was not measured?</h2>
+          <ul>
+            <li>
+              Apple's own ways: Block this Contact, iCloud.com rules and Move to Junk were not run.
+              What they do here is what Apple's pages say.
+            </li>
+            <li>
+              Senderban closed: that the mail then stays in the Inbox follows from the design (ADR
+              0014); no mail that arrived while the app was closed was observed.
+            </li>
+            <li>
+              Whether a block made in iPhone Mail also holds on iCloud.com or in a Windows mail app,
+              and the choices in the iCloud.com rule menus.
+            </li>
+            <li>
+              Which folder the moved mail reached: Move to Trash was chosen, and the Trash folder
+              was not opened to look.
+            </li>
+            <li>
+              Whether the phone shows a blocked mail, or a notification for it, before Senderban
+              moves it, and how long after delivery the move comes.
+            </li>
+            <li>Mail that arrives while Senderban is closed, at its next start.</li>
+            <li>
+              A whole-domain block on iCloud, an iCloud+ custom email domain, and Mail on Mac's own
+              block setting.
+            </li>
+            <li>More than one iCloud mailbox, and more than one day.</li>
+          </ul>
+
+          <h2 id="related-reading">Related reading</h2>
+          <ul>
+            <li>
+              <a href="/writing/blocked-sender-still-coming-through/#blocked-emails-on-iphone"
+                >Why are blocked emails still coming through?</a
+              >: a block kept in one place against a rule on the server, and the iPhone case.
+            </li>
+            <li>
+              <a href="/writing/gmail-block-domain/"
+                >How do I block a domain in Gmail, and does it work?</a
+              >: Gmail's Block, the filter steps, and what a <code>from:</code> search matched.
+            </li>
+            <li>
+              <a href="/writing/mxroute-block-sender/"
+                >How do I block a sender on MXroute, and what does each way cover?</a
+              >: a provider where the block is a rule on the server.
+            </li>
+            <li>
+              <a href="/#providers">Where Senderban works</a>: what each provider keeps, and what
+              was tested on a real account.
+            </li>
+          </ul>
+          <p class="note" id="platform">
+            <strong>Platform.</strong> Senderban runs on Windows today. Apple's steps above are the
+            ones its pages give for an iPhone, an iPad or a browser, without Senderban.
+          </p>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

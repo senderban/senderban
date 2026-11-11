@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 564" width="420" height="564" role="img" aria-labelledby="t d">
+  <title id="t">Where a block acts on MXroute: the account's spam check, then one mailbox's Sieve script</title>
+  <desc id="d">A mail arrives at MXroute. Step 1 is the spam check before delivery; the blacklist used there is one list for every domain on the MXroute account. A blocked sender was refused with a 550 reply on one mailbox on 2026-10-25, but MXroute says a blacklist entry is not a guaranteed refusal. Accepted mail is delivered. Step 2 is the Sieve script of one mailbox, which runs at delivery: a match is filed into Junk or Trash, anything else stays in INBOX. Stand-in name.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .chip{fill:#f6f8fa;stroke:#848d97;stroke-width:1}
+    .box{fill:#f6f8fa;stroke:#0b5fff;stroke-width:2}
+    .hit{fill:#ffebe9;stroke:#cf222e;stroke-width:2}
+    .ok{fill:none;stroke:#0b5fff;stroke-width:2}.oktx{fill:#0a52db}
+    .arrow{stroke:#59636e;stroke-width:2}.head{fill:#59636e}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+    .h{font-size:17px;font-weight:600}
+    .c{text-anchor:middle}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .chip{fill:#1c1f24;stroke:#6e7681}
+      .box{fill:#1c1f24;stroke:#4c8dff}
+      .hit{fill:#3d1d1f;stroke:#f85149}
+      .ok{stroke:#4c8dff}.oktx{fill:#4c8dff}
+      .arrow{stroke:#9ba3ad}.head{fill:#9ba3ad}
+    }
+  </style>
+  <rect class="bg" width="420" height="564"/>
+  <text class="mu" x="10" y="22">One mail, and the two places a block acts</text>
+
+  <rect class="chip" x="10" y="36" width="400" height="62" rx="8"/>
+  <text class="fg h" x="24" y="62">A mail arrives at MXroute</text>
+  <text class="mu mono" x="24" y="86">From: news@brand.example</text>
+
+  <line class="arrow" x1="210" y1="98" x2="210" y2="116"/>
+  <polygon class="head" points="203,114 217,114 210,124"/>
+
+  <rect class="box" x="10" y="126" width="400" height="96" rx="8"/>
+  <text class="fg h" x="24" y="152">1  Spam check, before delivery</text>
+  <text class="fg" x="24" y="178">The blacklist is one list for every</text>
+  <text class="fg" x="24" y="200">domain on the MXroute account.</text>
+
+  <line class="arrow" x1="108" y1="222" x2="108" y2="246"/>
+  <polygon class="head" points="101,244 115,244 108,254"/>
+  <text class="mu" x="118" y="242">blocked</text>
+  <line class="arrow" x1="312" y1="222" x2="312" y2="246"/>
+  <polygon class="head" points="305,244 319,244 312,254"/>
+  <text class="mu" x="322" y="242">accepted</text>
+
+  <rect class="hit" x="10" y="256" width="196" height="120" rx="8"/>
+  <text class="fg h" x="22" y="282">Refused: 550</text>
+  <text class="fg" x="22" y="306">no copy kept;</text>
+  <text class="fg" x="22" y="328">seen 25 Oct 2026</text>
+  <text class="mu" x="22" y="356">not guaranteed</text>
+
+  <rect class="chip" x="214" y="256" width="196" height="120" rx="8"/>
+  <text class="fg h" x="226" y="282">Delivered</text>
+  <text class="fg" x="226" y="306">to the mailbox</text>
+  <text class="fg" x="226" y="328">it was sent to</text>
+
+  <line class="arrow" x1="312" y1="376" x2="312" y2="400"/>
+  <polygon class="head" points="305,398 319,398 312,408"/>
+
+  <rect class="box" x="10" y="410" width="400" height="120" rx="8"/>
+  <text class="fg h" x="24" y="436">2  Sieve script of this one mailbox</text>
+  <text class="fg" x="24" y="462">Runs at delivery, mail by mail.</text>
+  <rect class="ok" x="20" y="478" width="186" height="36" rx="18"/>
+  <text class="oktx c" x="113" y="502">match: Junk or Trash</text>
+  <rect class="chip" x="214" y="478" width="186" height="36" rx="18"/>
+  <text class="fg c" x="307" y="502">no match: INBOX</text>
+
+  <text class="mu" x="10" y="554">Stand-in name. Sources: MXroute docs, ADR 0008.</text>
+</svg>

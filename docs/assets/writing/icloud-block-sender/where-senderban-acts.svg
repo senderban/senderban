@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 444" width="420" height="444" role="img" aria-labelledby="t d">
+  <title id="t">Senderban on iCloud, running against closed</title>
+  <desc id="d">Top: with Senderban running on a Windows PC, a mail from a blocked sender lands in the iCloud Inbox on Apple's server, and Senderban moves it over IMAP to Trash or Junk on the same server. Measured 1 November 2026: 3 mails moved, 0 failed. Bottom: with Senderban closed or the PC off there is no rule on iCloud, so the mail stays in the Inbox and the phone and iCloud.com show it there.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .chip{fill:#f6f8fa;stroke:#848d97;stroke-width:1}
+    .ok{fill:#dafbe1;stroke:#1a7f37;stroke-width:2}
+    .hit{fill:#ffebe9;stroke:#cf222e;stroke-width:2}
+    .ln{stroke:#848d97;stroke-width:1.5;fill:none}.ah{fill:#848d97}
+    .rule{stroke:#d0d7de;stroke-width:1}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .s{font-size:15px}.ct{text-anchor:middle}
+    .h{font-size:17px;font-weight:600}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .chip{fill:#1c1f24;stroke:#6e7681}
+      .ok{fill:#12261e;stroke:#3fb950}
+      .hit{fill:#3d1d1f;stroke:#f85149}
+      .ln{stroke:#8b949e}.ah{fill:#8b949e}.rule{stroke:#30363d}
+    }
+  </style>
+  <rect class="bg" width="420" height="444"/>
+  <text class="mu" x="10" y="22">Where a Senderban block acts on iCloud</text>
+
+  <text class="fg h" x="10" y="56">Senderban running on a Windows PC</text>
+  <rect class="chip" x="10" y="70" width="96" height="36" rx="6"/>
+  <text class="fg ct" x="58" y="94">Sender</text>
+  <path class="ln" d="M106 88H132"/>
+  <path class="ah" d="M140 88l-9-5v10z"/>
+  <rect class="chip" x="140" y="70" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="94">iCloud Inbox, Apple's server</text>
+  <path class="ln" d="M275 106V122"/>
+  <path class="ah" d="M275 130l-5-9h10z"/>
+  <text class="mu s" x="10" y="153">over IMAP</text>
+  <rect class="chip" x="140" y="130" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="154">Senderban on the PC moves it</text>
+  <path class="ln" d="M275 166V182"/>
+  <path class="ah" d="M275 190l-5-9h10z"/>
+  <rect class="ok" x="140" y="190" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="214">Trash or Junk, Apple's server</text>
+  <text class="fg" x="10" y="252">The mail leaves the Inbox on the server.</text>
+  <text class="fg" x="10" y="274">Measured 1 Nov 2026: 3 mails, 0 failed.</text>
+
+  <line class="rule" x1="10" y1="296" x2="410" y2="296"/>
+
+  <text class="fg h" x="10" y="326">Senderban closed, or the PC off</text>
+  <rect class="chip" x="10" y="340" width="96" height="36" rx="6"/>
+  <text class="fg ct" x="58" y="364">Sender</text>
+  <path class="ln" d="M106 358H132"/>
+  <path class="ah" d="M140 358l-9-5v10z"/>
+  <rect class="hit" x="140" y="340" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="364">iCloud Inbox, no rule</text>
+  <text class="fg" x="10" y="402">The mail stays in the Inbox. Your phone</text>
+  <text class="fg" x="10" y="424">and iCloud.com show it there.</text>
+</svg>

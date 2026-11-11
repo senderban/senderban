@@ -1,0 +1,816 @@
+/* senderban.com. Colours come from the app (apps/desktop/assets/tokens.css) so the site and the app read as one product.
+   No remote font, script or image: the site keeps the app's promise of talking to no one. */
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f6f8fa;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --line: #d0d7de;
+  --accent: #0b5fff;
+  --accent-fg: #ffffff;
+  --accent-soft: #e8f0ff;
+  /* Accent text on --accent-soft: #0b5fff there is 4.48:1, under WCAG's 4.5 (Lighthouse 13.6, 2026-11-02); this is 5.66:1. */
+  --accent-on-soft: #0a52db;
+  --ban: #cf222e;
+  --toast-bg: #f3f3f3;
+  --toast-fg: #1a1a1a;
+  --toast-muted: #5f5f5f;
+  --toast-control: #ffffff;
+  --toast-line: #d1d1d1;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b;
+    --bg-soft: #1c1f24;
+    --fg: #e6edf3;
+    --muted: #9ba3ad;
+    --line: #30363d;
+    --accent: #4c8dff;
+    --accent-fg: #0b0d10;
+    --accent-soft: #172440;
+    --accent-on-soft: #4c8dff;
+    --ban: #ff7b72;
+    --toast-bg: #2b2b2b;
+    --toast-fg: #ffffff;
+    --toast-muted: #c5c5c5;
+    --toast-control: #3a3a3a;
+    --toast-line: #4a4a4a;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    1rem/1.6 "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+a {
+  color: var(--accent);
+  text-underline-offset: 0.15em;
+}
+a:focus-visible,
+summary:focus-visible,
+.table-scroll:focus-visible,
+pre:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.wrap {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+.skip {
+  position: absolute;
+  left: -999px;
+}
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  background: var(--bg);
+  padding: 0.5rem 0.75rem;
+  z-index: 1;
+}
+
+/* Header */
+.site-header {
+  border-bottom: 1px solid var(--line);
+}
+.site-header .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.75rem;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 1.1rem;
+  text-decoration: none;
+}
+.brand img {
+  width: 28px;
+  height: 28px;
+}
+.site-header nav {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.95rem;
+}
+.site-header nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.25rem 0;
+  white-space: nowrap;
+}
+.site-header nav a:hover {
+  color: var(--fg);
+}
+
+/* Hero */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: center;
+  padding-top: 4.5rem;
+  padding-bottom: 4rem;
+}
+.eyebrow {
+  display: inline-block;
+  margin: 0 0 1rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-on-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+h1 {
+  font-size: clamp(2.1rem, 4.5vw, 3.1rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+}
+.lead {
+  font-size: 1.2rem;
+  color: var(--muted);
+  margin: 0 0 2rem;
+  max-width: 34rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.button:hover {
+  background: var(--bg-soft);
+}
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.button.primary:hover {
+  filter: brightness(1.08);
+}
+.button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.fineprint {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* The example notification: drawn, not a screenshot, so it follows the theme. Text is sample data. */
+.toast-figure {
+  margin: 0;
+}
+.toast {
+  background: var(--toast-bg);
+  color: var(--toast-fg);
+  border: 1px solid var(--toast-line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 0.9rem 1rem 1rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-width: 24rem;
+  margin-left: auto;
+}
+.toast-app {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--toast-muted);
+  margin-bottom: 0.6rem;
+}
+.toast-app img {
+  width: 16px;
+  height: 16px;
+}
+.toast-app span:last-child {
+  margin-left: auto;
+}
+.toast-sender {
+  margin: 0 0 0.35rem;
+}
+.toast-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.toast-subject {
+  font-weight: 600;
+  margin: 0;
+}
+.toast-small {
+  color: var(--toast-muted);
+  font-size: 0.78rem;
+  margin: 0;
+}
+.toast-score {
+  text-align: right;
+  white-space: nowrap;
+}
+.toast-score strong {
+  display: block;
+  font-size: 0.9rem;
+}
+.dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ban);
+  margin-right: 0.3rem;
+}
+.toast-select {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0.85rem 0 0.6rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--toast-line);
+  border-radius: 4px;
+  background: var(--toast-control);
+}
+.toast-select::after {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-25%) rotate(45deg);
+}
+.toast-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.toast-buttons span {
+  display: block;
+  text-align: center;
+  padding: 0.45rem 0.5rem;
+  border-radius: 4px;
+  background: var(--toast-control);
+  border: 1px solid var(--toast-line);
+}
+.toast-buttons .critical {
+  background: #c42b1c;
+  border-color: #c42b1c;
+  color: #ffffff;
+}
+.toast-figure figcaption {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: right;
+  margin-top: 0.6rem;
+}
+
+/* Sections */
+section {
+  padding: 3.5rem 0;
+  border-top: 1px solid var(--line);
+}
+h2 {
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin: 0 0 0.5rem;
+}
+.section-lead {
+  color: var(--muted);
+  margin: 0 0 2rem;
+  max-width: 42rem;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: step;
+}
+.steps li {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  counter-increment: step;
+}
+.steps li::before {
+  content: counter(step);
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+h3 {
+  font-size: 1.05rem;
+  margin: 0 0 0.35rem;
+}
+.steps p,
+.cards p {
+  margin: 0;
+  color: var(--muted);
+}
+.cards {
+  margin-top: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+.cards > div {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+/* App screenshots */
+.shots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+.shots figure {
+  margin: 0;
+}
+.shots img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.shots figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* Provider table */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+tr:last-child td {
+  border-bottom: 0;
+}
+th {
+  background: var(--bg-soft);
+  font-weight: 600;
+  white-space: nowrap;
+}
+td:first-child {
+  font-weight: 600;
+}
+td small {
+  color: var(--muted);
+}
+.note {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 1rem 0 0;
+  max-width: 48rem;
+}
+
+.prose > * {
+  max-width: 46rem;
+}
+.prose p,
+.prose li {
+  color: var(--muted);
+}
+.prose li + li {
+  margin-top: 0.4rem;
+}
+
+/* FAQ */
+details {
+  border-bottom: 1px solid var(--line);
+  max-width: 46rem;
+}
+summary {
+  cursor: pointer;
+  padding: 0.9rem 0;
+  font-weight: 600;
+}
+details p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.support {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+.support p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 36rem;
+}
+
+/* Engineering page */
+.site-header nav a[aria-current="page"] {
+  color: var(--fg);
+}
+.page-head {
+  padding-top: 4rem;
+  padding-bottom: 3rem;
+}
+.page-head .lead {
+  max-width: 42rem;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.facts li {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+.facts strong {
+  display: block;
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+}
+.facts span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.arch {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.arch-layer {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+  padding: 1rem 1.25rem;
+}
+.arch-layer + .arch-layer::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(-0.75rem - 1px);
+  height: 0.75rem;
+  border-left: 2px solid var(--accent);
+}
+.arch-server {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.arch-name {
+  margin: 0 0 0.6rem;
+  font-weight: 600;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.arch-name small {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 0.4rem;
+}
+.arch-boxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.arch-boxes span {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.9rem;
+}
+.spec {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.spec > div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.spec > div:last-child {
+  border-bottom: 0;
+}
+.spec dt {
+  font-weight: 600;
+}
+.spec dd {
+  margin: 0;
+  color: var(--muted);
+}
+code,
+pre {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.88em;
+}
+:not(pre) > code {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+pre {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: stage;
+}
+.pipeline li {
+  counter-increment: stage;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem 0.35rem 0.45rem;
+  font-size: 0.92rem;
+}
+.pipeline li::before {
+  content: counter(stage);
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.adr-list {
+  columns: 2;
+  column-gap: 2.5rem;
+  margin: 0;
+  padding-left: 2.25rem;
+}
+.adr-list li {
+  break-inside: avoid;
+  padding: 0.2rem 0;
+}
+.adr-list li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Privacy page: the policy text is read by Google's OAuth review, so only its frame is styled here */
+.policy-status {
+  max-width: 46rem;
+  margin: 1.5rem 0 0;
+  padding: 0.9rem 1.1rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.policy h2,
+.article h2 {
+  font-size: 1.3rem;
+  margin-top: 2.5rem;
+}
+.policy h2:first-child,
+.article h2:first-child {
+  margin-top: 0;
+}
+
+/* Writing */
+.post-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-width: 46rem;
+}
+.post-list li + li {
+  margin-top: 1.75rem;
+}
+.post-list a {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.post-list p {
+  margin: 0.35rem 0 0.25rem;
+  color: var(--muted);
+}
+.post-date {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.post-kind {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* Guides: key facts, the contents list (plain anchors, no script), figures */
+.key-facts {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin: 0 0 2rem;
+}
+.key-facts ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.prose .key-facts-title,
+.prose .toc-title {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.prose .key-facts li {
+  color: var(--fg);
+}
+.toc {
+  border-left: 3px solid var(--accent);
+  padding: 0.25rem 0 0.25rem 1rem;
+  margin: 0 0 2.5rem;
+}
+.toc ol {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+.prose .toc li + li {
+  margin-top: 0;
+}
+.toc a {
+  display: block;
+  padding: 0.2rem 0;
+}
+.article h2[id] {
+  scroll-margin-top: 1rem;
+}
+.figure {
+  margin: 1.75rem 0;
+}
+.figure img {
+  display: block;
+  width: 100%;
+  max-width: 30rem;
+  height: auto;
+}
+.figure-shot img {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.figure figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.article .table-scroll {
+  margin: 1.25rem 0;
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 2rem 0 3rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.site-footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.site-footer a {
+  color: var(--muted);
+}
+
+@media (max-width: 52rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.5rem;
+    padding-top: 3rem;
+    padding-bottom: 3rem;
+  }
+  .toast {
+    margin: 0 auto;
+  }
+  .toast-figure figcaption {
+    text-align: center;
+  }
+  .steps,
+  .cards,
+  .shots {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .spec > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+  .adr-list {
+    columns: 1;
+  }
+}
+/* Six links fit from 700 px (measured); below that only Engineering and GitHub stay. */
+@media (max-width: 44rem) {
+  .site-header nav a:not(.keep) {
+    display: none;
+  }
+  /* Contents links reach 44 px touch height on a phone. */
+  .toc a {
+    padding: 0.6rem 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}

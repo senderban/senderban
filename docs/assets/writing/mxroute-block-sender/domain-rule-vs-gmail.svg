@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 446" width="420" height="446" role="img" aria-labelledby="t d">
+  <title id="t">A block on brand.example: what Gmail's from: search took, and what a Sieve domain rule took</title>
+  <desc id="d">Four kinds of sender domain. brand.example: a domain block should take it; Gmail's search took it; the Sieve rule took it. A subdomain: should take it; Gmail took it in a query for a second domain; Sieve took it. The longer domain brand.example.test: should not take it; Gmail took it; Sieve left it in INBOX. Its subdomain news.brand.example.test: should not take it; Gmail took it; Sieve left it in INBOX. Gmail web search on one mailbox, 2026-10-29. Sieve rule written by Senderban, mail delivered to Dovecot 2.4.5 over LMTP, 2026-11-02. Stand-in names.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .rule{stroke:#d0d7de;stroke-width:1}
+    .ok{fill:none;stroke:#0b5fff;stroke-width:2}.oktx{fill:#0a52db}
+    .over{fill:#cf222e}.overtx{fill:#ffffff}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:15px}
+    .h{font-weight:600}
+    .c{text-anchor:middle}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .rule{stroke:#30363d}
+      .ok{stroke:#4c8dff}.oktx{fill:#4c8dff}
+      .over{fill:#f85149}.overtx{fill:#14171b}
+    }
+  </style>
+  <rect class="bg" width="420" height="446"/>
+  <text class="fg h" x="10" y="26">Sender's domain</text>
+  <text class="fg h c" x="240" y="26">Meant</text>
+  <text class="fg h c" x="302" y="26">Gmail</text>
+  <text class="fg h c" x="370" y="26">Sieve</text>
+  <line class="rule" x1="10" y1="40" x2="410" y2="40"/>
+
+  <text class="fg mono" x="10" y="66">brand.example</text>
+  <text class="mu" x="10" y="88">the domain</text>
+  <text class="fg c" x="240" y="78">yes</text>
+  <rect class="ok" x="276" y="60" width="52" height="26" rx="13"/>
+  <text class="oktx c" x="302" y="78">yes</text>
+  <rect class="ok" x="344" y="60" width="52" height="26" rx="13"/>
+  <text class="oktx c" x="370" y="78">yes</text>
+  <line class="rule" x1="10" y1="102" x2="410" y2="102"/>
+
+  <text class="fg mono" x="10" y="128">mail.brand.example</text>
+  <text class="mu" x="10" y="150">a subdomain</text>
+  <text class="fg c" x="240" y="140">yes</text>
+  <rect class="ok" x="276" y="122" width="52" height="26" rx="13"/>
+  <text class="oktx c" x="302" y="140">yes</text>
+  <rect class="ok" x="344" y="122" width="52" height="26" rx="13"/>
+  <text class="oktx c" x="370" y="140">yes</text>
+  <line class="rule" x1="10" y1="164" x2="410" y2="164"/>
+
+  <text class="fg mono" x="10" y="190">brand.example.test</text>
+  <text class="mu" x="10" y="212">a longer, other domain</text>
+  <text class="mu c" x="240" y="202">no</text>
+  <rect class="over" x="276" y="184" width="52" height="26" rx="13"/>
+  <text class="overtx c" x="302" y="202">yes</text>
+  <text class="mu c" x="370" y="202">no</text>
+  <line class="rule" x1="10" y1="226" x2="410" y2="226"/>
+
+  <text class="fg mono" x="10" y="252">news.brand.example.test</text>
+  <text class="mu" x="10" y="274">its subdomain</text>
+  <text class="mu c" x="240" y="264">no</text>
+  <rect class="over" x="276" y="246" width="52" height="26" rx="13"/>
+  <text class="overtx c" x="302" y="264">yes</text>
+  <text class="mu c" x="370" y="264">no</text>
+  <line class="rule" x1="10" y1="288" x2="410" y2="288"/>
+
+  <text class="mu" x="10" y="312">Meant: a <tspan class="mono">brand.example</tspan> block should take it.</text>
+  <text class="mu" x="10" y="336">Gmail: <tspan class="mono">from:(@brand.example)</tspan> matched it,</text>
+  <text class="mu" x="10" y="358">29 Oct 2026; subdomain row from a 2nd query.</text>
+  <text class="mu" x="10" y="382">Sieve: Senderban's rule filed it in Junk,</text>
+  <text class="mu" x="10" y="404">2 Nov 2026.</text>
+  <rect class="over" x="10" y="420" width="26" height="14" rx="7"/>
+  <text class="fg" x="44" y="433">taken, but another domain</text>
+</svg>

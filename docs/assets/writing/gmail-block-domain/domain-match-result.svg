@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 386" width="420" height="386" role="img" aria-labelledby="t d">
+  <title id="t">What from:(@brand.example) matched, against what a domain block should take</title>
+  <desc id="d">Four kinds of sender domain. brand.example: a domain block should take it, and the search matched it. A subdomain news.brand.example: should take it, matched (seen in a query for a second domain). A longer domain brand.example.test: should not take it, matched. Its subdomain news.brand.example.test: should not take it, matched. Gmail web search on one mailbox, 2026-10-29, stand-in names.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .rule{stroke:#d0d7de;stroke-width:1}
+    .ok{fill:none;stroke:#0b5fff;stroke-width:2}.oktx{fill:#0a52db}
+    .over{fill:#cf222e}.overtx{fill:#ffffff}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+    .h{font-weight:600}
+    .c{text-anchor:middle}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .rule{stroke:#30363d}
+      .ok{stroke:#4c8dff}.oktx{fill:#4c8dff}
+      .over{fill:#f85149}.overtx{fill:#14171b}
+    }
+  </style>
+  <rect class="bg" width="420" height="386"/>
+  <text class="fg h" x="10" y="26">Sender's domain</text>
+  <text class="fg h c" x="306" y="26">Meant</text>
+  <text class="fg h c" x="378" y="26">Matched</text>
+  <line class="rule" x1="10" y1="40" x2="410" y2="40"/>
+
+  <text class="fg mono" x="10" y="66">brand.example</text>
+  <text class="mu" x="10" y="88">the domain</text>
+  <text class="fg c" x="306" y="78">yes</text>
+  <rect class="ok" x="350" y="60" width="56" height="26" rx="13"/>
+  <text class="oktx c" x="378" y="78">yes</text>
+  <line class="rule" x1="10" y1="102" x2="410" y2="102"/>
+
+  <text class="fg mono" x="10" y="128">news.brand.example</text>
+  <text class="mu" x="10" y="150">a subdomain (2nd query)</text>
+  <text class="fg c" x="306" y="140">yes</text>
+  <rect class="ok" x="350" y="122" width="56" height="26" rx="13"/>
+  <text class="oktx c" x="378" y="140">yes</text>
+  <line class="rule" x1="10" y1="164" x2="410" y2="164"/>
+
+  <text class="fg mono" x="10" y="190">brand.example.test</text>
+  <text class="mu" x="10" y="212">a longer, other domain</text>
+  <text class="mu c" x="306" y="202">no</text>
+  <rect class="over" x="350" y="184" width="56" height="26" rx="13"/>
+  <text class="overtx c" x="378" y="202">yes</text>
+  <line class="rule" x1="10" y1="226" x2="410" y2="226"/>
+
+  <text class="fg mono" x="10" y="252">news.brand.example.test</text>
+  <text class="mu" x="10" y="274">its subdomain</text>
+  <text class="mu c" x="306" y="264">no</text>
+  <rect class="over" x="350" y="246" width="56" height="26" rx="13"/>
+  <text class="overtx c" x="378" y="264">yes</text>
+  <line class="rule" x1="10" y1="288" x2="410" y2="288"/>
+
+  <text class="mu" x="10" y="314">Meant: a <tspan class="mono">brand.example</tspan> block should take it.</text>
+  <text class="mu" x="10" y="336">Matched: <tspan class="mono">from:(@brand.example)</tspan> found it.</text>
+  <rect class="over" x="10" y="352" width="26" height="14" rx="7"/>
+  <text class="fg" x="44" y="365">matched, but another domain</text>
+</svg>

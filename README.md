@@ -8,6 +8,16 @@ Block a sender once, from the Windows notification, on every mail account you ow
 > local Dovecot server only, see [Provider support](#provider-support). The installer is unsigned.
 > Start with a mailbox you can afford to experiment on.
 
+<picture>
+  <source srcset="docs/assets/shots/blocked-dark.webp" media="(prefers-color-scheme: dark)">
+  <img src="docs/assets/shots/blocked-light.webp" width="720" alt="The Blocked senders view: five sample senders, each with its block, what Gmail and Other (IMAP) mailboxes do with it, and an Unblock button.">
+</picture>
+
+<picture>
+  <source srcset="docs/assets/shots/accounts-dark.webp" media="(prefers-color-scheme: dark)">
+  <img src="docs/assets/shots/accounts-light.webp" width="720" alt="The Accounts view: sample MXroute, Other (IMAP), Gmail and Outlook mailboxes with their state, and Block at server and a spam filter on the MXroute domain.">
+</picture>
+
 ## Download
 
 [Latest release](https://github.com/senderban/senderban/releases/latest): `Senderban-Setup-X.Y.Z.exe`.
@@ -52,7 +62,8 @@ there also moves their mail of the last 30 days out of the inbox, and adding the
 for your whole block list at the next start.
 
 - **Block at server** (MXroute, one address, off until you switch it on) puts the address on the
-  MXroute blacklist, which covers every mailbox on that mail domain. On the mailbox measured the
+  MXroute blacklist, which MXroute's documentation says applies across the hosting account's
+  domains (not measured here beyond one mailbox). On the mailbox measured the
   sender got `550 High scoring spam message has been dropped` and no copy was kept. That depends on
   the spam-score limit in your MXroute panel, so a Junk rule stays as the backup for a mail that
   still arrives.
@@ -213,6 +224,12 @@ Build the installer:
 npm run build
 npm run dist -w apps/desktop   # apps/desktop/release/Senderban-Setup-<version>.exe
 ```
+
+## Sponsor
+
+Senderban is free and open source. [Sponsoring](https://github.com/sponsors/AlimKose) pays for
+maintenance time and the senderban.com domain. Sponsors are named here and on
+[senderban.com](https://senderban.com) when they ask to be.
 
 ## License
 

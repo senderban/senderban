@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blocked emails still coming through? Here is why - Senderban</title>
+    <meta
+      name="description"
+      content="Blocked emails still coming through? The block files them in Spam or Junk, the mail came before it, the sender changed address, or it lives in one app."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta property="og:title" content="Why are blocked emails still coming through? - Senderban" />
+    <meta
+      property="og:description"
+      content="Blocked emails still coming through? The block files them in Spam or Junk, the mail came before it, the sender changed address, or it lives in one app."
+    />
+    <meta
+      property="og:url"
+      content="https://senderban.com/writing/blocked-sender-still-coming-through/"
+    />
+    <meta
+      property="og:image"
+      content="https://senderban.com/assets/writing/blocked-sender-still-coming-through/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Why are blocked emails still coming through? Gmail's Block files mail in Spam, Outlook's in Junk: the mail still arrives. A block list kept in one app stays in that app. Google and Microsoft help pages, read 2 November 2026."
+    />
+    <meta property="article:published_time" content="2026-11-02" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "Why are blocked emails still coming through?",
+        "datePublished": "2026-11-02",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/writing/blocked-sender-still-coming-through/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/blocked-sender-still-coming-through/"
+      }
+    </script>
+    <link
+      rel="canonical"
+      href="https://senderban.com/writing/blocked-sender-still-coming-through/"
+    />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Guide · <time datetime="2026-11-02">2 November 2026</time></p>
+        <h1>Why are blocked emails still coming through?</h1>
+        <p class="lead">
+          Blocked emails still come through for four reasons: the block files the mail into Spam or
+          Junk instead of refusing it, the mail arrived before the block, the sender wrote from an
+          address the block does not cover, or the block lives in one mail app instead of on the
+          mail server. Each has a different fix, and only the last one is about where the block is
+          kept.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <div class="key-facts">
+            <p class="key-facts-title">Key facts</p>
+            <ul>
+              <li>
+                Gmail's Block sends a sender's future mail to Spam, and Outlook's Blocked senders
+                list moves it to the Junk Email folder (help pages, read 2 November 2026). The mail
+                still arrives, in another folder.
+              </li>
+              <li>
+                A block list kept in a mail app on one computer is not on the server: Microsoft's
+                archived note on Outlook 2013 says such lists "are maintained only on that client",
+                and mail the client moves reaches Outlook.com only when it syncs.
+              </li>
+              <li>
+                The new Outlook "does not support blocking senders for third-party accounts like
+                Gmail, Yahoo, iCloud", Microsoft's page says (read 2 November 2026).
+              </li>
+              <li>
+                On a personal Outlook.com mailbox on 1 November 2026, a rule Senderban wrote on
+                Microsoft's server took about 0.6 s from the click to a checked block, and mail from
+                the blocked address went to Deleted Items, not the Inbox.
+              </li>
+              <li>
+                On iCloud Senderban writes no server rule. On 1 November 2026 one address block
+                moved two earlier mails and one new mail out of the Inbox, but only while the app
+                runs; with it closed, your phone sees the mail.
+              </li>
+            </ul>
+          </div>
+
+          <nav class="toc" aria-label="On this page">
+            <p class="toc-title">On this page</p>
+            <ol>
+              <li>
+                <a href="#do-blocked-emails-still-come-through"
+                  >Do blocked emails still come through?</a
+                >
+              </li>
+              <li>
+                <a href="#on-the-server-or-in-one-app">Is the block on the server or in one app?</a>
+              </li>
+              <li>
+                <a href="#outlook-block-sender-not-working"
+                  >Why doesn't Block sender work in Outlook?</a
+                >
+              </li>
+              <li>
+                <a href="#gmail-block-sender-not-working"
+                  >Why are blocked emails still coming through in Gmail?</a
+                >
+              </li>
+              <li>
+                <a href="#blocked-emails-on-iphone"
+                  >Why are blocked emails still coming through on iPhone?</a
+                >
+              </li>
+              <li>
+                <a href="#what-senderban-does">Where does Senderban help, and where does it not?</a>
+              </li>
+              <li><a href="#how-we-measured">How was this measured?</a></li>
+              <li><a href="#what-was-not-measured">What was not measured?</a></li>
+              <li><a href="#related-reading">Related reading</a></li>
+            </ol>
+          </nav>
+
+          <h2 id="do-blocked-emails-still-come-through">Do blocked emails still come through?</h2>
+          <p>
+            Usually, yes. On Gmail and Outlook a block decides which folder the mail lands in; the
+            sender can still send it and the server still accepts it. Google's
+            <a href="https://support.google.com/mail/answer/8151?hl=en" rel="noopener"
+              >help page on blocking a sender</a
+            >
+            says that after a block "all future emails from them go to Spam". Microsoft's
+            <a
+              href="https://support.microsoft.com/en-us/outlook/mail/block-or-unblock-senders-in-outlook"
+              rel="noopener"
+              >page on blocking senders in Outlook</a
+            >
+            says "Outlook automatically moves messages from that sender to the Junk Email folder",
+            and, of classic Outlook, "The blocked person can still send you mail". Both were read on
+            2 November 2026.
+          </p>
+          <p>
+            So start with where the mail is. These questions, in this order, separate the four
+            causes:
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/blocked-sender-still-coming-through/why-it-came-through.svg"
+              width="420"
+              height="586"
+              alt="Decision diagram with four questions: is it in Spam, Junk or Trash; did it arrive before the block; is it from an address you did not block; was the block made in one mail app. Each yes leads to its fix."
+            />
+            <figcaption>
+              Four questions that tell the causes apart. Sources: the Google and Microsoft help
+              pages above, read 2 November 2026, and the measurements on this page.
+            </figcaption>
+          </figure>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Why a blocked sender's mail came through, and the fix"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">What you see</th>
+                  <th scope="col">Cause</th>
+                  <th scope="col">What to do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>The mail is in Spam, Junk or Trash</td>
+                  <td>The block files mail, it does not refuse it</td>
+                  <td>Nothing: the block works. To delete it instead, use a filter or rule</td>
+                </tr>
+                <tr>
+                  <td>The mail is older than the block</td>
+                  <td>A block acts on mail that arrives after it</td>
+                  <td>Move or delete that mail yourself</td>
+                </tr>
+                <tr>
+                  <td>Same sender, a different address</td>
+                  <td>An address block covers that one address</td>
+                  <td>Block the domain, after checking what the domain rule matches</td>
+                </tr>
+                <tr>
+                  <td>Filed on your PC, in the inbox on your phone</td>
+                  <td>The block lives in one mail app</td>
+                  <td>Make the block on the provider's website, where the server applies it</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="on-the-server-or-in-one-app">Is the block on the server or in one app?</h2>
+          <p>
+            A block can live in two places. A rule on the mail server acts on the mail as it
+            arrives, so the phone, webmail and every mail app see the same result. A block list in a
+            mail app on your PC acts only when that app has the mail in front of it, on that device.
+            Microsoft's
+            <a
+              href="https://learn.microsoft.com/en-us/previous-versions/troubleshoot/outlook/junk-email-setting-not-synchronized"
+              rel="noopener"
+              >archived note on Outlook 2013</a
+            >
+            with an Outlook.com account says it plainly: if you use the Safe Senders and Blocked
+            Senders lists in Outlook 2013, "the lists are maintained only on that client", while "if
+            an email message is blocked by the Outlook.com service, the email message is not
+            delivered to the Outlook 2013 clients". It adds that when the client synchronizes with
+            Outlook.com, "the email message is also moved to the Junk folder on Outlook.com.
+            However, the Blocked senders list on Outlook.com is not updated". Its fix is to keep the
+            list on Outlook.com instead (read 2 November 2026).
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/blocked-sender-still-coming-through/where-the-block-lives.svg"
+              width="420"
+              height="460"
+              alt="Diagram: with a rule on the mail server, the phone, webmail and PC all see the mail filed. With a block kept in one app, the phone and webmail see it in the inbox unless the PC app has moved it and synced."
+            />
+            <figcaption>
+              A rule on the server against a block in one app. Senderban works the second way on
+              iCloud, Yahoo, AOL, GMX and Web.de. Source:
+              <a href="https://github.com/senderban/senderban#provider-support"
+                >Senderban README, provider support</a
+              >.
+            </figcaption>
+          </figure>
+          <p>
+            To check yours, block a second address of your own the same way, send a mail from it,
+            and look on your phone. If the phone shows it in the inbox, the block is not on the
+            server.
+          </p>
+
+          <h2 id="outlook-block-sender-not-working">Why doesn't Block sender work in Outlook?</h2>
+          <p>
+            Three things in Microsoft's own pages explain most cases. These are the steps and limits
+            on the
+            <a
+              href="https://support.microsoft.com/en-us/outlook/mail/block-or-unblock-senders-in-outlook"
+              rel="noopener"
+              >Outlook help page</a
+            >, read 2 November 2026. In the new Outlook and Outlook.com the block is made like this:
+          </p>
+          <ol>
+            <li>
+              Select <strong>Settings</strong>, <strong>Mail</strong>, <strong>Junk email</strong>.
+            </li>
+            <li>
+              To block one address, enter it under <strong>Blocked senders</strong> and select
+              <strong>Add</strong>.
+            </li>
+            <li>
+              To block a whole domain, enter it under <strong>Blocked domains</strong> and select
+              <strong>Add</strong>.
+            </li>
+            <li>Select <strong>Save</strong>.</li>
+          </ol>
+          <p>
+            To see or remove an entry later, go back to <strong>Settings</strong>,
+            <strong>Mail</strong>, <strong>Junk email</strong>, and select the address or domain and
+            the <strong>Remove</strong> icon. In classic Outlook the list is the
+            <strong>Blocked Senders</strong> tab under <strong>Home</strong>,
+            <strong>Block</strong>, <strong>Junk E-mail Options</strong>; select a name and choose
+            <strong>Remove</strong>. Both are on the same help page.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Why Outlook's blocked senders list seems not to work"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Microsoft says</th>
+                  <th scope="col">So the mail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Blocked mail is moved to the Junk Email folder</td>
+                  <td>Still arrives, in Junk</td>
+                </tr>
+                <tr>
+                  <td>
+                    The new Outlook "does not support blocking senders for third-party accounts like
+                    Gmail, Yahoo, iCloud"
+                  </td>
+                  <td>
+                    Of a Gmail, Yahoo or iCloud account added to the new Outlook is not blocked
+                    there
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Outlook 2013's own lists "are maintained only on that client" (archived note)
+                  </td>
+                  <td>
+                    The list stays in that app; mail it moves reaches the server only after it syncs
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A rule acts on new mail. Microsoft's
+            <a
+              href="https://learn.microsoft.com/en-us/graph/api/resources/messagerule"
+              rel="noopener"
+              >reference for Outlook rules</a
+            >
+            describes "rules for incoming messages in the Inbox", so mail that was already in the
+            Inbox stays there. And
+            <a href="/writing/outlook-domain-text-match/"
+              >a domain in an Outlook rule is a text match</a
+            >: a rule for <code>@brand.example</code> also catches <code>@brand.example.test</code>,
+            which is someone else. Graph has no exact-domain condition (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
+              >ADR 0013</a
+            >).
+          </p>
+
+          <h2 id="gmail-block-sender-not-working">
+            Why are blocked emails still coming through in Gmail?
+          </h2>
+          <p>
+            Gmail's Block covers one sender and moves their future mail to Spam, so a blocked mail
+            in Spam means the block works. Google's steps, read 2 November 2026: open the sender's
+            message, click <strong>More</strong> next to Reply at the top right, then
+            <strong>Block "{sender}"</strong>. The page speaks of future emails; it does not say the
+            block moves mail already in your inbox.
+          </p>
+          <p>
+            When the same sender writes from a new address, the block does not cover it. Gmail has
+            no domain block button; the free way is a filter on
+            <code>from:(@example.com)</code> that deletes the mail. Our test of that search on 29
+            October 2026 found it also matched a longer, different domain and a word in a sender's
+            display name: the steps and the measured table are in
+            <a href="/writing/gmail-block-domain/"
+              >How do I block a domain in Gmail, and does it work?</a
+            >
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Gmail's Block against a filter"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Gmail tool</th>
+                  <th scope="col">Covers</th>
+                  <th scope="col">Blocked mail goes to</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Block "{sender}"</td>
+                  <td>One sender</td>
+                  <td>Spam</td>
+                </tr>
+                <tr>
+                  <td>Filter on <code>from:(@example.com)</code></td>
+                  <td>Every sender the search matches, which is more than the domain</td>
+                  <td>What you choose, for example delete</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="blocked-emails-on-iphone">
+            Why are blocked emails still coming through on iPhone?
+          </h2>
+          <p>
+            A phone shows the mailbox the server keeps. A rule on the server has already acted on
+            the mail; a block made in a mail app on another device has not, so the phone sees the
+            mail in the inbox. That is the lower half of the diagram above.
+          </p>
+          <p>
+            For an iCloud address, Apple's support guide page
+            <a
+              href="https://support.apple.com/guide/icloud/set-up-filtering-rules-mm6b1a3f8a/icloud"
+              rel="noopener"
+              >"Set up rules to filter email in Mail on iCloud.com"</a
+            >
+            (read 2 November 2026) describes rules that filter incoming mail, "up to 500 rules". It
+            also says "It may take up to 15 minutes for new or changed rules to take effect on
+            incoming emails", so a mail in the first minutes after a new rule can still reach the
+            inbox. Apple's page does not mention blocking senders, and the iPhone Mail app's own
+            block setting was not tested for this post. Apple's block steps for iCloud, and what
+            Senderban does there:
+            <a href="/writing/icloud-block-sender/">How do I block email on iCloud?</a>
+          </p>
+
+          <h2 id="what-senderban-does">Where does Senderban help, and where does it not?</h2>
+          <p>
+            Senderban is a free, open-source Windows app. When new mail arrives it shows a Windows
+            notification, and one click writes the block on the mail provider's server where the
+            provider lets a program write a rule: a Gmail filter, an Outlook rule or a Sieve rule.
+            One block list is shared by all the accounts you add. Where no rule can be written, it
+            moves the mail itself, which has the same weakness as a block in one app.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="What a Senderban block becomes on each provider, Senderban v0.2.0"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th>
+                  <th scope="col">What a block becomes</th>
+                  <th scope="col">Where the mail goes</th>
+                  <th scope="col">Measured on a real account</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Gmail / Workspace</td>
+                  <td>Gmail filter on Google's server, single addresses only</td>
+                  <td>Trash</td>
+                  <td>Yes: 0.75 s click to checked filter, 27 October 2026</td>
+                </tr>
+                <tr>
+                  <td>Outlook / Hotmail / Microsoft 365</td>
+                  <td>Outlook rule on Microsoft's server</td>
+                  <td>Junk or Deleted Items</td>
+                  <td>Personal account only: about 0.6 s, 1 November 2026</td>
+                </tr>
+                <tr>
+                  <td>MXroute</td>
+                  <td>Sieve rule; optionally the MXroute blacklist for one address</td>
+                  <td>
+                    Junk or Trash; the blacklist can refuse the mail, which MXroute does not
+                    guarantee
+                  </td>
+                  <td>Yes: full loop 30 October 2026, refusal 25 October 2026</td>
+                </tr>
+                <tr>
+                  <td>Migadu, mailbox.org, Purelymail, other ManageSieve servers</td>
+                  <td>Sieve rule on the server</td>
+                  <td>Junk or Trash</td>
+                  <td>No: a local Dovecot server only, 31 October 2026</td>
+                </tr>
+                <tr>
+                  <td>iCloud</td>
+                  <td>No rule: Senderban moves the mail while it runs</td>
+                  <td>Junk or Trash</td>
+                  <td>Yes: 3 mails moved out of the Inbox, 1 November 2026</td>
+                </tr>
+                <tr>
+                  <td>Yahoo, AOL, GMX, Web.de</td>
+                  <td>No rule: Senderban moves the mail while it runs</td>
+                  <td>Junk or Trash</td>
+                  <td>No: a local Dovecot server only</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>What it does not do, as the README and ADRs state for v0.2.0:</p>
+          <ul>
+            <li>
+              <strong>No server rule on iCloud, Yahoo, AOL, GMX or Web.de.</strong> With Senderban
+              closed a blocked sender's mail stays in the inbox, and your phone sees it.
+            </li>
+            <li>
+              <strong>No domain block on Gmail, and no Spam.</strong> A domain entry made on another
+              account shows <strong>Gmail: not applied</strong>; a Gmail filter cannot file mail
+              into Spam, so Gmail entries go to Trash.
+            </li>
+            <li>
+              <strong>An Outlook domain is a text match.</strong> Some domains are refused for that
+              reason, and the list shows <strong>Outlook: not applied</strong>. A work or school
+              account was not measured and may need an administrator's approval.
+            </li>
+            <li>
+              <strong>Refusing at the server is MXroute only</strong>, for single addresses, off
+              until you switch it on. On the mailbox measured the sender got
+              <code>550 High scoring spam message has been dropped</code>; that depends on the
+              spam-score limit in the MXroute panel.
+            </li>
+            <li>
+              <strong>On Outlook, mail that arrived before the block stays</strong> in the Inbox. On
+              an Other (IMAP) mailbox, such as iCloud, a block also moves that sender's mail of the
+              last 30 days out of the inbox.
+            </li>
+            <li>
+              <strong>It is not an email client.</strong> It does not send, sync or download message
+              bodies, and it runs on Windows only.
+            </li>
+          </ul>
+          <p>
+            If your mail is on Gmail, Outlook.com or a Sieve server, the provider's own steps above
+            work without Senderban. What Senderban adds is the block from the notification, and one
+            list applied to every account you add. See <a href="/#how">how it works</a> and
+            <a href="/#providers">where it works</a>.
+          </p>
+
+          <h2 id="how-we-measured">How was this measured?</h2>
+          <dl class="spec">
+            <div>
+              <dt>Help pages</dt>
+              <dd>
+                Google's, Microsoft's and Apple's pages linked above were read on 2 November 2026.
+                Quotes are copied from them; what they say can change later.
+              </dd>
+            </div>
+            <div>
+              <dt>Outlook</dt>
+              <dd>
+                1 November 2026, one personal Outlook.com mailbox, the built app: a block from the
+                notification, the rule written and read back, then test mail from a blocked address
+                and from another address of a blocked domain.
+              </dd>
+            </div>
+            <div>
+              <dt>Gmail</dt>
+              <dd>
+                27 October 2026, one Gmail account: click to checked filter. 30 October 2026, with
+                one MXroute account: new mail, notification, block, the next mail filed away, undo.
+              </dd>
+            </div>
+            <div>
+              <dt>iCloud and MXroute</dt>
+              <dd>
+                iCloud on 1 November 2026, one mailbox. MXroute's refusal at the server on 25
+                October 2026, one mailbox.
+              </dd>
+            </div>
+            <div>
+              <dt>Names</dt>
+              <dd>Real domains and addresses are replaced by reserved example names (RFC 2606).</dd>
+            </div>
+            <div>
+              <dt>Record</dt>
+              <dd>
+                <a href="https://github.com/senderban/senderban#provider-support"
+                  >README, provider support</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
+                  >ADR 0013, "Measured"</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0009-gmail-account.md"
+                  >ADR 0009, "Measured live"</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0008-reject-action.md"
+                  >ADR 0008</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0014-imap-clean.md"
+                  >ADR 0014</a
+                >.
+              </dd>
+            </div>
+          </dl>
+
+          <h2 id="what-was-not-measured">What was not measured?</h2>
+          <ul>
+            <li>
+              Gmail's own Block button and Outlook's own Blocked senders list on new mail. Their
+              behaviour here is what Google's and Microsoft's pages say.
+            </li>
+            <li>The iPhone Mail app's block setting, and Apple's rules on iCloud.com.</li>
+            <li>
+              Outlook on a work or school account, and whether an Outlook domain rule also reads the
+              sender's display name.
+            </li>
+            <li>
+              Senderban at Migadu, mailbox.org, Purelymail, Yahoo, AOL, GMX and Web.de: the same
+              code ran against a local Dovecot server only.
+            </li>
+            <li>
+              More than one mailbox per provider. Each measurement above is one account on one day.
+            </li>
+          </ul>
+
+          <h2 id="related-reading">Related reading</h2>
+          <ul>
+            <li>
+              <a href="/writing/gmail-block-domain/"
+                >How do I block a domain in Gmail, and does it work?</a
+              >: the filter steps, and what a <code>from:</code> search matched.
+            </li>
+            <li>
+              <a href="/writing/outlook-domain-text-match/"
+                >Why blocking @paypal.co on Outlook would also block @paypal.com</a
+              >: why an Outlook domain rule is a text match.
+            </li>
+            <li>
+              <a href="/writing/mxroute-block-sender/"
+                >How do I block a sender on MXroute, and what does each way cover?</a
+              >: the one provider here where a block can refuse the mail at the server.
+            </li>
+            <li>
+              <a href="/#providers">Where Senderban works</a>: what each provider keeps, and what
+              was tested on a real account.
+            </li>
+          </ul>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

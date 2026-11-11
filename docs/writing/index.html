@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Writing - Senderban</title>
+    <meta
+      name="description"
+      content="Guides and engineering notes from building Senderban: each from a real problem, with what was measured, the decision and its cost."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta property="og:title" content="Writing - Senderban" />
+    <meta
+      property="og:description"
+      content="Guides and engineering notes from building Senderban: each from a real problem, with what was measured, the decision and its cost."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/" />
+    <meta property="og:image" content="https://senderban.com/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Senderban: block a sender once, on every account, on the server where the provider allows it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://senderban.com/writing/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Writing</p>
+        <h1>Notes from building Senderban</h1>
+        <p class="lead">
+          Engineering notes and guides, each from a real problem in this codebase: what was
+          measured, what was decided, and what it costs. Every claim links to the code, a decision
+          record or the provider's own documentation.
+        </p>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <ol class="post-list">
+            <li>
+              <a href="/writing/icloud-block-sender/"
+                >How do I block email on iCloud, and what does each way cover?</a
+              >
+              <p>
+                To block email on iCloud, use Block this Contact in iPhone Mail (mail goes to Trash)
+                or an iCloud.com rule. Senderban moves iCloud mail only while it runs.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Guide</span>
+            </li>
+            <li>
+              <a href="/writing/mxroute-block-sender/"
+                >How do I block a sender on MXroute, and what does each way cover?</a
+              >
+              <p>
+                MXroute blocks a sender in two places: the account blacklist or a Sieve rule on one
+                mailbox. What each covers, with a Sieve rule measured on 2 Nov 2026.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
+            </li>
+            <li>
+              <a href="/writing/blocked-sender-still-coming-through/"
+                >Why are blocked emails still coming through?</a
+              >
+              <p>
+                Blocked emails still coming through? The block files them in Spam or Junk, the mail
+                came before it, the sender changed address, or it lives in one app.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Guide</span>
+            </li>
+            <li>
+              <a href="/writing/gmail-block-domain/"
+                >How do I block a domain in Gmail, and does it work?</a
+              >
+              <p>
+                To block a domain in Gmail, filter on from:(@domain) and delete. Measured
+                2026-10-29: from: also matches longer domains and display-name words.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Guide</span>
+            </li>
+            <li>
+              <a href="/writing/scale-budget-desktop-app/"
+                >A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job</a
+              >
+              <p>
+                A tray app with 50 mail accounts can still storm a provider and freeze its window.
+                Senderban's scale budget, its gates and deadlines, and the cost.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
+            </li>
+            <li>
+              <a href="/writing/provider-from-address/"
+                >Finding a mail provider from an address, when DNS can lie</a
+              >
+              <p>
+                A server name from unsigned DNS could decide where a password goes. What DNS may
+                decide, what leaves the device, and where it departs from RFC 6186.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
+            </li>
+            <li>
+              <a href="/writing/outlook-domain-text-match/"
+                >Why blocking @paypal.co on Outlook would also block @paypal.com</a
+              >
+              <p>
+                Outlook keeps a domain block as a text match. A look-alike's domain can be the start
+                of the real sender's, and what Senderban refuses because of it.
+              </p>
+              <time class="post-date" datetime="2026-11-02">2 November 2026</time>
+              <span class="post-kind">· Engineering note</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

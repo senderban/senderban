@@ -2,150 +2,456 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Senderban</title>
+    <title>Senderban: block a sender on every mail account</title>
     <meta
       name="description"
-      content="Block a sender once, from the Windows notification, on every mail account you own. Open source, early release."
+      content="Block a sender once, from the Windows notification, on every mail account you add. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source."
     />
     <meta name="color-scheme" content="light dark" />
-    <style>
-      :root {
-        --bg: #fafaf9;
-        --fg: #1c1917;
-        --muted: #57534e;
-        --line: #d6d3d1;
-        --accent: #0f766e;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #1c1917;
-          --fg: #fafaf9;
-          --muted: #a8a29e;
-          --line: #44403c;
-          --accent: #5eead4;
+    <link rel="canonical" href="https://senderban.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta property="og:title" content="Senderban: block a sender on every mail account" />
+    <meta
+      property="og:description"
+      content="Block a sender once, from the Windows notification, on every mail account you add. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source."
+    />
+    <meta property="og:url" content="https://senderban.com/" />
+    <meta property="og:image" content="https://senderban.com/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Senderban: block a sender once, on every account, on the server where the provider allows it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Senderban",
+        "description": "Block a sender once, from the Windows notification, on every mail account you add. Where the provider allows it, the rule lives on its server, so it holds on your phone too. Free and open source.",
+        "url": "https://senderban.com/",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Windows",
+        "softwareVersion": "0.2.0",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "downloadUrl": "https://github.com/senderban/senderban/releases/latest",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "image": "https://senderban.com/assets/og.png",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
         }
       }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--fg);
-        font:
-          1rem/1.6 system-ui,
-          -apple-system,
-          "Segoe UI",
-          sans-serif;
-      }
-      main {
-        max-width: 40rem;
-        margin: 0 auto;
-        padding: 4rem 1rem;
-      }
-      h1 {
-        font-size: 2.25rem;
-        margin: 0 0 0.5rem;
-      }
-      .lead {
-        font-size: 1.25rem;
-        margin: 0 0 2rem;
-      }
-      .status {
-        border: 1px solid var(--line);
-        border-left: 4px solid var(--accent);
-        padding: 0.75rem 1rem;
-        margin: 0 0 2rem;
-      }
-      h2 {
-        font-size: 1.1rem;
-        margin: 2rem 0 0.5rem;
-      }
-      p,
-      li {
-        color: var(--muted);
-      }
-      a {
-        color: var(--accent);
-      }
-      footer {
-        margin-top: 3rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--line);
-        font-size: 0.9rem;
-        color: var(--muted);
-      }
-    </style>
+    </script>
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
   </head>
   <body>
-    <main>
-      <h1>Senderban</h1>
-      <p class="lead">
-        Block a sender once, from the Windows notification, on every mail account you own.
-      </p>
-      <p class="status">
-        <strong>v0.1, early release.</strong> Windows only, for MXroute and Gmail. The installer is
-        unsigned, so Windows SmartScreen warns on first run.
-      </p>
-      <p>
-        <a href="https://github.com/senderban/senderban/releases/latest"
-          >Download the latest release</a
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
         >
-        ·
-        <a href="https://github.com/senderban/senderban#download">How to verify the download</a>
-      </p>
+        <nav aria-label="Main">
+          <a href="#how">How it works</a>
+          <a href="#providers">Providers</a>
+          <a href="/writing/">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
 
-      <h2>How it works</h2>
-      <p>
-        A new mail arrives and a Windows notification offers to block the sender. One click writes a
-        rule on the mail provider's own server, so the block also applies on your phone, in webmail
-        and in whichever mail client you use. The block list is shared by the accounts you added
-        (Gmail takes single addresses, no whole domains), and you can lift a block at any time.
-      </p>
+    <main id="main" tabindex="-1">
+      <div class="wrap hero">
+        <div>
+          <p class="eyebrow">v0.2 · Windows · free and open source</p>
+          <h1>
+            Block a sender once. On every account. On the server where the provider allows it.
+          </h1>
+          <p class="lead">
+            When unwanted mail arrives, the Windows notification offers the block. One click writes
+            the rule on your mail provider's own server where it offers one, so it holds on your
+            phone, in webmail and in whichever mail client you use. On a plain IMAP mailbox
+            Senderban moves the mail itself while it runs.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/senderban/senderban/releases/latest"
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M11 3h2v9.6l3.3-3.3 1.4 1.4L12 16.4l-5.7-5.7 1.4-1.4 3.3 3.3V3zM5 19h14v2H5z"
+                />
+              </svg>
+              Download for Windows</a
+            >
+            <a class="button" href="https://github.com/senderban/senderban">View the source</a>
+          </div>
+          <p class="fineprint">
+            Installs for your user only, no administrator rights. Early release: start with a
+            mailbox you can afford to experiment on.
+          </p>
+        </div>
 
-      <h2>What it reads and writes</h2>
-      <ul>
-        <li>
-          Uses only the From and Subject of a newly arrived message, plus the server's spam score on
-          IMAP accounts, on your device.
-        </li>
-        <li>Never reads message bodies. There is no Senderban server in this version.</li>
-        <li>
-          Writes rules on your mail provider, marked as its own, and leaves your other rules alone.
-          The exception is the MXroute blacklist, which has no marker: Unblock removes an address
-          there even if you had listed it yourself.
-        </li>
-        <li>
-          The default action is reversible (Junk or Trash). Block at server, on MXroute, is off
-          until you switch it on: it refuses mail for every mailbox on that domain and can leave no
-          copy.
-        </li>
-      </ul>
+        <figure class="toast-figure">
+          <div class="toast" aria-hidden="true">
+            <div class="toast-app">
+              <img src="/assets/icon.png" alt="" width="16" height="16" /><span>Senderban</span
+              ><span>now</span>
+            </div>
+            <p class="toast-sender">🚫 offers@deals.example</p>
+            <div class="toast-row">
+              <div>
+                <p class="toast-subject">Last chance: 80% off everything</p>
+                <p class="toast-small">To: you@example.com</p>
+              </div>
+              <div class="toast-score">
+                <p class="toast-small">Spam 7.4</p>
+                <strong><span class="dot"></span>high</strong>
+              </div>
+            </div>
+            <div class="toast-select">Move to Junk</div>
+            <div class="toast-buttons">
+              <span class="critical">This sender</span><span>All of deals.example</span>
+            </div>
+          </div>
+          <figcaption>
+            The notification, drawn with sample data. You pick what happens to later mail, then who
+            it applies to.
+          </figcaption>
+        </figure>
+      </div>
 
-      <h2>Gmail</h2>
-      <p>
-        Senderban signs in to Gmail with your Google account and asks for two permissions only:
-        message metadata, to show the sender and subject in the notification, and basic mail
-        settings, to create the filters that block a sender. We receive nothing: a blocked address
-        goes only from your device to the mail accounts you added. Senderban's use and transfer to
-        any other app of information received from Google APIs will adhere to the
-        <a href="https://developers.google.com/terms/api-services-user-data-policy"
-          >Google API Services User Data Policy</a
-        >, including the Limited Use requirements. Details in the
-        <a href="/privacy/">privacy policy</a>.
-      </p>
+      <section id="how">
+        <div class="wrap">
+          <h2>How it works</h2>
+          <p class="section-lead">
+            Senderban sits in the tray and does one thing. It is not an email client: it does not
+            send, sync or download message bodies.
+          </p>
+          <ol class="steps">
+            <li>
+              <h3>Add your accounts</h3>
+              <p>
+                Gmail, Outlook, MXroute, any server with ManageSieve, or plain IMAP. Type your
+                address and Senderban finds the right way in.
+              </p>
+            </li>
+            <li>
+              <h3>Mail arrives</h3>
+              <p>
+                A notification shows the sender, the subject and, where the server adds one, the
+                spam score. Nothing else of the mail is read.
+              </p>
+            </li>
+            <li>
+              <h3>Block in one click</h3>
+              <p>
+                Choose this sender or the whole domain (<a href="/writing/gmail-block-domain/"
+                  >Gmail: single addresses only</a
+                >). The block applies to every account you added: as a rule on the server where the
+                provider has one, read back to confirm.
+              </p>
+            </li>
+          </ol>
 
-      <h2>Open source</h2>
-      <p>
-        Apache-2.0. Source, design decisions and security policy:
-        <a href="https://github.com/senderban/senderban">github.com/senderban/senderban</a>.
-      </p>
+          <div class="cards">
+            <div>
+              <h3>Reversible by default</h3>
+              <p>
+                Blocked mail goes to Junk or Trash. The one exception is Block at server on MXroute,
+                which you switch on yourself: the server then refuses the mail and keeps no copy.
+                Every block can be lifted in the Blocked senders window.
+              </p>
+            </div>
+            <div>
+              <h3>Don't ask again</h3>
+              <p>
+                Some senders you don't want to block and don't want to hear about. One choice on the
+                notification keeps them quiet, and its own page takes them back.
+              </p>
+            </div>
+            <div>
+              <h3>Spam filter per mailbox</h3>
+              <p>
+                On a mail server that scores spam, pick a score: the server moves mail at or over
+                it, or the notification asks you first.
+              </p>
+            </div>
+            <div>
+              <h3>Your own mail is safe</h3>
+              <p>
+                The addresses of the accounts you added are never blocked, and a whole-domain block
+                never covers their mail domains.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <footer>
-        <a href="/privacy/">Privacy policy</a> · Questions and bug reports:
-        <a href="https://github.com/senderban/senderban/issues">GitHub Issues</a>
-      </footer>
+      <section id="window">
+        <div class="wrap">
+          <h2>The window</h2>
+          <p class="section-lead">
+            Screenshots of the app itself, with sample data. Each blocked sender shows what every
+            kind of mailbox does with it; each mailbox shows its state.
+          </p>
+          <div class="shots">
+            <figure>
+              <picture>
+                <source
+                  srcset="/assets/shots/blocked-dark.webp"
+                  media="(prefers-color-scheme: dark)"
+                />
+                <img
+                  src="/assets/shots/blocked-light.webp"
+                  width="1109"
+                  height="754"
+                  loading="lazy"
+                  decoding="async"
+                  alt="The Blocked senders view: five sample senders, each with its block, what Gmail and Other (IMAP) mailboxes do with it, and an Unblock button."
+                />
+              </picture>
+              <figcaption>Blocked senders</figcaption>
+            </figure>
+            <figure>
+              <picture>
+                <source
+                  srcset="/assets/shots/accounts-dark.webp"
+                  media="(prefers-color-scheme: dark)"
+                />
+                <img
+                  src="/assets/shots/accounts-light.webp"
+                  width="1109"
+                  height="754"
+                  loading="lazy"
+                  decoding="async"
+                  alt="The Accounts view: sample MXroute, Other (IMAP), Gmail and Outlook mailboxes with their state, and Block at server and a spam filter on the MXroute domain."
+                />
+              </picture>
+              <figcaption>Accounts</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="providers">
+        <div class="wrap">
+          <h2>Where it works</h2>
+          <p class="section-lead">
+            We only say "tested" when it ran against a real account. Everything else is marked for
+            what it is.
+          </p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="Provider support table">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th>
+                  <th scope="col">How the block is kept</th>
+                  <th scope="col">Tested</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Gmail / Workspace</td>
+                  <td>Gmail filter on Google's server <small>(single addresses only)</small></td>
+                  <td>Yes, on a Gmail account</td>
+                </tr>
+                <tr>
+                  <td>Outlook / Hotmail / Microsoft 365</td>
+                  <td>Outlook rule on Microsoft's server</td>
+                  <td>Yes, on a personal account <small>(not yet work or school)</small></td>
+                </tr>
+                <tr>
+                  <td>MXroute</td>
+                  <td>
+                    <a href="/writing/mxroute-block-sender/"
+                      >Sieve rule on the server, plus the optional server blacklist</a
+                    >
+                  </td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td>Migadu, mailbox.org, Purelymail, other ManageSieve servers</td>
+                  <td>Sieve rule on the server</td>
+                  <td>On a local Dovecot server <small>(not yet at the provider)</small></td>
+                </tr>
+                <tr>
+                  <td>iCloud</td>
+                  <td>
+                    <a href="/writing/icloud-block-sender/"
+                      >Senderban moves the mail itself, while it runs</a
+                    >
+                  </td>
+                  <td>Yes</td>
+                </tr>
+                <tr>
+                  <td>Yahoo, AOL, GMX, Web.de</td>
+                  <td>Senderban moves the mail itself, while it runs</td>
+                  <td>On a local Dovecot server <small>(not yet at the provider)</small></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            Gmail: Google has not verified Senderban yet, so sign-in shows a warning and the app is
+            limited to 100 users. MXroute: adding Senderban's rules to a Sieve script you already
+            run is not measured yet. A rule on the server works with Senderban closed and your
+            computer off. Where Senderban moves the mail itself,
+            <a href="/writing/blocked-sender-still-coming-through/#on-the-server-or-in-one-app"
+              >a blocked sender's mail stays in the inbox while Senderban is closed</a
+            >, and your phone sees it. Details:
+            <a href="https://github.com/senderban/senderban#provider-support"
+              >provider support in the README</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section id="privacy">
+        <div class="wrap prose">
+          <h2>What it reads and writes</h2>
+          <ul>
+            <li>
+              Uses the From and Subject of a newly arrived message, plus the server's spam score
+              where there is one, on your device. On a plain IMAP mailbox it also reads the sender
+              of the last 30 days of the Inbox when you block someone, and keeps nothing of them.
+            </li>
+            <li>
+              Never reads message bodies. There is no Senderban server, no account and no tracking.
+            </li>
+            <li>
+              Writes only rules it can recognise as its own again: by name, by a marker in its Sieve
+              script, or by the id Gmail gave its filter. On a server where you already run a Sieve
+              script it adds one include line to it, after saving a copy. The MXroute blacklist has
+              no marker: Unblock removes an address there even if you had listed it yourself.
+            </li>
+            <li>
+              Block at server, on MXroute, is off until you switch it on: it refuses mail for every
+              mailbox on that domain and can leave no copy.
+            </li>
+          </ul>
+
+          <h3>Gmail</h3>
+          <p>
+            Senderban signs in to Gmail with your Google account and asks for two permissions only:
+            message metadata, to show the sender and subject in the notification, and basic mail
+            settings, to create the filters that block a sender. We receive nothing: a blocked
+            address goes only from your device to the mail accounts you added. Senderban's use and
+            transfer to any other app of information received from Google APIs will adhere to the
+            <a href="https://developers.google.com/terms/api-services-user-data-policy"
+              >Google API Services User Data Policy</a
+            >, including the Limited Use requirements. Details in the
+            <a href="/privacy/">privacy policy</a>.
+          </p>
+        </div>
+      </section>
+
+      <section id="faq">
+        <div class="wrap">
+          <h2>Questions</h2>
+          <details>
+            <summary>Windows warns when I run the installer. Is that expected?</summary>
+            <p>
+              Yes. The installer is not code-signed yet, so SmartScreen warns on first run: choose
+              More info, then Run anyway. Each release lists SHA-256 hashes and a build attestation,
+              so you can check the file came from our release workflow.
+              <a href="/engineering/#verify">How to verify the download</a>.
+            </p>
+          </details>
+          <details>
+            <summary>Gmail sign-in says Google hasn't verified this app. Why?</summary>
+            <p>
+              Google has not verified Senderban yet, so its sign-in page shows that warning and the
+              app is limited to 100 users until it is verified. The permissions it asks for are the
+              two in the Gmail section above.
+            </p>
+          </details>
+          <details>
+            <summary>Does it delete my mail?</summary>
+            <p>
+              Not by default. The choices are Move to Junk and Move to Trash. On MXroute there is
+              also Block at server, off until you switch it on: the server refuses that sender's
+              mail and keeps no copy, until you unblock. Gmail can't file mail into Spam, so there
+              it is Move to Trash.
+            </p>
+          </details>
+          <details>
+            <summary>Does the block still work when Senderban is closed?</summary>
+            <p>
+              On Gmail, Outlook and Sieve servers, yes: the rule lives on the server. On plain IMAP
+              accounts (iCloud, Yahoo and others) Senderban moves the mail itself, so only while it
+              runs.
+            </p>
+          </details>
+          <details>
+            <summary>Is there a Mac or Linux version?</summary>
+            <p>Not yet. Senderban is Windows only for now.</p>
+          </details>
+          <details>
+            <summary>How do I uninstall it?</summary>
+            <p>
+              Rules live on your mail server, so unblock each sender first, then remove your
+              accounts in Senderban and uninstall it from Windows Settings.
+              <a href="https://github.com/senderban/senderban#uninstall">Full steps</a>.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section id="support">
+        <div class="wrap">
+          <div class="support">
+            <div>
+              <h2>Free, open source, no ads</h2>
+              <p>
+                Senderban is Apache-2.0 and has no account, no ads and no data to sell. If it saves
+                you time, star the project, report what breaks, or tell a friend who is drowning in
+                mail. Sponsoring pays for maintenance time and this domain.
+              </p>
+            </div>
+            <div class="actions">
+              <a class="button primary" href="https://github.com/senderban/senderban"
+                >Star on GitHub</a
+              >
+              <a class="button" href="https://github.com/sponsors/AlimKose">Sponsor</a>
+              <a class="button" href="https://github.com/senderban/senderban/issues"
+                >Report an issue</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · Built by Alim Köse (<a
+            href="https://www.linkedin.com/in/alim-kose-544801ab/"
+            >LinkedIn</a
+          >) · <a href="/engineering/">How it is built</a> · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
   </body>
 </html>

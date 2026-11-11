@@ -305,3 +305,58 @@ describe("SieveAdapter.uninstall against Dovecot", () => {
     await session.close();
   });
 });
+
+describe("a domain rule and an address rule beside look-alike senders", () => {
+  // Measured 2026-11-02 on dovecot/dovecot:2.4.5; the writing post on blocking a sender on MXroute quotes these twelve.
+  const list: Blocklist = [
+    entry(1, "subdomains", "brand.example"),
+    entry(2, "exactAddress", "smith@example.com"),
+  ];
+
+  it.each<[string, string, string, "INBOX" | "Junk"]>([
+    ["the domain itself", "Brand <news@brand.example>", "news@brand.example", "Junk"],
+    ["a subdomain", "x <news@mail.brand.example>", "news@mail.brand.example", "Junk"],
+    ["upper case", "x <NEWS@BRAND.EXAMPLE>", "NEWS@BRAND.EXAMPLE", "Junk"],
+    [
+      "only the envelope sender under the domain",
+      "Brand <hello@other.example>",
+      "bounce@mail.brand.example",
+      "Junk",
+    ],
+    [
+      "a longer domain that starts the same",
+      "x <news@brand.example.test>",
+      "news@brand.example.test",
+      "INBOX",
+    ],
+    [
+      "a subdomain of a longer domain",
+      "x <notices@news.brand.example.test>",
+      "notices@news.brand.example.test",
+      "INBOX",
+    ],
+    ["a domain with a prefix", "x <news@xbrand.example>", "news@xbrand.example", "INBOX"],
+    [
+      "the domain only in the display name",
+      '"brand.example Billing" <billing@other.example>',
+      "billing@other.example",
+      "INBOX",
+    ],
+    ["the exact address", "x <smith@example.com>", "smith@example.com", "Junk"],
+    ["a longer local part", "x <john.smith@example.com>", "john.smith@example.com", "INBOX"],
+    ["a prefixed local part", "x <xsmith@example.com>", "xsmith@example.com", "INBOX"],
+    [
+      "the address only in the display name",
+      '"smith@example.com" <other@other.example>',
+      "other@other.example",
+      "INBOX",
+    ],
+  ])("%s", async (name, from, envelopeFrom, folder) => {
+    const user = `lookalike-${name.replace(/[^a-z0-9]/gu, "")}@example.test`;
+    await sync(adapterFor(user), list, initialSieveState());
+
+    await dovecot.deliver(user, mail(from, envelopeFrom, "probe"));
+
+    expect(dovecot.count(user, folder)).toBe(1);
+  });
+});

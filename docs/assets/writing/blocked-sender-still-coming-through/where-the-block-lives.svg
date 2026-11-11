@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 460" width="420" height="460" role="img" aria-labelledby="t d">
+  <title id="t">A block on the mail server against a block kept in one app</title>
+  <desc id="d">Top: a sender's mail reaches the mail server, where your rule files it, so the phone, webmail and PC all see it filed. Bottom: the mail server has no rule, so the phone and webmail see the mail in the inbox; only the app on the PC moves it, and only while it runs.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .chip{fill:#f6f8fa;stroke:#848d97;stroke-width:1}
+    .ok{fill:#dafbe1;stroke:#1a7f37;stroke-width:2}
+    .hit{fill:#ffebe9;stroke:#cf222e;stroke-width:2}
+    .ln{stroke:#848d97;stroke-width:1.5;fill:none}.ah{fill:#848d97}
+    .rule{stroke:#d0d7de;stroke-width:1}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .s{font-size:15px}.ct{text-anchor:middle}
+    .h{font-size:17px;font-weight:600}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .chip{fill:#1c1f24;stroke:#6e7681}
+      .ok{fill:#12261e;stroke:#3fb950}
+      .hit{fill:#3d1d1f;stroke:#f85149}
+      .ln{stroke:#8b949e}.ah{fill:#8b949e}.rule{stroke:#30363d}
+    }
+  </style>
+  <rect class="bg" width="420" height="460"/>
+  <text class="mu" x="10" y="22">Two places a block can live</text>
+
+  <text class="fg h" x="10" y="56">A rule on the mail server</text>
+  <rect class="chip" x="10" y="70" width="96" height="36" rx="6"/>
+  <text class="fg ct" x="58" y="94">Sender</text>
+  <path class="ln" d="M106 88H132"/>
+  <path class="ah" d="M140 88l-9-5v10z"/>
+  <rect class="ok" x="140" y="70" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="94">Mail server + your rule</text>
+  <path class="ln" d="M275 106V120M73 120H347M73 120V130M210 120V130M347 120V130"/>
+  <rect class="ok" x="10" y="130" width="126" height="36" rx="6"/>
+  <text class="fg ct s" x="73" y="153">Phone: filed</text>
+  <rect class="ok" x="147" y="130" width="126" height="36" rx="6"/>
+  <text class="fg ct s" x="210" y="153">Webmail: filed</text>
+  <rect class="ok" x="284" y="130" width="126" height="36" rx="6"/>
+  <text class="fg ct s" x="347" y="153">PC: filed</text>
+  <text class="fg" x="10" y="192">Every device sees what the server's rule</text>
+  <text class="fg" x="10" y="214">did with the mail.</text>
+
+  <line class="rule" x1="10" y1="236" x2="410" y2="236"/>
+
+  <text class="fg h" x="10" y="266">A block kept in one app</text>
+  <rect class="chip" x="10" y="280" width="96" height="36" rx="6"/>
+  <text class="fg ct" x="58" y="304">Sender</text>
+  <path class="ln" d="M106 298H132"/>
+  <path class="ah" d="M140 298l-9-5v10z"/>
+  <rect class="chip" x="140" y="280" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="304">Mail server, no rule</text>
+  <path class="ln" d="M275 316V330M73 330H347M73 330V340M210 330V340M347 330V340"/>
+  <rect class="hit" x="10" y="340" width="126" height="36" rx="6"/>
+  <text class="fg ct s" x="73" y="363">Phone: inbox</text>
+  <rect class="hit" x="147" y="340" width="126" height="36" rx="6"/>
+  <text class="fg ct s" x="210" y="363">Webmail: inbox</text>
+  <rect class="ok" x="284" y="340" width="126" height="36" rx="6"/>
+  <text class="fg ct s" x="347" y="363">PC app: moved</text>
+  <text class="fg" x="10" y="402">The app moves the mail on the PC, and</text>
+  <text class="fg" x="10" y="424">only while it runs. The other devices</text>
+  <text class="fg" x="10" y="446">see it in the inbox.</text>
+</svg>

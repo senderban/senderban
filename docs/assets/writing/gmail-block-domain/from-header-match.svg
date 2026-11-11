@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 424" width="420" height="424" role="img" aria-labelledby="t d">
+  <title id="t">Where a Gmail from: term matched in a From header</title>
+  <desc id="d">A sample From header split into words. The display name word Billing is marked: from:(@billing) matched it. In the address notices@news.brand.example.test the words brand.example are marked: from:(@brand.example) matched them although the domain is another one. Below: a domain block needs the domain to be brand.example or to end in .brand.example; none of four from: forms tried says that. Stand-in names, measured 2026-10-29.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .chip{fill:#f6f8fa;stroke:#848d97;stroke-width:1}
+    .hit{fill:#ffebe9;stroke:#cf222e;stroke-width:2}
+    .mark{fill:#cf222e}.rule{stroke:#d0d7de;stroke-width:1}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+    .ct{text-anchor:middle}
+    .h{font-size:17px;font-weight:600}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .chip{fill:#1c1f24;stroke:#6e7681}
+      .hit{fill:#3d1d1f;stroke:#f85149}
+      .mark{fill:#f85149}.rule{stroke:#30363d}
+    }
+  </style>
+  <rect class="bg" width="420" height="424"/>
+  <text class="mu" x="10" y="22">A From header, split into words</text>
+
+  <text class="fg h" x="10" y="56">Display name</text>
+  <rect class="chip" x="10" y="66" width="66" height="36" rx="6"/>
+  <text class="fg mono ct" x="43" y="90">Brand</text>
+  <rect class="hit" x="82" y="66" width="84" height="36" rx="6"/>
+  <text class="fg mono ct" x="124" y="90">Billing</text>
+  <rect class="mark" x="10" y="114" width="4" height="20" rx="1"/>
+  <text class="fg" x="22" y="130"><tspan class="mono">from:(@billing)</tspan> matched this word</text>
+
+  <text class="fg h" x="10" y="168">Address</text>
+  <rect class="chip" x="10" y="178" width="94" height="36" rx="6"/>
+  <text class="fg mono ct" x="57" y="202">notices@</text>
+  <rect class="chip" x="110" y="178" width="64" height="36" rx="6"/>
+  <text class="fg mono ct" x="142" y="202">news.</text>
+  <rect class="hit" x="180" y="178" width="142" height="36" rx="6"/>
+  <text class="fg mono ct" x="251" y="202">brand.example</text>
+  <rect class="chip" x="328" y="178" width="64" height="36" rx="6"/>
+  <text class="fg mono ct" x="360" y="202">.test</text>
+  <rect class="mark" x="10" y="226" width="4" height="66" rx="1"/>
+  <text class="fg" x="22" y="242"><tspan class="mono">from:(@brand.example)</tspan> matched</text>
+  <text class="fg" x="22" y="264">these words, in <tspan class="mono">news.brand.example.test</tspan>,</text>
+  <text class="mu" x="22" y="286">which is another domain</text>
+
+  <line class="rule" x1="10" y1="308" x2="410" y2="308"/>
+  <text class="fg h" x="10" y="336">What a domain block needs</text>
+  <text class="fg" x="10" y="360">the domain is <tspan class="mono">brand.example</tspan>,</text>
+  <text class="fg" x="10" y="382">or it ends in <tspan class="mono">.brand.example</tspan></text>
+  <text class="mu" x="10" y="410">None of 4 <tspan class="mono">from:</tspan> forms tried says that.</text>
+</svg>

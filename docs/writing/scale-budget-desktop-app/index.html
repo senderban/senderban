@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A scale budget for a desktop app - Senderban</title>
+    <meta
+      name="description"
+      content="A tray app with 50 mail accounts can still storm a provider and freeze its window. Senderban's scale budget, its gates and deadlines, and the cost."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta property="og:title" content="A scale budget for a desktop app - Senderban" />
+    <meta
+      property="og:description"
+      content="A tray app with 50 mail accounts can still storm a provider and freeze its window. Senderban's scale budget, its gates and deadlines, and the cost."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/scale-budget-desktop-app/" />
+    <meta property="og:image" content="https://senderban.com/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Senderban: block a sender once, on every account, on the server where the provider allows it."
+    />
+    <meta property="article:published_time" content="2026-11-02" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        "headline": "A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job",
+        "datePublished": "2026-11-02",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/scale-budget-desktop-app/"
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/writing/scale-budget-desktop-app/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Writing · <time datetime="2026-11-02">2 November 2026</time></p>
+        <h1>A scale budget for a desktop app: 50 accounts, 5 slots, a deadline on every job</h1>
+        <p class="lead">
+          Scale budgets are usually written for servers. A tray app that holds up to 50 mail
+          accounts can still storm a provider with logins and freeze its own window. Here is the
+          budget, how it found its way into the code, and what it costs.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <h2>The unit is the account</h2>
+          <p>
+            A scale budget answers four questions: the unit, what grows linearly with it, the number
+            at 10 and 50 units, and the share each unit gets of a shared resource. The app's budget
+            is
+            <a href="https://github.com/senderban/senderban/blob/main/docs/adr/0006-scale-budget.md"
+              >ADR 0006</a
+            >, and later decisions that add work, such as finding a provider from an address, carry
+            their own budget section. Here the unit is the account, capped at
+            <code>MAX_ACCOUNTS = 50</code>. Nothing is linear in mail volume: a new mail is one
+            fetch of its sender and subject and one notification, never a sync.
+          </p>
+          <p>
+            Each number in the budget carries its basis: <em>measured</em> in the repository,
+            <em>derived</em> from constants in the code, or <em>unmeasured</em>. None of them is a
+            provider's limit, because no provider's login throttle has been measured.
+          </p>
+
+          <h2>The storm a review found</h2>
+          <p>
+            One persistent IMAP connection per account is fine at 1 account and fine at 50. The
+            problem is the moment they all start together: at launch, after the laptop wakes up, or
+            when the person presses Resume. Without a limit, 50 accounts open 50 logins at the same
+            instant. A block clicked in a notification did the same: it wrote the rule to every
+            account at once, 50 provider rounds in parallel.
+          </p>
+          <p>
+            The answer is one shared gate per resource, not one per account: a first-in, first-out
+            semaphore, <code>createGate(max)</code>. All watchers share one gate for logins (<code
+              >MAX_CONCURRENT_LOGINS = 5</code
+            >), the sync engine owns the gates for provider rounds (<code
+              >MAX_CONCURRENT_SYNCS = 5</code
+            >
+            on the main one). The test
+            <a
+              href="https://github.com/senderban/senderban/blob/main/packages/core/test/perf/storm.test.ts"
+              ><code>perf/storm.test.ts</code></a
+            >
+            keeps both: a baseline without the gate opens every login at once, and with the gate the
+            count never passes 5 and every account still connects. Resume needs no extra jitter:
+            fifty reconnects queue behind the gate and start five at a time.
+          </p>
+
+          <h2>A gate needs a deadline</h2>
+          <p>
+            A gate turns one stuck account into everyone's problem: a login that never ends holds a
+            slot for good. So every gated job has a deadline. A login is abandoned after
+            <code>CONNECT_SLOT_MS</code>, 60 seconds; the deadline frees the slot and aborts a
+            signal, and the IMAP connector closes its socket at once. The pre-push performance
+            review measured why the abort matters: without it, a provider-wide stall held 25
+            sockets, five times the cap.
+          </p>
+          <p>
+            One part is honest about its gap. A ManageSieve <code>connect()</code> is not cancelled;
+            it ends through its own 15-second steps, so a hung Sieve login can outlive its slot by
+            up to 30 seconds. In simulation that peaked at 10 sockets, twice the cap. It is written
+            down as such.
+          </p>
+
+          <h2>The numbers at 1, 10 and 50 accounts</h2>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Budget at 1, 10 and 50 accounts"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Accounts</th>
+                  <th scope="col">1</th>
+                  <th scope="col">10</th>
+                  <th scope="col">50</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Persistent IMAP sockets (derived)</td>
+                  <td>1</td>
+                  <td>10</td>
+                  <td>50</td>
+                </tr>
+                <tr>
+                  <td>IMAP logins in flight after start or resume</td>
+                  <td>1</td>
+                  <td>5</td>
+                  <td>5 <small>(was 50)</small></td>
+                </tr>
+                <tr>
+                  <td>ManageSieve commands per block (measured)</td>
+                  <td>10</td>
+                  <td>64</td>
+                  <td>304</td>
+                </tr>
+                <tr>
+                  <td>Time to open every login, 2 s each (derived)</td>
+                  <td>2 s</td>
+                  <td>4 s</td>
+                  <td>about 20 s</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            With every account kind together (15 Sieve, 10 Gmail, 10 Microsoft and 15 IMAP cleaning
+            at 50 accounts), one block click measured 6 to 8 seconds of main-thread CPU in total,
+            and the longest stretch without an event-loop turn was 1.0 second. That was the real
+            engine and store with fake providers on a loaded laptop, not a real provider's number.
+          </p>
+
+          <h2>What it costs</h2>
+          <ul>
+            <li>
+              At 50 accounts an Unblock takes about 40 seconds instead of about 4, because its two
+              rounds per account queue behind 5 slots. Up to about 3 accounts nothing changes. A
+              reserved slot for clicks is the fix if a pilot shows it matters; it is not built.
+            </li>
+            <li>
+              A block clicked while a wave of rounds is draining waits behind it, about 20 seconds
+              at 50 accounts. Background lanes such as Gmail and the MXroute blacklist have their
+              own gate, so they cannot take the slots a click waits for.
+            </li>
+            <li>
+              5 is a starting value, not a measured limit: two named constants, to be tuned once a
+              provider's login throttle is measured.
+            </li>
+            <li>
+              Not measured yet: 50 real connections at once, keepalive on the wire, sleep and resume
+              on a real laptop, and the providers' own throttles.
+            </li>
+          </ul>
+          <p>
+            The general lesson: on a desktop, the shared resource is the person's provider and the
+            person's own window. Linear in accounts is acceptable; all at once is not, and every
+            slot needs a way to be given back.
+          </p>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/#providers">Where Senderban works</a> ·
+            <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

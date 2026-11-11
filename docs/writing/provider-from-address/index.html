@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Finding a mail provider from an address, when DNS can lie - Senderban</title>
+    <meta
+      name="description"
+      content="A server name from unsigned DNS could decide where a password goes. What DNS may decide, what leaves the device, and where it departs from RFC 6186."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta
+      property="og:title"
+      content="Finding a mail provider from an address, when DNS can lie - Senderban"
+    />
+    <meta
+      property="og:description"
+      content="A server name from unsigned DNS could decide where a password goes. What DNS may decide, what leaves the device, and where it departs from RFC 6186."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/provider-from-address/" />
+    <meta property="og:image" content="https://senderban.com/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Senderban: block a sender once, on every account, on the server where the provider allows it."
+    />
+    <meta property="article:published_time" content="2026-11-02" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        "headline": "Finding a mail provider from an address, when DNS can lie",
+        "datePublished": "2026-11-02",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/provider-from-address/"
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/writing/provider-from-address/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Writing · <time datetime="2026-11-02">2 November 2026</time></p>
+        <h1>Finding a mail provider from an address, when DNS can lie</h1>
+        <p class="lead">
+          Senderban's Find my provider button turns an address into a server name. The input comes
+          from unsigned DNS, and the output decides where a mailbox password goes. This is how it is
+          built so that a forged answer reaches nothing, what leaves the device, and what it gives
+          up for that.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <h2>The problem</h2>
+          <p>
+            A person knows their address, not which company runs their domain or which server name
+            to type. A custom domain says nothing about who hosts it; only its DNS records do, and
+            DNS is unsigned. On a hostile network, anyone can answer it. And the person who presses
+            this button is exactly the person who cannot tell a right server name from a forged one,
+            so a design that asks them to compare names protects nobody (<a
+              href="https://github.com/senderban/senderban/blob/main/docs/adr/0018-provider-detection.md"
+              >ADR 0018</a
+            >).
+          </p>
+          <p>
+            A red-team pass over the code on 1 November 2026 made it concrete. Forge one SRV record,
+            <code>_imaps._tcp</code>, so it names a host the attacker holds a valid certificate for.
+            The form fills in that host, the person types their password, and it goes over verified
+            TLS to the attacker. TLS works as designed: the certificate proves the name, and the
+            name came from the attacker.
+            <a href="https://www.rfc-editor.org/rfc/rfc6125#section-6.2.1">RFC 6125 §6.2.1</a>
+            says a reference identifier should not come from a DNS lookup of the source domain. The
+            finding was rated blocking, and the design below is the answer to it.
+          </p>
+
+          <h2>What DNS is allowed to decide</h2>
+          <ul>
+            <li>
+              <strong>Known domains cost nothing.</strong> Gmail, iCloud and similar addresses
+              answer from a table, with no query, so no DNS answer can change them.
+            </li>
+            <li>
+              <strong>An MX record picks, it does not write.</strong> The hosts of the lowest
+              preference are matched by whole labels against a fixed table of zones. A match names a
+              provider whose servers come from Senderban's own table, so a forged record reaches a
+              known provider at worst. MXroute is the one exception: its mailbox server is the MX
+              host, so that name is kept, but only one label inside MXroute's own zone.
+            </li>
+            <li>
+              <strong>An unknown mail host is asked.</strong> At most three ManageSieve probes run
+              side by side, 5 seconds each, in the order of
+              <a href="https://www.rfc-editor.org/rfc/rfc5804#section-1.8">RFC 5804 §1.8</a>, with
+              the primary MX added in between because most servers run both. A probe sends nothing
+              of the person's and reads the answer behind verified TLS. Then the
+              <code>_imaps._tcp</code> target of
+              <a href="https://www.rfc-editor.org/rfc/rfc6186">RFC 6186</a>, on port 993. Then
+              "unknown".
+            </li>
+            <li>
+              <strong>Inside the mail domain is evidence, outside is none.</strong> This follows
+              <a href="https://www.rfc-editor.org/rfc/rfc6186#section-6">RFC 6186 §6</a>. Someone
+              who can forge a DNS answer still needs a public certificate for the name, and for a
+              name inside the person's domain that takes control of the domain. So a name from DNS
+              fills the form only when it is the domain itself or below it, and never on a public
+              suffix, where strangers register the names below. One limit is written down: a
+              subdomain the domain has handed to someone else, or left dangling, counts as inside. A
+              name outside comes back as data: the page says records can be forged, sends the person
+              to their provider's welcome mail, and leaves the field empty.
+            </li>
+            <li>
+              <strong>The process that asks for the password checks for itself.</strong> The main
+              process compares the server with the address's domain; for an outside name the dialog
+              in front of the password opens with "This server is not part of example.com." A preset
+              and a server Senderban's table names for that domain get no note, because a note that
+              is false on a big provider teaches people to click past it.
+            </li>
+          </ul>
+
+          <h2>What leaves the device</h2>
+          <ul>
+            <li>
+              The DNS query carries the domain. The rest of the address and the password do not
+              leave, and nothing is stored or logged: the log line has the result kind, the time and
+              counts, never the domain or a server. The
+              <a href="/privacy/">privacy policy</a> says so.
+            </li>
+            <li>A probed server sees the person's IP address and nothing else of theirs.</li>
+            <li>
+              Only the system's resolver is used: no DNS over HTTPS service of ours and no list of
+              ours, so no new party learns the domain. One caveat is written down too: Node's
+              resolver reads the system's server list but not the hosts file, and whether a system
+              set to encrypted DNS applies here is not known.
+            </li>
+          </ul>
+
+          <h2>Not being steered after the check</h2>
+          <p>
+            A name that passes the check could still resolve to something else when the connection
+            opens: DNS rebinding. So the probe's socket takes its address from one lookup,
+            <code>publicAddressLookup</code>, which drops private, loopback and link-local answers,
+            checks an IPv4 address written as IPv6 against the same rules, and drops the translation
+            prefixes that carry an IPv4 address (such as <code>64:ff9b::/96</code>). A name cannot
+            answer one thing to the check and another to the connection. A name from DNS must also
+            pass the same public host name check as a typed one, SRV ports are limited to 4190, 2000
+            and 993, and a greeting stops at 8 KiB.
+          </p>
+          <p>
+            The button runs on a click only, one at a time and at most six a minute, and ends with
+            the window or after 10 seconds. A mail never starts it. Source:
+            <a
+              href="https://github.com/senderban/senderban/blob/main/packages/core/src/detect/detect.ts"
+              >detect.ts</a
+            >,
+            <a
+              href="https://github.com/senderban/senderban/blob/main/packages/core/src/detect/live.ts"
+              >live.ts</a
+            >.
+          </p>
+
+          <h2>Where it departs from the standards</h2>
+          <p>
+            RFC 6186 §6 asks two things: check that a target lies in the queried domain, which is
+            done, and verify a target outside it with the user before any connection. The second is
+            a departure: a ManageSieve probe connects first. It follows the person's click, carries
+            nothing of theirs and gives away only their IP address, and a name outside the domain
+            never reaches the form. The <code>_imaps._tcp</code> target is never connected to. Three
+            smaller departures, all in ADR 0018: the primary MX is probed between the SRV target and
+            the domain, only the first SRV target is taken where RFC 5804 §1.8 tries each one, and
+            the SRV-ID comparison of RFC 7817 §3 is not done, which only makes fewer certificates
+            pass.
+          </p>
+
+          <h2>Measured</h2>
+          <p>On 1 November 2026, in Electron 45.1, on public DNS, without signing in anywhere:</p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Measured detection times"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Case</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Known domain</td>
+                  <td>from the table</td>
+                  <td>12 ms</td>
+                </tr>
+                <tr>
+                  <td>MX in the table</td>
+                  <td>provider</td>
+                  <td>31-219 ms</td>
+                </tr>
+                <tr>
+                  <td>Public ManageSieve, not in the table</td>
+                  <td>the domain itself</td>
+                  <td>534-684 ms</td>
+                </tr>
+                <tr>
+                  <td>Nothing found, port 4190 filtered</td>
+                  <td>unknown</td>
+                  <td>about 5.2 s</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Five real ManageSieve servers answered a probe in 294 to 1,229 ms, so the 5-second limit
+            leaves a margin of four. One click costs at most 3 DNS queries and 3 TLS connections,
+            and nothing runs between clicks, so the cost does not grow with the number of accounts.
+          </p>
+
+          <h2>What it costs</h2>
+          <ul>
+            <li>
+              A domain hosted under another company's name pays one paste: its server is outside the
+              domain, so the person copies it from their welcome mail.
+            </li>
+            <li>
+              A domain behind a mail gateway shows the gateway in its MX record and reads as
+              unknown. The person picks the provider by hand, as before the button existed.
+            </li>
+            <li>
+              A name lookup cannot be cancelled: a stuck system resolver can hold up to 3 of the 4
+              threads of Node's pool past the deadline. The click is freed either way.
+            </li>
+            <li>
+              Not measured: a forged answer on a real network with a real certificate, and adding an
+              account from a suggestion at any provider.
+            </li>
+          </ul>
+          <p>
+            The general lesson: when an answer can be forged, decide what it is allowed to change
+            before deciding how to verify it. Here DNS may pick from a list or point inside the
+            person's own domain, and nothing else.
+          </p>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/#providers">Where Senderban works</a> ·
+            <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
