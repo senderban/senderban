@@ -21,6 +21,7 @@ import {
   QuietEntrySchema,
   isVouchedServer,
   SettingsSchema,
+  LoginItemSchema,
   WatchPausedSchema,
   HelpTargetSchema,
   formServer,
@@ -37,6 +38,7 @@ import type {
   MxrouteEnableInput,
   MxrouteInput,
   MxrouteKeyRef,
+  QuietRow,
   Settings,
   SpamFilter,
 } from "@senderban/core";
@@ -206,7 +208,7 @@ export interface ManageHandlers {
   /** Pauses or resumes every watcher, as the tray's menu does. */
   readonly pause: (value: boolean) => Promise<void>;
   /** The "Don't ask again" list. */
-  readonly quiet: () => readonly string[];
+  readonly quiet: () => readonly QuietRow[];
   /** Takes one entry off that list. The input has already passed the core schema. */
   readonly quietRemove: (value: string) => Promise<void>;
   /** Sets one mailbox's spam filter. "unknown": no mailbox with this id can hold one. The input has already passed the core schema. */
@@ -218,6 +220,10 @@ export interface ManageHandlers {
   readonly settings: () => Settings;
   /** Writes the choices to disk; they apply from then on. The input has already passed the core schema. */
   readonly saveSettings: (next: Settings) => Promise<void>;
+  /** Whether Windows starts Senderban at sign-in (read from Windows, not from a file); null where the page offers no switch (Store build). */
+  readonly loginItem: () => boolean | null;
+  /** Turns start at sign-in on or off in Windows. The input has already passed the schema. */
+  readonly saveLoginItem: (on: boolean) => void;
   /** Opens one fixed Help address in the browser, or the log folder. The input has already passed the core schema. */
   readonly openHelp: (target: HelpTarget) => Promise<void>;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
@@ -310,6 +316,10 @@ export class ManageWindow {
     ipcMain.handle("manage:open-help", (event, value: unknown) => this.#openHelp(event, value));
     ipcMain.handle("manage:settings-save", (event, value: unknown) =>
       this.#settingsSave(event, value),
+    );
+    ipcMain.handle("manage:login-item", (event) => this.#loginItem(event));
+    ipcMain.handle("manage:login-item-save", (event, value: unknown) =>
+      this.#loginItemSave(event, value),
     );
   }
 
@@ -442,7 +452,7 @@ export class ManageWindow {
     }
   }
 
-  #quiet(event: IpcMainInvokeEvent): readonly string[] | null {
+  #quiet(event: IpcMainInvokeEvent): readonly QuietRow[] | null {
     if (!this.#trusted(event)) return null;
     return this.#handlers.quiet();
   }
@@ -480,6 +490,28 @@ export class ManageWindow {
       return "saved";
     } catch (error) {
       this.#handlers.onError("manage:settings-save", error);
+      return "failed";
+    }
+  }
+
+  /** `null`: not offered here, or the page is not ours. */
+  #loginItem(event: IpcMainInvokeEvent): boolean | null {
+    if (!this.#trusted(event)) return null;
+    return this.#handlers.loginItem();
+  }
+
+  #loginItemSave(
+    event: IpcMainInvokeEvent,
+    value: unknown,
+  ): "saved" | "denied" | "invalid" | "failed" {
+    if (!this.#trusted(event)) return "denied";
+    const parsed = LoginItemSchema.safeParse(value);
+    if (!parsed.success) return "invalid";
+    try {
+      this.#handlers.saveLoginItem(parsed.data);
+      return "saved";
+    } catch (error) {
+      this.#handlers.onError("manage:login-item-save", error);
       return "failed";
     }
   }

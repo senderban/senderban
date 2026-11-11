@@ -440,7 +440,7 @@
     gap: 8px;
   }
   .what {
-    flex: 1;
+    flex: 1 1 260px;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -448,13 +448,26 @@
   }
   /* The address is the content: data face, the local part quiet, the domain carries the weight. */
   .value {
+    display: flex;
+    min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-data);
   }
+  /* The local part gives way first: the domain is what a look-alike has to change, so it stays whole. */
   .value .local {
+    flex: 0 1 auto;
+    min-width: 1ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--muted);
+  }
+  .value .domain {
+    flex: none;
+  }
+  .value.plain {
+    display: block;
+    text-overflow: ellipsis;
   }
   .value .domain,
   .value.plain {
@@ -523,7 +536,96 @@
     margin-top: 8px;
   }
 
-  /* First run: the empty Blocked view. */
+  /* The text filter and the account filter of a list, on one line. */
+  .filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .filter-row input {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .filter-row select {
+    flex: 0 1 260px;
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+
+  /* Row flags: only what needs a look, kept beside the address instead of under it. */
+  .flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  .what .source {
+    flex: 0 1 auto;
+    min-width: 4ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .what .facts {
+    flex: none;
+    white-space: pre;
+  }
+  .what .line {
+    flex-wrap: nowrap;
+    column-gap: 0;
+    min-width: 0;
+  }
+
+  /* Home: two counts that open their views, and the newest blocks in a card. */
+  .home {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  /* A tinted tile, but a control: its edge is the control border (SC 1.4.11), and hover shows like any button's. */
+  button.stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 14px 16px;
+    border-radius: var(--radius-card);
+    background: var(--tint-card);
+    text-align: left;
+  }
+  button.stat:hover:not(:disabled) {
+    background: var(--tint-hover);
+  }
+  .stat-num {
+    font: 600 var(--text-xl) / 1.2 var(--font-data);
+  }
+  .list.flush {
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: none;
+  }
+  .list.flush > li:hover {
+    background: none;
+  }
+
+  /* Sponsor: a link out, at the foot of the menu above the status. */
+  .sponsor {
+    margin-top: auto;
+  }
+  .sponsor:not([hidden]) + .health {
+    margin-top: 0;
+  }
+  .nav svg.out {
+    width: 12px;
+    height: 12px;
+  }
+
+  /* First run: the empty Home view. */
   .first-run {
     display: flex;
     flex-direction: column;

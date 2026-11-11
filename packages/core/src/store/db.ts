@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { MATCH_KINDS } from "../blocklist.js";
+import { MATCH_KINDS, SOURCE_MAX, SOURCE_MIN } from "../blocklist.js";
 
 export type Db = DatabaseSync;
 
@@ -91,6 +91,11 @@ const MIGRATIONS: readonly string[] = [
     round_ms integer not null check (round_ms >= 0),
     updated_at text not null
   ) strict;
+  `,
+  // The mailbox a block was clicked in, as the Accounts view names it. Entries made before 0.3 have none (null). Shown only;
+  // the list stays global and no rule depends on it.
+  `
+  alter table entries add column source text check (source is null or length(source) between ${String(SOURCE_MIN)} and ${String(SOURCE_MAX)});
   `,
 ];
 

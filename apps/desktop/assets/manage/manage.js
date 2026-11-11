@@ -1,4 +1,4 @@
-/* exported stateBadge, leaveAddView, senderValue */
+/* exported stateBadge, leaveAddView, senderValue, accountChoices, accountHolds */
 // Runs in the sandboxed manage page. Every sender value came from a mail header (untrusted), so it
 // is only ever assigned through textContent. This file holds the frame (views, side bar, restart
 // bar) and the block list; the other page scripts share its global scope.
@@ -11,15 +11,29 @@ const els = {
   goAdd: $("go-add"),
   firstRun: $("first-run"),
   firstAdd: $("first-add"),
-  listSection: $("list-section"),
   filter: $("filter"),
+  filterRow: $("filter-row"),
+  filterAccount: $("filter-account"),
   tabs: $("tabs"),
   behind: $("behind"),
   list: $("list"),
   empty: $("empty"),
   listCap: $("list-cap"),
+  localNote: $("local-note"),
   status: $("status"),
   notice: $("notice"),
+  navHome: $("nav-home"),
+  navSponsor: $("nav-sponsor"),
+  homeBody: $("home-body"),
+  homeAccounts: $("home-accounts"),
+  homeAccountsNum: $("home-accounts-num"),
+  homeAccountsText: $("home-accounts-text"),
+  homeBlocked: $("home-blocked"),
+  homeBlockedNum: $("home-blocked-num"),
+  homeBlockedText: $("home-blocked-text"),
+  homeRecent: $("home-recent"),
+  homeRecentEmpty: $("home-recent-empty"),
+  homeAll: $("home-all"),
   navBlocked: $("nav-blocked"),
   navAccounts: $("nav-accounts"),
   navQuiet: $("nav-quiet"),
@@ -41,28 +55,22 @@ const els = {
 
 // A list can hold thousands of entries; the page draws a bounded slice and the filter narrows it.
 const VISIBLE_MAX = 500;
-const MATCH_LABEL = {
-  exactAddress: "This address",
-  exactDomain: "This domain only",
-  subdomains: "Domain and subdomains",
-};
-const ACTION_PILL = {
-  junk: ["", "Junk"],
-  trash: ["", "Trash"],
-  reject: ["warn", "Junk. Server block not confirmed"],
-};
-const AT_SERVER_PILL = ["ok", "Server block, Junk backup"];
+// The row says what is normal in plain words on one quiet line; a pill (a dot and a word) is kept for what needs a look.
+const MATCH_WORD = { exactDomain: "Domain only", subdomains: "Whole domain" };
+const ACTION_WORD = { junk: "Junk", trash: "Trash", reject: "Junk" };
+const AT_SERVER_WORD = "Refused at server";
+const REJECT_PILL = ["warn", "Server block not confirmed"];
 const UNCONFIRMED_PILL = ["warn", "Not confirmed"];
 
-// What a signed-in Gmail account does with the entry (a single address becomes a Trash filter); absent: no Gmail account.
-const GMAIL_PILL = { trash: ["", "Gmail: Trash"], no: ["warn", "Gmail: not applied"] };
+// A Gmail account that could not take the entry; the normal case (a Trash filter) needs no word.
+const GMAIL_PILL = { no: ["warn", "Gmail: not applied"] };
 // A domain on a Microsoft account is a text match: it can also catch longer domains that start the same way, and one that would catch the person's own mail is not written.
 const OUTLOOK_PILL = {
   wide: ["warn", "Outlook: text match"],
   no: ["warn", "Outlook: not applied"],
 };
 const OWN_PILL = ["warn", "Not applied: your own mail"];
-const LOCAL_PILL = ["", "Other (IMAP): while Senderban runs"];
+const HOME_RECENT = 5;
 
 const TABS = [
   { id: "all", label: "All", holds: () => true },
@@ -93,6 +101,7 @@ const STATE_LABEL = {
 };
 
 const VIEW_TITLE = {
+  home: "Home",
   blocked: "Blocked senders",
   accounts: "Accounts",
   add: "Add mailbox",
@@ -102,9 +111,11 @@ const VIEW_TITLE = {
 };
 
 let entries = [];
+// False until the first read of the list worked: until then Home says nothing about it.
+let entriesLoaded = false;
 let busy = false;
 let tab = "all";
-let view = "blocked";
+let view = "home";
 let watch = null;
 let pausing = false;
 let restarting = false;
@@ -176,31 +187,103 @@ function senderValue(value) {
   return node;
 }
 
-function row(entry) {
+// The account filter of a list. "" is every account; NOT_RECORDED is the rows made before 0.3, which carry no mailbox (a mailbox
+// name is 3 characters or more, so it cannot be "-").
+const NOT_RECORDED = "-";
+
+function option(value, text) {
+  const node = document.createElement("option");
+  node.value = value;
+  node.textContent = text;
+  return node;
+}
+
+/** Offers the mailboxes the rows came from. Rebuilt only when that set changes, so a choice survives a refresh; a choice that is gone falls back to all. */
+function accountChoices(select, rows) {
+  const names = [...new Set(rows.map((r) => r.source).filter((s) => s !== undefined))].sort();
+  const values = ["", ...names];
+  if (names.length > 0 && rows.some((r) => r.source === undefined)) values.push(NOT_RECORDED);
+  const key = values.join("\n");
+  if (select.dataset.key === key) return;
+  const wanted = select.value;
+  select.replaceChildren(
+    ...values.map((v) =>
+      option(v, v === "" ? "All accounts" : v === NOT_RECORDED ? "Not recorded (before 0.3)" : v),
+    ),
+  );
+  select.dataset.key = key;
+  select.value = values.includes(wanted) ? wanted : "";
+}
+
+function accountHolds(select, row) {
+  const wanted = select.value;
+  if (wanted === "") return true;
+  return wanted === NOT_RECORDED ? row.source === undefined : row.source === wanted;
+}
+
+const DATE = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** One quiet line: the mailbox the block came from (entries before 0.3 have none), where the mail goes, the date. */
+function rowLine(entry) {
+  const words = [];
+  const scope = MATCH_WORD[entry.match];
+  if (scope !== undefined) words.push(scope);
+  // An entry over the person's own mail goes nowhere: its pill says so.
+  if (entry.own !== true) {
+    words.push(entry.atServer ? AT_SERVER_WORD : (ACTION_WORD[entry.action] ?? entry.action));
+    // A Gmail filter can only trash: say where a Junk entry goes there.
+    if (entry.gmail === "trash" && entry.action !== "trash") words.push("Gmail: Trash");
+  }
+  words.push(DATE.format(new Date(entry.createdAt)));
+  const line = document.createElement("div");
+  line.className = "meta line";
+  const rest = document.createElement("span");
+  rest.className = "facts";
+  rest.textContent = words.join(" · ");
+  if (entry.source !== undefined) {
+    const from = document.createElement("span");
+    from.className = "source";
+    from.textContent = `from ${entry.source}`;
+    rest.textContent = ` · ${rest.textContent}`;
+    line.append(from);
+  }
+  line.append(rest);
+  line.title = line.textContent;
+  return line;
+}
+
+/** Only what needs a look: an entry over the person's own mail, a provider that did not take it, a block not read back. */
+function rowPills(entry) {
+  if (entry.own === true) return [pill(...OWN_PILL)];
+  const pills = [];
+  if (entry.action === "reject" && !entry.atServer) pills.push(pill(...REJECT_PILL));
+  const gmail = GMAIL_PILL[entry.gmail];
+  if (gmail !== undefined) pills.push(pill(...gmail));
+  const outlook = OUTLOOK_PILL[entry.outlook];
+  if (outlook !== undefined) pills.push(pill(...outlook));
+  if (entry.applied === "unknown") pills.push(pill(...UNCONFIRMED_PILL));
+  return pills;
+}
+
+function row(entry, { unblockButton = true } = {}) {
   const li = document.createElement("li");
 
   const what = document.createElement("div");
   what.className = "what";
-  const meta = document.createElement("div");
-  meta.className = "meta line";
-  const added = new Date(entry.createdAt).toLocaleDateString();
-  const scope = document.createElement("span");
-  scope.textContent = `${MATCH_LABEL[entry.match] ?? entry.match} · added ${added}`;
-  meta.append(scope);
-  // An entry over the person's own mail is applied nowhere: say that instead of a per-provider label.
-  if (entry.own === true) {
-    meta.append(pill(...OWN_PILL));
-  } else {
-    const action = entry.atServer ? AT_SERVER_PILL : ACTION_PILL[entry.action];
-    if (action !== undefined) meta.append(pill(...action));
-    const gmail = GMAIL_PILL[entry.gmail];
-    if (gmail !== undefined) meta.append(pill(...gmail));
-    const outlook = OUTLOOK_PILL[entry.outlook];
-    if (outlook !== undefined) meta.append(pill(...outlook));
-    if (entry.local === true) meta.append(pill(...LOCAL_PILL));
-    if (entry.applied === "unknown") meta.append(pill(...UNCONFIRMED_PILL));
+  what.append(senderValue(entry.value), rowLine(entry));
+  li.append(what);
+  const pills = rowPills(entry);
+  if (pills.length > 0) {
+    const flags = document.createElement("div");
+    flags.className = "flags";
+    flags.append(...pills);
+    li.append(flags);
   }
-  what.append(senderValue(entry.value), meta);
+  if (!unblockButton) return li;
 
   const button = document.createElement("button");
   button.type = "button";
@@ -210,7 +293,7 @@ function row(entry) {
   button.disabled = busy;
   button.addEventListener("click", () => void unblock(entry));
 
-  li.append(what, button);
+  li.append(button);
   return li;
 }
 
@@ -228,7 +311,13 @@ els.tabs.append(...tabButtons.map((t) => t.button));
 
 function render() {
   const needle = els.filter.value.trim().toLowerCase();
-  const found = entries.filter((e) => needle === "" || e.value.includes(needle));
+  accountChoices(els.filterAccount, entries);
+  // Newest first: the store keeps the list oldest first.
+  const found = entries
+    .filter(
+      (e) => (needle === "" || e.value.includes(needle)) && accountHolds(els.filterAccount, e),
+    )
+    .reverse();
   const holds = TABS.find((t) => t.id === tab)?.holds ?? (() => true);
   const matching = found.filter(holds);
   const shown = matching.slice(0, VISIBLE_MAX);
@@ -248,8 +337,11 @@ function render() {
   }
   els.navBlockedCount.textContent = String(entries.length);
 
+  drawHome();
   drawFirstRun();
-  els.filter.hidden = entries.length === 0;
+  els.filterRow.hidden = entries.length === 0;
+  // Every entry has the same `local` (any Other (IMAP) mailbox): one line for the list, not a word on each row.
+  els.localNote.hidden = !entries.some((e) => e.local === true);
   els.tabs.hidden = entries.length === 0;
   els.empty.hidden = matching.length > 0;
   els.empty.textContent =
@@ -263,7 +355,43 @@ function render() {
 function drawFirstRun() {
   const firstRun = entries.length === 0 && watch !== null && watch.accounts.length === 0;
   els.firstRun.hidden = !firstRun;
-  els.listSection.hidden = firstRun;
+  els.homeBody.hidden = firstRun;
+}
+
+/** The Home view: two counts that open their views, and the newest blocks. Drawn from the list and status already held. */
+function drawHome() {
+  els.homeRecentEmpty.hidden = true;
+  if (!entriesLoaded) {
+    els.homeBlockedNum.textContent = "–";
+    els.homeBlockedText.textContent = "senders blocked";
+    els.homeAll.hidden = true;
+    drawHomeAccounts();
+    return;
+  }
+  const recent = entries.slice(-HOME_RECENT).reverse();
+  els.homeRecent.replaceChildren(...recent.map((e) => row(e, { unblockButton: false })));
+  els.homeRecentEmpty.hidden = recent.length > 0;
+  els.homeAll.hidden = entries.length === 0;
+  els.homeBlockedNum.textContent = String(entries.length);
+  els.homeBlockedText.textContent = entries.length === 1 ? "sender blocked" : "senders blocked";
+  drawHomeAccounts();
+}
+
+function drawHomeAccounts() {
+  if (watch === null) {
+    // Status not read (yet): the tile still has a name.
+    els.homeAccountsNum.textContent = "–";
+    els.homeAccountsText.textContent = "mailboxes";
+    return;
+  }
+  const total = watch.accounts.length;
+  const running = watch.accounts.filter((a) => a.state === "watching").length;
+  // The same words as the side bar ("Watching 2 of 3").
+  els.homeAccountsNum.textContent =
+    running === total ? String(total) : `${String(running)} of ${String(total)}`;
+  els.homeAccountsText.textContent = watch.paused
+    ? "mailboxes, paused"
+    : `${total === 1 ? "mailbox" : "mailboxes"} watched`;
 }
 
 /**
@@ -275,6 +403,7 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   for (const id of Object.keys(VIEW_TITLE)) $(`view-${id}`).hidden = id !== name;
   els.title.textContent = VIEW_TITLE[name];
   els.goAdd.hidden = name !== "accounts";
+  els.navHome.toggleAttribute("aria-current", false);
   els.navBlocked.toggleAttribute("aria-current", false);
   els.navAccounts.toggleAttribute("aria-current", false);
   els.navQuiet.toggleAttribute("aria-current", false);
@@ -282,6 +411,7 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   els.navHelp.toggleAttribute("aria-current", false);
   const current =
     {
+      home: els.navHome,
       blocked: els.navBlocked,
       quiet: els.navQuiet,
       settings: els.navSettings,
@@ -290,7 +420,7 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   current.setAttribute("aria-current", "page");
   if (!keepNotice && els.notice.dataset.tone !== "working") setNotice("", "");
   els.count.textContent = "";
-  if (name === "blocked") render();
+  if (name === "blocked" || name === "home") render();
   if (focusTitle) els.title.focus();
   document.dispatchEvent(new window.CustomEvent("senderban-view", { detail: name }));
 }
@@ -336,7 +466,10 @@ function drawWatch() {
   // A newer release from the daily check: a word on Help, and the Help page says which (help.js). Text only, never a link.
   els.navHelpCount.textContent = watch.update ? "New" : "";
   els.updatesCard.hidden = watch.storeManaged === true;
+  // A link to a payment page is left out of the Store build until the Store's rules on it are read.
+  els.navSponsor.hidden = watch.storeManaged === true;
   drawStates();
+  drawHome();
   // Not the whole list: this runs on every status signal, and a rebuild would take focus off the row being used.
   drawFirstRun();
 }
@@ -388,6 +521,7 @@ async function refresh() {
         return;
       }
       entries = init.entries;
+      entriesLoaded = true;
       render();
       // Main says this once, on the first load after a restart asked for here (an add or the restart bar).
       if (init.restarted === true) {
@@ -414,6 +548,30 @@ async function unblock(entry) {
 }
 
 els.filter.addEventListener("input", render);
+els.filterAccount.addEventListener("change", render);
+els.navHome.addEventListener("click", () => {
+  showView("home");
+});
+els.homeAccounts.addEventListener("click", () => {
+  showView("accounts");
+});
+els.homeBlocked.addEventListener("click", () => {
+  showView("blocked");
+});
+els.homeAll.addEventListener("click", () => {
+  showView("blocked");
+});
+// Opens the maintainer's GitHub Sponsors page; main owns the address (core HELP_LINKS), the page sends one word.
+els.navSponsor.addEventListener("click", () => {
+  void api.openHelp("sponsor").then(
+    (reply) => {
+      if (reply !== "done") setNotice("error", "Could not open the Sponsors page. See the log.");
+    },
+    () => {
+      setNotice("error", "Could not open the Sponsors page. See the log.");
+    },
+  );
+});
 els.navBlocked.addEventListener("click", () => {
   showView("blocked");
 });
@@ -493,6 +651,6 @@ api.onChanged(() => {
 api.onStatus(() => {
   void refreshStatus();
 });
-showView("blocked");
+showView("home");
 void refresh();
 void refreshStatus();

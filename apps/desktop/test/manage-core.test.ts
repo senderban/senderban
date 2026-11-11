@@ -63,6 +63,7 @@ let saveSettings: Mock<(next: unknown) => Promise<void>>;
 let quietRemove: Mock<(value: string) => Promise<void>>;
 let saveSpamFilter: Mock<(accountId: string, filter: unknown) => Promise<string>>;
 let openHelp: Mock<(target: string) => Promise<void>>;
+let saveLoginItem: Mock<(on: boolean) => void>;
 let page: InstanceType<typeof ManageWindow>;
 
 beforeEach(() => {
@@ -76,6 +77,7 @@ beforeEach(() => {
   quietRemove = vi.fn(() => Promise.resolve());
   saveSpamFilter = vi.fn(() => Promise.resolve("saved"));
   openHelp = vi.fn(() => Promise.resolve());
+  saveLoginItem = vi.fn();
   list = vi.fn(() => []);
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "Unblocked." }));
   onError = vi.fn();
@@ -90,6 +92,8 @@ beforeEach(() => {
     quietRemove,
     saveSpamFilter,
     openHelp,
+    loginItem: () => false,
+    saveLoginItem,
     mxrouteList: () => Promise.resolve({ accounts: [], keys: [], keysUnreadable: false }),
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
@@ -109,10 +113,13 @@ describe("manage:settings", () => {
 });
 
 describe("manage:open-help", () => {
-  it.each(["issues", "security", "releases", "website", "logs"])("passes %s on", async (target) => {
-    expect(await call("manage:open-help", trusted, target)).toBe("done");
-    expect(openHelp).toHaveBeenCalledExactlyOnceWith(target);
-  });
+  it.each(["issues", "security", "releases", "website", "sponsor", "logs"])(
+    "passes %s on",
+    async (target) => {
+      expect(await call("manage:open-help", trusted, target)).toBe("done");
+      expect(openHelp).toHaveBeenCalledExactlyOnceWith(target);
+    },
+  );
 
   it("refuses any other sender", async () => {
     for (const event of [otherFrame, otherWindow, noFrame]) {
@@ -123,7 +130,7 @@ describe("manage:open-help", () => {
 
   it.each([
     ["a URL", "https://example.com/"],
-    ["an unknown word", "sponsor"],
+    ["an unknown word", "donate"],
     ["a word in another case", "Issues"],
     ["an object", { target: "issues" }],
     ["nothing", undefined],
@@ -240,6 +247,45 @@ describe("manage:settings-save", () => {
     saveSettings.mockRejectedValueOnce(new Error("disk full"));
     expect(await call("manage:settings-save", trusted, next)).toBe("failed");
     expect(onError).toHaveBeenCalledWith("manage:settings-save", expect.any(Error));
+  });
+});
+
+describe("manage:login-item", () => {
+  it("answers the page with what Windows says, and nothing else", async () => {
+    expect(await call("manage:login-item", trusted)).toBe(false);
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:login-item", event)).toBeNull();
+    }
+  });
+
+  it("passes a switch on to Windows", async () => {
+    expect(await call("manage:login-item-save", trusted, true)).toBe("saved");
+    expect(saveLoginItem).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it("refuses any other sender", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:login-item-save", event, true)).toBe("denied");
+    }
+    expect(saveLoginItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a word", "true"],
+    ["a number", 1],
+    ["an object", { on: true }],
+    ["nothing", undefined],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:login-item-save", trusted, payload)).toBe("invalid");
+    expect(saveLoginItem).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed write and sends the reason to the log", async () => {
+    saveLoginItem.mockImplementationOnce(() => {
+      throw new Error("registry refused");
+    });
+    expect(await call("manage:login-item-save", trusted, false)).toBe("failed");
+    expect(onError).toHaveBeenCalledWith("manage:login-item-save", expect.any(Error));
   });
 });
 

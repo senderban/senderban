@@ -55,7 +55,7 @@ describe("QuietStore", () => {
   });
 
   it("sets aside a file too large to be ours, without reading it", async () => {
-    writeFileSync(path, " ".repeat(QUIET_MAX * 300));
+    writeFileSync(path, " ".repeat(QUIET_MAX * 2200));
     const onUnreadable = vi.fn();
     await new QuietStore(path).load(onUnreadable);
     expect(onUnreadable).toHaveBeenCalledWith("too-large");
@@ -86,4 +86,48 @@ describe("QuietStore", () => {
       expect(readFileSync(`${path}.unreadable`, "utf8")).toBe(text);
     },
   );
+});
+
+describe("QuietStore mailbox names (0.3)", () => {
+  it("keeps the mailbox an entry was chosen in across a restart, and the first one for a repeat", async () => {
+    const first = new QuietStore(path);
+    await first.add("deals.example", "me@example.org (Gmail)");
+    await first.add("deals.example", "work@example.net (Outlook)");
+    await first.add("news@other.example");
+    const second = new QuietStore(path);
+    await second.load(() => undefined);
+    expect(second.rows).toEqual([
+      { value: "deals.example", source: "me@example.org (Gmail)" },
+      { value: "news@other.example" },
+    ]);
+    expect((JSON.parse(readFileSync(path, "utf8")) as { version: number }).version).toBe(2);
+  });
+
+  it("reads a 0.2 file and writes it back as version 2 at the next change", async () => {
+    writeFileSync(path, JSON.stringify({ version: 1, entries: ["deals.example"] }));
+    const store = new QuietStore(path);
+    const onUnreadable = vi.fn();
+    await store.load(onUnreadable);
+    expect(onUnreadable).not.toHaveBeenCalled();
+    expect(store.rows).toEqual([{ value: "deals.example" }]);
+    await store.add("news@other.example", "me@example.org");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      version: 2,
+      entries: [
+        { value: "deals.example" },
+        { value: "news@other.example", source: "me@example.org" },
+      ],
+    });
+  });
+
+  it.each([
+    ["a bidi control in a name", { value: "deals.example", source: "me\u202E@example.org" }],
+    ["a name too short", { value: "deals.example", source: "x" }],
+    ["a key that is not ours", { value: "deals.example", extra: 1 }],
+  ])("sets aside a version-2 file with %s", async (_name, row) => {
+    writeFileSync(path, JSON.stringify({ version: 2, entries: [row] }));
+    const onUnreadable = vi.fn();
+    await new QuietStore(path).load(onUnreadable);
+    expect(onUnreadable).toHaveBeenCalledWith("invalid");
+  });
 });

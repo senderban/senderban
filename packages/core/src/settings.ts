@@ -27,6 +27,9 @@ export const SettingsSchema = z.strictObject({
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
+/** Start at Windows sign-in, on or off. Windows keeps it, not the settings file (desktop main, `app.setLoginItemSettings`). */
+export const LoginItemSchema = z.boolean();
+
 /** Today's behaviour, except `confirmBlocks`: the person asked for it off until they turn it on. */
 export const DEFAULT_SETTINGS: Settings = {
   defaultAction: "junk",

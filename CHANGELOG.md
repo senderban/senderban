@@ -6,6 +6,15 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Added
 
+- **Home**, the first view of the Senderban window: how many mailboxes are watched, how many senders
+  are blocked, and the five newest blocks.
+- Each block and each **Don't ask again** entry shows the mailbox it was made from, and both lists
+  have a mailbox filter with **All accounts**. Entries made before 0.3 have no mailbox and show under
+  **All accounts** only.
+- **Start Senderban when you sign in to Windows** in **Settings**, **Startup**. Off unless you turn it
+  on; Windows keeps the choice. Not in the Microsoft Store version.
+- **Sponsor** at the foot of the menu opens the maintainer's GitHub Sponsors page. Not in the
+  Microsoft Store version.
 - **Help** in the Senderban window: report a problem on GitHub, report a security problem privately,
   open the release notes, the website or the folder with the log files.
 - An update check: once a day Senderban asks GitHub whether a newer version is out, and says so in a
@@ -15,6 +24,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Changed
 
+- **Blocked senders** is a shorter list, newest first: the address, one line with the mailbox, where
+  the mail goes and the date, and a mark only on an entry that needs a look.
 - The Senderban window has a new look: a frosted side bar and sheet over a calm water colour, icons in
   the menu, and lists and cards as tinted panes. It follows the light or dark mode, and draws solid
   panes when the system asks for less transparency, more contrast or a contrast theme.

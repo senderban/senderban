@@ -40,6 +40,7 @@ import {
   isQuiet,
   overSpamLimit,
   quietTarget,
+  SourceSchema,
   spamRule,
   withSpamFilter,
   initialGmailState,
@@ -1452,7 +1453,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
       hold: (work) => (manage === null ? work() : manage.hold(work)),
       quiet: async (id, scope, restore) => {
-        const { pending, own, lanes } = await ready.promise;
+        const { pending, own, lanes, labels } = await ready.promise;
         const restored = restoreClicked(pending, lanes, id, restore);
         const target = quietTarget(pending, id, scope, own.get());
         if (target.status !== "ok")
@@ -1463,7 +1464,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         }
         // The domain only, as `announce` logs it: enough to tell a second address of one sender from a list that did not hold.
         const listed = quiet.entries.has(target.value);
-        const added = await quiet.add(target.value);
+        // The mailbox it was chosen in, for the page's filter; a name the schema refuses is left out, not the click.
+        const named = SourceSchema.safeParse(labels.get(target.accountId));
+        const added = await quiet.add(target.value, named.success ? named.data : undefined);
         log("quiet", {
           scope,
           result: added ? (listed ? "listed" : "ok") : "full",
@@ -1518,6 +1521,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
               // A Gmail filter takes single addresses and Trash only: a click from a Gmail toast is held to that.
               // Kept for the whole session: a toast of an account removed since is still held to it.
               trashOnlyAccount: (accountId) => gmailToastLanes.has(accountId),
+              // The mailbox the click came from, as Accounts names it: shown on the list only.
+              sourceOf: (accountId) => labels.get(accountId),
               onClaimed: (accountId) => {
                 clicked = accountId;
                 clicking.add(accountId);
@@ -1638,6 +1643,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onError: logIpcError,
       openHelp: async (target) => {
         log("help-open", { target });
+        if (target === "sponsor" && STORE_INSTALL)
+          throw new Error("not offered in a Store install");
         if (target !== "logs") {
           await shell.openExternal(HELP_LINKS[target]);
           return;
@@ -1838,7 +1845,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         })),
       }),
       pause: (value) => setPaused(value, "window"),
-      quiet: () => [...quiet.entries],
+      quiet: () => quiet.rows,
       quietRemove: async (value) => {
         await quiet.remove(value);
         log("quiet-remove", { domain: domainOf(value) });
@@ -1860,6 +1867,20 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return "saved";
       },
       settings: () => settings.current,
+      // Windows keeps the answer (HKCU Run, Electron app.setLoginItemSettings): nothing to keep in sync here. A Store package
+      // starts at sign-in only through a manifest StartupTask, which it does not declare, so the switch is not offered there.
+      // `executableWillLaunchAtLogin`, not `openAtLogin`: the latter stays true when the person turned Senderban off in Task Manager >
+      // Startup (Electron 45 typings, getLoginItemSettings). Turning it on writes the key enabled again.
+      loginItem: () =>
+        STORE_INSTALL ? null : app.getLoginItemSettings().executableWillLaunchAtLogin,
+      saveLoginItem: (on) => {
+        if (STORE_INSTALL) throw new Error("start at sign-in is not offered in a Store install");
+        app.setLoginItemSettings({ openAtLogin: on });
+        // setLoginItemSettings returns nothing: a Run key a policy blocks would read as saved. Read it back.
+        const now = app.getLoginItemSettings().executableWillLaunchAtLogin;
+        log("login-item", { on, now });
+        if (now !== on) throw new Error("Windows did not take the change");
+      },
       saveSettings: async (next) => {
         const wasChecking = settings.current.checkUpdates;
         await settings.save(next);
