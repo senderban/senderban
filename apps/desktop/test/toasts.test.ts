@@ -136,9 +136,7 @@ describe("the person's settings", () => {
       expect(created).toHaveLength(1);
       expect(created[0]?.shown).toBe(true);
       expect(created[0]?.options.toastXml).toContain('<toast scenario="reminder"');
-      expect(created[0]?.options.toastXml).toContain(
-        "the mail's own subject".replace("'", "&apos;"),
-      );
+      expect(created[0]?.options.toastXml).toContain("the mail&apos;s own subject");
       expect(created[0]?.options.toastXml).toContain('<action content="Junk"');
     });
 
