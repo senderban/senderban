@@ -22,8 +22,8 @@ export const SettingsSchema = z.strictObject({
   /** Shows the notification that says a block worked; a warning or a failure always shows. */
   confirmBlocks: z.boolean(),
   toastDuration: z.enum(TOAST_DURATIONS),
-  /** Asks GitHub once a day whether a newer version is out (update.ts). A file from before 0.3 has no such key: on. */
-  checkUpdates: z.boolean().default(true),
+  /** Asks GitHub once a day whether a newer version is out (update.ts). Required here: a save from the page names it. */
+  checkUpdates: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -38,5 +38,6 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const SettingsFileSchema = z.strictObject({
   version: z.literal(1),
-  settings: SettingsSchema,
+  // A file written before 0.3 has no `checkUpdates`: on. Only the file gets this default, never the IPC save (SettingsSchema).
+  settings: SettingsSchema.extend({ checkUpdates: z.boolean().default(true) }),
 });

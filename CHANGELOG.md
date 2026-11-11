@@ -4,7 +4,20 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- **Help** in the Senderban window: report a problem on GitHub, report a security problem privately,
+  open the release notes, the website or the folder with the log files.
+- An update check: once a day Senderban asks GitHub whether a newer version is out, and says so in a
+  notification and on **Help**. Nothing is downloaded or installed. Turn it off in **Settings**,
+  **Updates**. The Microsoft Store version does not ask; the Store updates it. See the
+  [privacy policy](docs/privacy/index.html).
+
 ### Changed
+
+- The Senderban window has a new look: a frosted side bar and sheet over a calm water colour, icons in
+  the menu, and lists and cards as tinted panes. It follows the light or dark mode, and draws solid
+  panes when the system asks for less transparency, more contrast or a contrast theme.
 
 - The new-mail notification has one button per action: **Junk**, **Trash**, **Block** and **Mute**. The
   list above them now picks who it applies to, **Only this sender** or **Whole domain**, and starts on

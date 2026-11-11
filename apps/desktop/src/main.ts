@@ -620,7 +620,8 @@ async function start(): Promise<Runtime> {
     },
     log,
   });
-  void updates.start();
+  // A Store build never starts it: no request, no daily timer.
+  if (!STORE_INSTALL) void updates.start();
   await quiet.load((reason) => {
     log("quiet-unreadable", { reason });
   });
@@ -1860,8 +1861,11 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
       settings: () => settings.current,
       saveSettings: async (next) => {
+        const wasChecking = settings.current.checkUpdates;
         await settings.save(next);
         log("settings", next);
+        // Turned back on: ask after the first delay, not at the next daily tick.
+        if (next.checkUpdates && !wasChecking) updates?.nudge();
       },
       noRestart: (reason) => {
         log("restart-skipped", { reason });

@@ -5,7 +5,8 @@ import {
   UPDATE_INTERVAL_MS,
   UpdateStateSchema,
   isNewerVersion,
-  nextCheckDelay,
+  jittered,
+  startDelay,
 } from "../src/update.js";
 
 describe("isNewerVersion", () => {
@@ -43,7 +44,7 @@ describe("LatestReleaseSchema", () => {
 
 describe("UpdateStateSchema", () => {
   it("refuses a key that is not ours and an etag past 256 characters", () => {
-    const state = { version: 1, checkedAt: 0, etag: null, latest: null, notified: null };
+    const state = { version: 1, nextAt: 0, etag: null, latest: null, notified: null };
     expect(UpdateStateSchema.safeParse(state).success).toBe(true);
     expect(UpdateStateSchema.safeParse({ ...state, url: "https://example.com" }).success).toBe(
       false,
@@ -52,15 +53,25 @@ describe("UpdateStateSchema", () => {
   });
 });
 
-describe("nextCheckDelay", () => {
+describe("startDelay", () => {
   const now = 10 * UPDATE_INTERVAL_MS;
-  it("waits the first delay when a check is due, and never asks twice a day", () => {
-    expect(nextCheckDelay(0, now)).toBe(UPDATE_FIRST_DELAY_MS);
-    expect(nextCheckDelay(now - 1000, now)).toBe(UPDATE_INTERVAL_MS - 1000);
-    expect(nextCheckDelay(now, now)).toBe(UPDATE_INTERVAL_MS);
+  const none = () => 0;
+  it("waits the first delay when a check is due, else until the stored time", () => {
+    expect(startDelay(0, now, none)).toBe(UPDATE_FIRST_DELAY_MS);
+    expect(startDelay(now + 5000, now, none)).toBe(UPDATE_FIRST_DELAY_MS);
+    expect(startDelay(now + UPDATE_INTERVAL_MS - 1000, now, none)).toBe(UPDATE_INTERVAL_MS - 1000);
   });
 
-  it("does not trust a clock set back: at most one interval", () => {
-    expect(nextCheckDelay(now + 5 * UPDATE_INTERVAL_MS, now)).toBe(UPDATE_INTERVAL_MS);
+  it("does not trust a clock set back or an edited file: at most one stretched interval", () => {
+    expect(startDelay(now + 5 * UPDATE_INTERVAL_MS, now, none)).toBe(UPDATE_INTERVAL_MS * 1.25);
+  });
+});
+
+describe("jittered", () => {
+  it("stretches by 0 to 25 %, whatever the random source returns", () => {
+    expect(jittered(1000, () => 0)).toBe(1000);
+    expect(jittered(1000, () => 1)).toBe(1250);
+    expect(jittered(1000, () => 7)).toBe(1250);
+    expect(jittered(1000, () => -3)).toBe(1000);
   });
 });

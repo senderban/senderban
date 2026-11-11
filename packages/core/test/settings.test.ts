@@ -29,3 +29,18 @@ describe("SettingsSchema", () => {
     expect(SettingsFileSchema.safeParse(file).success).toBe(false);
   });
 });
+
+describe("checkUpdates", () => {
+  it("is required on a save, so a payload without it never turns the check on", () => {
+    const rest: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS };
+    delete rest.checkUpdates;
+    expect(SettingsSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("defaults to on in a file written before 0.3", () => {
+    const rest: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS };
+    delete rest.checkUpdates;
+    const parsed = SettingsFileSchema.safeParse({ version: 1, settings: rest });
+    expect(parsed.success && parsed.data.settings.checkUpdates).toBe(true);
+  });
+});
