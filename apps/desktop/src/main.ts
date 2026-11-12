@@ -172,12 +172,13 @@ import { SettingsStore } from "./settings-file.js";
 import { loadActivationSigner } from "./activation-key.js";
 import { restoreClicked } from "./restore-click.js";
 import { STORE_TOAST_ACTIVATOR_CLSID } from "./toast-activator.js";
+import { guardHelpTarget, readLoginItem, storeGates, writeLoginItem } from "./store-gates.js";
 import { ignoredClickHandler } from "./ignored-click.js";
 import { Toasts, spamStripUrls } from "./toasts.js";
 import type { ToastResult } from "./toasts.js";
 
-// Electron types process.windowsStore as boolean, but it is undefined outside a Store (appx) install (process docs).
-const STORE_INSTALL = (process as { readonly windowsStore?: boolean }).windowsStore === true;
+// What a Store (appx) install leaves out: the update check, the sponsor link, start at sign-in (store-gates.ts).
+const STORE = storeGates((process as { readonly windowsStore?: unknown }).windowsStore);
 
 /** Written next to this file by the release build; absent in a build from source (scripts/write-builtin-client.mjs). */
 const builtInClientPath = join(import.meta.dirname, BUILTIN_CLIENT_FILE);
@@ -612,7 +613,7 @@ async function start(): Promise<Runtime> {
     fetch: (url, init) => net.fetch(url, init),
     writeState: writeJsonAtomic,
     // A Store install is updated by the Store; asking GitHub there would only offer a second, different installer.
-    enabled: () => settings.current.checkUpdates && !STORE_INSTALL,
+    enabled: () => settings.current.checkUpdates && STORE.updateCheck,
     onNew: (version) => {
       notice(
         `Senderban ${version} is out`,
@@ -622,7 +623,7 @@ async function start(): Promise<Runtime> {
     log,
   });
   // A Store build never starts it: no request, no daily timer.
-  if (!STORE_INSTALL) void updates.start();
+  if (STORE.updateCheck) void updates.start();
   await quiet.load((reason) => {
     log("quiet-unreadable", { reason });
   });
@@ -1316,7 +1317,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
   app.setAppUserModelId(APP_USER_MODEL_ID);
   // A packaged toast click reaches handleActivation only through the COM activator in the manifest; without it Windows starts a new
   // process with the button's arguments and drops the Junk/Trash choice (.task/store-msix.md).
-  if (process.windowsStore) app.setToastActivatorCLSID(STORE_TOAST_ACTIVATOR_CLSID);
+  if (STORE.storeInstall) app.setToastActivatorCLSID(STORE_TOAST_ACTIVATOR_CLSID);
 
   // Starting the exe again while it lives in the tray opens the window instead of doing nothing.
   app.on("second-instance", () => {
@@ -1643,8 +1644,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onError: logIpcError,
       openHelp: async (target) => {
         log("help-open", { target });
-        if (target === "sponsor" && STORE_INSTALL)
-          throw new Error("not offered in a Store install");
+        guardHelpTarget(STORE, target);
         if (target !== "logs") {
           await shell.openExternal(HELP_LINKS[target]);
           return;
@@ -1823,7 +1823,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       status: async () => ({
         version: app.getVersion(),
         update: updates?.available ?? null,
-        storeManaged: STORE_INSTALL,
+        storeManaged: STORE.storeInstall,
         paused,
         behind: [
           ...[...new Set([...unsynced, ...unconfirmed])]
@@ -1870,15 +1870,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       settings: () => settings.current,
       // Windows keeps the answer (HKCU Run, Electron app.setLoginItemSettings): nothing to keep in sync here. A Store package
       // starts at sign-in only through a manifest StartupTask, which it does not declare, so the switch is not offered there.
-      // `executableWillLaunchAtLogin`, not `openAtLogin`: the latter stays true when the person turned Senderban off in Task Manager >
-      // Startup (Electron 45 typings, getLoginItemSettings). Turning it on writes the key enabled again.
-      loginItem: () =>
-        STORE_INSTALL ? null : app.getLoginItemSettings().executableWillLaunchAtLogin,
+      // Turning it on writes the key enabled again (store-gates.ts reads it back).
+      loginItem: () => readLoginItem(STORE, app),
       saveLoginItem: (on) => {
-        if (STORE_INSTALL) throw new Error("start at sign-in is not offered in a Store install");
-        app.setLoginItemSettings({ openAtLogin: on });
-        // setLoginItemSettings returns nothing: a Run key a policy blocks would read as saved. Read it back.
-        const now = app.getLoginItemSettings().executableWillLaunchAtLogin;
+        const now = writeLoginItem(STORE, app, on);
         log("login-item", { on, now });
         if (now !== on) throw new Error("Windows did not take the change");
       },
