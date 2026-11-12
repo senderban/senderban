@@ -1,8 +1,9 @@
 name: Release build
 
-# Builds the unsigned Windows installer from a version tag, writes SHA256SUMS and a build-provenance attestation, and keeps them as
-# workflow artifacts. It does NOT create a GitHub Release: publishing is a separate, deliberate step (ADR 0010). Unsigned for v0.1
-# (SignPath comes after the first release, docs 010-altyapi-barindirma.md), so Windows SmartScreen warns on first run.
+# Builds the unsigned Windows installer and the Microsoft Store package from a version tag, writes SHA256SUMS for each and one
+# build-provenance attestation over both, and keeps them as workflow artifacts. It does NOT create a GitHub Release: publishing is a
+# separate, deliberate step (ADR 0010). Unsigned for v0.1 (SignPath comes after the first release, docs 010-altyapi-barindirma.md), so
+# Windows SmartScreen warns on first run; the Store signs the Store package itself.
 #
 # Two jobs on purpose (security review 2026-10-27, FLAG-1): `build` runs every third-party install script, test and build step and holds
 # no signing authority; `attest` holds `id-token: write` and runs only the download and the attestation, so code from a dependency
@@ -62,6 +63,30 @@ jobs:
             apps/desktop/release/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
+      # The Microsoft Store package (ADR 0019): the same app with the same built-in Google client, under the Partner Center identity in
+      # electron-builder.store.yml. Unsigned; the Store signs it. This attested file is the one uploaded to the Partner Center. A manual
+      # run builds it too, so the step is proven on a runner before a tag needs it, but keeps nothing: that appx has no built-in client
+      # and no attestation and must not look uploadable.
+      - name: Build the Store package
+        run: npm run dist:store -w apps/desktop
+      # dist:store builds again; the client file written above survives only because the build does not clean dist/.
+      - name: The Store package build kept the built-in Google client
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: test -s apps/desktop/dist/google-client.builtin.json
+      - name: SHA256SUMS for the Store package
+        shell: bash
+        working-directory: apps/desktop/release-store
+        run: sha256sum Senderban-*.appx | tee SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.ref_type == 'tag'
+        with:
+          name: senderban-store-package
+          path: |
+            apps/desktop/release-store/Senderban-*.appx
+            apps/desktop/release-store/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
 
   attest:
     needs: build
@@ -81,6 +106,16 @@ jobs:
         shell: bash
         working-directory: installer
         run: sha256sum --check SHA256SUMS
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: senderban-store-package
+          path: store
+      - name: The Store download is the file that its SHA256SUMS names
+        shell: bash
+        working-directory: store
+        run: sha256sum --check SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: installer/Senderban-Setup-*.exe
+          subject-path: |
+            installer/Senderban-Setup-*.exe
+            store/Senderban-*.appx
