@@ -16,9 +16,14 @@ A toast outlives the app: it stays in the Action Center after the app quit or re
 ## Decision
 
 1. **The Store package is the same app.** `electron-builder.store.yml` extends the NSIS config and adds the `appx` target.
-   electron-builder 26.18.0 has no `msix` target yet. `identityName` and `publisher` are placeholders until the Partner Center reserves the
-   name; a Store upload must carry the values it shows. The Store re-signs the package, so a Store build uses no certificate. `dist:store`
-   builds first, so a `dist/` patched for a test (a temporary CA in `main.js`) is never packed.
+   electron-builder 26.18.0 has no `msix` target yet. `identityName`, `publisher` and `publisherDisplayName` are the values of the Partner
+   Center Product identity page (Store ID 9P73H1CNW9ZP, an individual developer account, reserved 2026-11-12). The Store re-signs the
+   package, so a Store build uses no certificate. `release.yml` builds it on every run (a manual run proves the step on a runner and
+   keeps nothing) and, on a version tag only, checks that the built-in Google client survived, keeps it as `senderban-store-package`
+   and attests it with the installer. The first attested package needs a tag after v0.3.0, which was built before this step existed.
+   Before an upload the file passes `gh attestation verify Senderban-X.Y.Z.appx --repo senderban/senderban --signer-workflow
+senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners`; a local `dist:store`
+   build is for testing only. `dist:store` builds first, so a `dist/` patched for a test (a temporary CA in `main.js`) is never packed.
 2. **One COM activator.** `build/appx-extensions.xml` registers the class that Windows calls for a click, and `main.ts` passes the same id to
    `app.setToastActivatorCLSID` when `process.windowsStore` is true. A test compares the two. The class starts `Senderban.exe
 -ToastActivated`, and the `start` log line says `cold: true` for such a start.
@@ -61,8 +66,6 @@ A toast outlives the app: it stays in the Action Center after the app quit or re
   against other users, not against other apps of the same user) and read the signed tails from the toast database Windows keeps per user,
   as it can already read the passwords. The tag stops a caller that can deliver an activation but cannot read this user's files. The
   action choice (Junk, Trash, reject) is not signed: it is the person's pick in the toast. Not measured from a low-integrity process.
-- **The Store build is made on a developer machine**, not in `release.yml`, so it has no CI build and no attestation. Before the first
-  upload it should be built there, with the built-in Gmail client step, and attested.
 - **A stray data folder.** After a cold start `%APPDATA%\Senderban` (9 files, 557 KB, caches only) appeared beside the package's own
   `LocalCache\Roaming\Senderban`. Cause not measured. A Store user could have two data homes.
 - **Not measured:** a cold click with Move to Trash chosen (the choice rides in `userInputs`; a lost choice falls to Junk, which is

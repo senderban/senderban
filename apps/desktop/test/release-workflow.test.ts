@@ -48,6 +48,26 @@ describe("release workflow", () => {
     expect(build).not.toMatch(/run:.*\$\{\{/u);
   });
 
+  it("builds the Store package on every run, keeps and attests it on a tag only (ADR 0019)", () => {
+    const steps = job("build").split(/\n(?= {6}- )/u);
+    const step = (pattern: RegExp): string => {
+      const found = steps.filter((s) => pattern.test(s));
+      expect(found).toHaveLength(1);
+      return found[0] ?? "";
+    };
+    expect(step(/run: npm run dist:store/u)).not.toContain("if:");
+    const guard = step(/google-client\.builtin\.json/u);
+    expect(guard).toContain("if: github.ref_type == 'tag'");
+    expect(guard).toContain("test -s apps/desktop/dist/google-client.builtin.json");
+    expect(step(/name: senderban-store-package/u)).toContain("if: github.ref_type == 'tag'");
+    const attest = job("attest");
+    expect(attest).toContain("name: senderban-store-package");
+    expect(attest.match(/sha256sum --check SHA256SUMS/gu) ?? []).toHaveLength(2);
+    expect(attest).toMatch(
+      /subject-path: \|\n\s+installer\/Senderban-Setup-\*\.exe\n\s+store\/Senderban-\*\.appx\n/u,
+    );
+  });
+
   it("restores no npm cache in the release build", () => {
     expect(workflow).not.toMatch(/cache:/u);
   });

@@ -2,7 +2,7 @@
 # AppX/MSIX file. electron-builder 26.18.0 (npm `latest`) has the `appx` target only: the `msix` target of the
 # electron-builder docs is in the 27.0.0-alpha line (`grep -ri msix node_modules/app-builder-lib/out` finds nothing in 26.18.0).
 # The Store re-signs the package, so no certificate is used for a Store build. `identityName`, `publisher` and `publisherDisplayName` are
-# placeholders until the Partner Center reserves the name (Product identity page); a Store upload must carry the values it shows there.
+# the values of the Partner Center Product identity page (Store ID 9P73H1CNW9ZP, reserved 2026-11-12); a Store upload must carry them.
 extends: ./electron-builder.yml
 directories:
   output: release-store
@@ -13,10 +13,12 @@ win:
   icon: assets/icon.ico
 appx:
   applicationId: Senderban
-  identityName: Senderban.Placeholder
-  publisher: CN=Placeholder
-  publisherDisplayName: Senderban contributors
+  identityName: AlimKose.Senderban
+  publisher: CN=AA70C70E-80FC-4878-8F2F-BCE6C067B51C
+  publisherDisplayName: AlimKose
   displayName: Senderban
+  # No space in the file name, so SHA256SUMS and the attestation's subject-path glob name it plainly (release.yml).
+  artifactName: Senderban-${version}.${ext}
   languages:
     - en-US
   backgroundColor: "#1f2937"
