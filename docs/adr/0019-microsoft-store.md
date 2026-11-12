@@ -31,9 +31,9 @@ senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z 
    created before it. Without one, Windows kept starting the app again every two minutes (5 starts in 8 minutes, measured); with it there
    was no repeat in 8.5 minutes. This is a side effect measured on Electron 45.2.1, not something the Electron docs promise, so it is
    measured again on every Electron bump: close a toast with its X button, click its body, click a button, each with the app closed, and
-   count the `start` lines over 10 minutes (one per click).
+   count the `start` lines over 10 minutes (one per click). Measured again on Electron 45.3.0 (2026-11-12, unsigned package, local Dovecot): the X button started nothing, a body click and a button each started the app once (`cold: true`, the toast shown again in 1,048 and 1,029 ms, the button then blocked with `verified: true`), and no start followed in the next 10 minutes.
 4. **The button carries the sender, signed.** A button writes `act`, `id`, and a tail (`acct`, `from`, `t`) plus `mac`: the first 16 bytes
-   of HMAC-SHA-256 (RFC 2104) over the five fields, as a JSON array so no sender can run two fields together. The key is 32 random bytes
+   of HMAC-SHA-256 (RFC 2104) over the five fields (six on the body's click, point 6), as a JSON array so no sender can run two fields together. The key is 32 random bytes
    made on first use and kept with `safeStorage` in `activation-key.json`, like the account passwords. Without it a forged activation could
    name any sender and any lane, and the app would block it. With no key (the OS cannot keep one, the file cannot be written) no toast carries
    a tail and none is accepted, and an earlier toast answers "expired" as it did before.
@@ -43,8 +43,11 @@ senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z 
    lane until the restart, so it is not asked). `blockPending` then applies the rules it always applied: not the person's own address, no
    free-mail domain, `reject` only where the server can refuse, Gmail only Trash.
 6. **A click on the body opens the buttons again.** The toast has `launch="act=open;…"`. The click blocks nothing; it shows the toast again,
-   kept on screen until answered, from what the app can rebuild (the sender, the lane, the offer of the provider). The subject of a toast
-   of an earlier run is not kept.
+   kept on screen until answered, from what the app can rebuild (the sender, the lane, the offer of the provider). Since 0.3.2 the body's click also carries the
+   subject (`;subj=`, base64url of UTF-8, cut to 60 UTF-16 units, inside the signature), so a toast of an earlier run comes back with
+   it; a body click of a toast from before 0.3.2 shows "(subject not kept after a restart)". A `subj` on a button is refused. The subject
+   is already in Windows' notification list as the toast's text. Not measured: whether the installer (NSIS) build, with no COM
+   activator, receives a cold click on its command line, where the subject would then be visible to other programs of the same user.
    The answer waits `REOPEN_DELAY_MS` (1 second) before it is shown. Measured on the installed 0.3.0 (2026-11-12): the toast shown
    again 3 ms after a click from the notification centre was in the centre's store and never appeared on screen. With the wait it
    appeared on screen after each of 7 clicks (2026-11-12, dev build on Electron 45.3.0, shown 1003-1019 ms after the click). Why is not

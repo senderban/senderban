@@ -21,6 +21,15 @@ export const TOAST_TEXT_MAX = 200;
  * (ACCOUNT_ID is 64 characters, an address at most ADDRESS_LIMITS.totalMax). Anything longer is not ours. Unit: UTF-16 units.
  */
 export const ACTIVATION_ARGUMENTS_MAX = 430;
+/**
+ * Unit: UTF-16 units of subject kept in the click on a toast's body, so a toast shown again after a restart still has its subject. Two toast
+ * lines hold about this much; a longer one is cut and ends in "…". The subject is already in Windows' own notification list.
+ */
+export const SUBJECT_ARG_MAX = 60;
+/** Unit: characters of base64url: at most 3 UTF-8 bytes per UTF-16 unit (a pair takes 4 for 2), so 180 bytes, so 240 characters. */
+const SUBJECT_ARG_ENCODED_MAX = 240;
+/** Unit: UTF-16 units. The body's click: the longest tail plus `;subj=` and the encoded subject. */
+export const OPEN_ARGUMENTS_MAX = ACTIVATION_ARGUMENTS_MAX + 6 + SUBJECT_ARG_ENCODED_MAX;
 
 /** Unit: bytes. The key of an `ActivationSigner` (HMAC-SHA-256 takes any length; 32 is the digest size, RFC 2104 section 3). */
 export const ACTIVATION_KEY_BYTES = 32;
@@ -46,7 +55,15 @@ const ACTIVATION_MAC_BYTES = 16;
  * `safeStorage`); it signs and checks, and the tag hides nothing.
  */
 export interface ActivationSigner {
-  sign(act: string, id: string, accountId: string, sender: string, issuedAt: number): string;
+  /** `subject` only on the body's click; without it the tag is the one a toast before 0.3.2 carries. */
+  sign(
+    act: string,
+    id: string,
+    accountId: string,
+    sender: string,
+    issuedAt: number,
+    subject?: string,
+  ): string;
   verify(
     act: string,
     id: string,
@@ -54,6 +71,7 @@ export interface ActivationSigner {
     sender: string,
     issuedAt: number,
     mac: string,
+    subject?: string,
   ): boolean;
 }
 
@@ -65,14 +83,25 @@ export function createActivationSigner(key: Uint8Array): ActivationSigner {
       .update(JSON.stringify(fields))
       .digest()
       .subarray(0, ACTIVATION_MAC_BYTES);
+  const fields = (
+    act: string,
+    id: string,
+    accountId: string,
+    sender: string,
+    issuedAt: number,
+    subject: string | undefined,
+  ): (string | number)[] =>
+    subject === undefined
+      ? [act, id, accountId, sender, issuedAt]
+      : [act, id, accountId, sender, issuedAt, subject];
   return {
-    sign: (act, id, accountId, sender, issuedAt) =>
-      tag(act, id, accountId, sender, issuedAt).toString("base64url"),
-    verify: (act, id, accountId, sender, issuedAt, mac) => {
+    sign: (act, id, accountId, sender, issuedAt, subject) =>
+      tag(...fields(act, id, accountId, sender, issuedAt, subject)).toString("base64url"),
+    verify: (act, id, accountId, sender, issuedAt, mac, subject) => {
       const given = Buffer.from(mac, "base64url");
       return (
         given.length === ACTIVATION_MAC_BYTES &&
-        timingSafeEqual(given, tag(act, id, accountId, sender, issuedAt))
+        timingSafeEqual(given, tag(...fields(act, id, accountId, sender, issuedAt, subject)))
       );
     },
   };
@@ -309,10 +338,24 @@ function args(
   if (accountId === undefined || issuedAt === undefined || signer === undefined) return base;
   // A value the click parser would refuse is left off, so a long id never makes a toast whose buttons do nothing.
   if (!ACCOUNT_ARG.test(accountId) || !Number.isSafeInteger(issuedAt) || issuedAt < 0) return base;
-  const mac = signer.sign(act, toast.id, accountId, toast.sender, issuedAt);
+  const subject = act === "open" ? subjectArg(toast.subject) : undefined;
+  const mac = signer.sign(act, toast.id, accountId, toast.sender, issuedAt, subject);
   const tail = `;acct=${accountId};from=${toast.sender};t=${String(issuedAt)};mac=${mac}`;
   if (`${base}${tail}`.length > ACTIVATION_ARGUMENTS_MAX) return base;
-  return escapeMarkup(`${base}${tail}`);
+  const subj =
+    subject === undefined ? "" : `;subj=${Buffer.from(subject, "utf8").toString("base64url")}`;
+  return escapeMarkup(`${base}${tail}${subj}`);
+}
+
+/** The subject as the body's click keeps it: our marks out, cut to SUBJECT_ARG_MAX without splitting a surrogate pair; none if empty. */
+function subjectArg(subject: string): string | undefined {
+  const cleaned = subject.replace(OUR_MARKS, "").trim();
+  if (cleaned === "") return undefined;
+  if (cleaned.length <= SUBJECT_ARG_MAX) return Buffer.from(cleaned, "utf8").toString("utf8");
+  let cut = cleaned.slice(0, SUBJECT_ARG_MAX - 1);
+  if (/[\uD800-\uDBFF]$/u.test(cut)) cut = cut.slice(0, -1);
+  // A lone surrogate becomes U+FFFD on the way to UTF-8, so the signed text is the one the click gives back.
+  return Buffer.from(`${cut}…`, "utf8").toString("utf8");
 }
 
 /** What a toast needs from the Settings page, and whether this Windows draws styled buttons. */
@@ -390,6 +433,8 @@ export interface ActivationRestore {
   readonly accountId: string;
   readonly sender: string;
   readonly issuedAt: number;
+  /** The subject the body's click kept (SUBJECT_ARG_MAX, signed with the rest); absent on a button and on a toast before 0.3.2. */
+  readonly subject?: string;
 }
 
 /** A click on the toast's body: it asks for the buttons, so it blocks nothing. */
@@ -412,7 +457,7 @@ export interface Activation {
 /** The engine's account id (`ACCOUNT_ID` in sync/engine.ts, kept here so the toast module does not import the engine). */
 const ACCOUNT_ARG = /^[A-Za-z0-9._@-]{1,64}$/u;
 const ARGUMENTS =
-  /^act=(junk|trash|reject|quiet|open|sender|domain);id=([0-9a-f-]{36})(?:;acct=([A-Za-z0-9._@-]{1,64});from=([^;]{1,254});t=([0-9]{1,10});mac=([A-Za-z0-9_-]{22}))?$/u;
+  /^act=(junk|trash|reject|quiet|open|sender|domain);id=([0-9a-f-]{36})(?:;acct=([A-Za-z0-9._@-]{1,64});from=([^;]{1,254});t=([0-9]{1,10});mac=([A-Za-z0-9_-]{22})(?:;subj=([A-Za-z0-9_-]{1,240}))?)?$/u;
 
 /**
  * The tail of a click, or null when there is none (or no key to check it with); `"bad"` when it is there and wrong. A tail is only taken
@@ -424,7 +469,7 @@ function restoreOf(
   id: string,
   signer: ActivationSigner | undefined,
 ): ActivationRestore | null | "bad" {
-  const [, , , accountId, from, t, mac] = match;
+  const [, , , accountId, from, t, mac, subj] = match;
   if (accountId === undefined || from === undefined || t === undefined || mac === undefined) {
     return null;
   }
@@ -433,13 +478,36 @@ function restoreOf(
   // Only the exact form a toast writes: a sender that needed any rewriting did not come from us.
   if (!parsed.ok || parsed.value.address !== from) return "bad";
   const issuedAt = Number(t);
-  if (!signer.verify(act, id, accountId, from, issuedAt, mac)) return "bad";
-  return { accountId, sender: from, issuedAt };
+  // Only the body's click keeps a subject; a button that carries one was not written by us.
+  if (subj !== undefined && act !== "open") return "bad";
+  const subject = subj === undefined ? undefined : subjectOf(subj);
+  if (subject === null) return "bad";
+  if (!signer.verify(act, id, accountId, from, issuedAt, mac, subject)) return "bad";
+  return subject === undefined
+    ? { accountId, sender: from, issuedAt }
+    : { accountId, sender: from, issuedAt, subject };
+}
+
+/** What sanitizeSubject (watcher.ts) takes out of a subject. */
+const CONTROL_OR_BIDI = /[\p{Cc}\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
+/** The kept subject, or null when the bytes are not UTF-8 or the text is longer than a toast writes. */
+function subjectOf(encoded: string): string | null {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      Buffer.from(encoded, "base64url"),
+    );
+    // The watcher took control and bidi marks out before signing (sanitizeSubject); one here was not signed by a toast of ours.
+    if (text === "" || text.length > SUBJECT_ARG_MAX || CONTROL_OR_BIDI.test(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
 }
 
 // The envelope comes from the OS and may carry keys we do not know; the two fields we read are bounded.
 const Details = z.looseObject({
-  arguments: z.string().max(ACTIVATION_ARGUMENTS_MAX),
+  arguments: z.string().max(OPEN_ARGUMENTS_MAX),
   userInputs: z.record(z.string().max(32), z.string().max(32)).optional(),
 });
 
