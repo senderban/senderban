@@ -1,9 +1,12 @@
-/* global VISIBLE_MAX, els, senderValue, view */
+/* global VISIBLE_MAX, els, senderValue, view, accountChoices, accountHolds, accountEmpty */
 // The Don't ask again page of the sandboxed manage page. Entries came from mail headers (untrusted): `senderValue` and `textContent` only.
-// Scale: QUIET_MAX (2,000) short strings in memory, filtered per keystroke with no IPC, and at most VISIBLE_MAX rows drawn.
+// Each row is { value, source? }: source is the mailbox it was chosen in, absent before 0.3.
+// Scale: QUIET_MAX (2,000) short rows in memory, filtered per keystroke with no IPC, and at most VISIBLE_MAX rows drawn.
 const qtApi = window.senderban;
 const qtEls = {
   filter: document.getElementById("quiet-filter"),
+  filterRow: document.getElementById("quiet-filter-row"),
+  account: document.getElementById("quiet-account"),
   list: document.getElementById("quiet-list"),
   empty: document.getElementById("quiet-empty"),
   cap: document.getElementById("quiet-cap"),
@@ -20,11 +23,20 @@ function qtStatus(text) {
   qtEls.status.textContent = text;
 }
 
-function qtRow(value) {
+function qtRow({ value, source }) {
   const row = document.createElement("li");
   const what = document.createElement("div");
   what.className = "what";
   what.append(senderValue(value));
+  if (source !== undefined) {
+    const line = document.createElement("div");
+    line.className = "meta line";
+    const text = document.createElement("span");
+    text.className = "source";
+    text.textContent = `from ${source}`;
+    line.append(text);
+    what.append(line);
+  }
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "small";
@@ -36,11 +48,11 @@ function qtRow(value) {
       .quietRemove(value)
       .catch(() => "failed")
       .then((reply) => {
-        if (reply === "removed") qtEntries = qtEntries.filter((entry) => entry !== value);
+        if (reply === "removed") qtEntries = qtEntries.filter((entry) => entry.value !== value);
         qtStatus(reply === "removed" ? "" : "Could not save. See the log.");
         qtDraw();
         // The row with the focus is gone.
-        (qtEls.filter.hidden ? els.title : qtEls.filter).focus();
+        (qtEls.filterRow.hidden ? els.title : qtEls.filter).focus();
         void qtLoad();
       });
   });
@@ -54,7 +66,11 @@ function qtDraw() {
   // Hidden, only the count shows: a burst of "changed" events does not rebuild rows nobody sees.
   if (view !== "quiet") return;
   const needle = qtEls.filter.value.trim().toLowerCase();
-  const matching = qtEntries.filter((value) => needle === "" || value.includes(needle));
+  accountChoices(qtEls.account, qtEntries);
+  // Newest first, as on the block list: the file keeps them in the order they were added.
+  const matching = qtEntries
+    .filter((e) => (needle === "" || e.value.includes(needle)) && accountHolds(qtEls.account, e))
+    .reverse();
   const shown = matching.slice(0, VISIBLE_MAX);
 
   qtEls.list.replaceChildren(...shown.map(qtRow));
@@ -62,12 +78,12 @@ function qtDraw() {
     matching.length === qtEntries.length
       ? ""
       : `${String(matching.length)} of ${String(qtEntries.length)}`;
-  qtEls.filter.hidden = qtEntries.length === 0;
+  qtEls.filterRow.hidden = qtEntries.length === 0;
   qtEls.empty.hidden = matching.length > 0;
   qtEls.empty.textContent =
     qtEntries.length === 0
       ? "Choose Don't ask again on a notification to add a sender."
-      : "No sender matches this filter.";
+      : (accountEmpty(qtEls.account, qtEntries, needle) ?? "No sender matches this filter.");
   qtEls.cap.hidden = matching.length <= shown.length;
   qtEls.cap.textContent = `Showing the first ${String(VISIBLE_MAX)} of ${String(matching.length)}. Type to narrow the list.`;
 }
@@ -99,6 +115,7 @@ async function qtLoad() {
 }
 
 qtEls.filter.addEventListener("input", qtDraw);
+qtEls.account.addEventListener("change", qtDraw);
 qtApi.onChanged(() => {
   void qtLoad();
 });

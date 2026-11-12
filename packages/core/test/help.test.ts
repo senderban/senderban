@@ -8,9 +8,11 @@ describe("Help links", () => {
       expect(url.protocol).toBe("https:");
       expect(["github.com", "senderban.com"]).toContain(url.hostname);
       expect(url.username + url.password + url.port + url.search + url.hash).toBe("");
-      if (url.hostname === "github.com")
+      // The maintainer's Sponsors page is the one GitHub address outside the repository.
+      if (url.hostname === "github.com" && link !== HELP_LINKS.sponsor)
         expect(url.pathname.startsWith("/senderban/senderban/")).toBe(true);
     }
+    expect(HELP_LINKS.sponsor).toBe("https://github.com/sponsors/AlimKose");
   });
 
   it("cover every target but the log folder", () => {
@@ -20,7 +22,7 @@ describe("Help links", () => {
   it("accept only the listed words", () => {
     for (const target of HELP_TARGETS)
       expect(HelpTargetSchema.safeParse(target).success).toBe(true);
-    for (const value of ["", "sponsor", "LOGS", "https://senderban.com/", 1, null]) {
+    for (const value of ["", "donate", "LOGS", "https://senderban.com/", 1, null]) {
       expect(HelpTargetSchema.safeParse(value).success).toBe(false);
     }
   });

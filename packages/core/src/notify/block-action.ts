@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mailboxKey, validateDomain } from "../address.js";
-import { folderAction } from "../blocklist.js";
+import { BlockEntrySchema, folderAction } from "../blocklist.js";
 import { canRefuseAtServer } from "../mxroute/client.js";
 import type { BlockAction, BlockEntry } from "../blocklist.js";
 import { isNotOffered } from "../freemail.js";
@@ -103,6 +103,8 @@ export interface BlockActionDeps {
    * whole-domain click is refused. Absent: no account is limited.
    */
   readonly trashOnlyAccount?: (accountId: string) => boolean;
+  /** The clicked mailbox's name for the list (`source`). Absent, or a name the schema refuses: the entry is stored without it. */
+  readonly sourceOf?: (accountId: string) => string | undefined;
 }
 
 /** What a choice led to. `detail` is shown to the person, so it carries no password or full server reply. */
@@ -216,12 +218,16 @@ export async function blockPending(
     }
   }
 
+  // A name that would fail the entry's schema is dropped, not the block: the list says nothing rather than refusing the click.
+  const named = BlockEntrySchema.shape.source.safeParse(deps.sourceOf?.(accountId));
+  const source = named.success ? named.data : undefined;
   const added = deps.store.add({
     id: (deps.newId ?? randomUUID)(),
     match,
     value: target,
     action,
     createdAt: (deps.now?.() ?? new Date()).toISOString(),
+    ...(source === undefined ? {} : { source }),
   });
   if (!added.ok) return { status: "refused", detail: added.reason };
   if (!added.added && added.entry.action !== action) {

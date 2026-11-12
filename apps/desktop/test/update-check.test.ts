@@ -6,6 +6,7 @@ import {
   UPDATE_INTERVAL_MS,
   UPDATE_MAX_BYTES,
   UPDATE_RETRY_MS,
+  UPDATE_START_SPREAD_MS,
   UPDATE_TIMEOUT_MS,
   UPDATE_URL,
 } from "@senderban/core";
@@ -259,14 +260,15 @@ describe("UpdateChecker timer", () => {
     c.stop();
   });
 
-  it("stretches waits by up to 25 %, so installs that start together spread out", async () => {
+  it("stretches waits by up to 25 % and spreads a due check over 3 h, so installs that start together spread out", async () => {
     vi.useFakeTimers();
     const fetch = vi.fn<Fetch>(() => Promise.resolve(json({ tag_name: "v0.2.0" })));
     const c = checker(fetch, "0.2.0", () => 1);
     await c.start();
-    await vi.advanceTimersByTimeAsync(UPDATE_FIRST_DELAY_MS);
+    const first = UPDATE_FIRST_DELAY_MS * 1.25 + UPDATE_START_SPREAD_MS;
+    await vi.advanceTimersByTimeAsync(first - 1);
     expect(fetch).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(UPDATE_FIRST_DELAY_MS / 4);
+    await vi.advanceTimersByTimeAsync(1);
     expect(fetch).toHaveBeenCalledOnce();
     expect(written.at(-1)?.nextAt).toBe(NOW + UPDATE_INTERVAL_MS * 1.25);
     c.stop();
@@ -284,6 +286,22 @@ describe("UpdateChecker timer", () => {
     c.nudge();
     expect(vi.getTimerCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(UPDATE_FIRST_DELAY_MS);
+    expect(fetch).toHaveBeenCalledOnce();
+    c.stop();
+  });
+
+  it("does not add the start spread when the switch is turned on with a check due", async () => {
+    vi.useFakeTimers();
+    enabled = false;
+    const fetch = vi.fn<Fetch>(() => Promise.resolve(json({ tag_name: "v0.2.0" })));
+    const c = checker(fetch, "0.2.0", () => 1);
+    await c.start();
+    enabled = true;
+    c.nudge();
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(UPDATE_FIRST_DELAY_MS * 1.25 - 1);
+    expect(fetch).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(fetch).toHaveBeenCalledOnce();
     c.stop();
   });

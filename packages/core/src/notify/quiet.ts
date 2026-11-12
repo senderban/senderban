@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ADDRESS_LIMITS, parseAddress, validateDomain } from "../address.js";
+import { SourceSchema } from "../blocklist.js";
 import { blockableDomain } from "./block-action.js";
 import type { BlockScope, OwnMail } from "./block-action.js";
 import type { PendingBlocks } from "./pending.js";
@@ -28,10 +29,29 @@ export const QuietEntrySchema = z
       : validateDomain(value) === null,
   );
 
-export const QuietFileSchema = z.strictObject({
-  version: z.literal(1),
-  entries: z.array(QuietEntrySchema).max(QUIET_MAX),
+/** One entry and the mailbox it was chosen in (0.3 on; absent before, and on version-1 files). Shown on the list only. */
+export const QuietRowSchema = z.strictObject({
+  value: QuietEntrySchema,
+  source: SourceSchema.optional(),
 });
+export type QuietRow = z.infer<typeof QuietRowSchema>;
+
+/** Version 1 (0.2): the values alone. Version 2 (0.3): rows. A version-1 file is read and written back as version 2 at the next change. */
+export const QuietFileSchema = z.discriminatedUnion("version", [
+  z.strictObject({
+    version: z.literal(1),
+    entries: z.array(QuietEntrySchema).max(QUIET_MAX),
+  }),
+  z.strictObject({
+    version: z.literal(2),
+    entries: z.array(QuietRowSchema).max(QUIET_MAX),
+  }),
+]);
+
+/** The rows of either version, in file order. */
+export function quietRows(file: z.infer<typeof QuietFileSchema>): QuietRow[] {
+  return file.version === 1 ? file.entries.map((value) => ({ value })) : file.entries;
+}
 
 /** True when the list holds this address, its domain or a parent of its domain: a domain entry takes in subdomains, as a block does. */
 export function isQuiet(sender: string, entries: ReadonlySet<string>): boolean {
@@ -46,7 +66,7 @@ export function isQuiet(sender: string, entries: ReadonlySet<string>): boolean {
 }
 
 export type QuietTarget =
-  | { readonly status: "ok"; readonly value: string }
+  | { readonly status: "ok"; readonly value: string; readonly accountId: string }
   /** The toast already ran, or its id is gone: `PendingBlocks` says which. */
   | { readonly status: "duplicate" | "unknown" }
   /** A domain that must not be offered (a provider's, or the person's own): the click is held to what a toast may show. */
@@ -61,8 +81,8 @@ export function quietTarget(
 ): QuietTarget {
   const claimed = pending.consume(id);
   if (claimed.status !== "ok") return { status: claimed.status };
-  const { sender } = claimed.block;
-  if (scope === "address") return { status: "ok", value: sender };
+  const { sender, accountId } = claimed.block;
+  if (scope === "address") return { status: "ok", value: sender, accountId };
   const domain = blockableDomain(sender, own);
-  return domain === null ? { status: "not-offered" } : { status: "ok", value: domain };
+  return domain === null ? { status: "not-offered" } : { status: "ok", value: domain, accountId };
 }

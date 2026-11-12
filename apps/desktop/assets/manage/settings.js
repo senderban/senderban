@@ -12,6 +12,9 @@ const stEls = {
   updatesText: document.getElementById("setting-updates-text"),
   confirmText: document.getElementById("setting-confirm-text"),
   status: document.getElementById("settings-status"),
+  startupCard: document.getElementById("settings-startup-card"),
+  login: document.getElementById("setting-login"),
+  loginText: document.getElementById("setting-login-text"),
 };
 
 // What the page shows, and what main last confirmed.
@@ -92,8 +95,53 @@ stEls.updates.addEventListener("change", () => {
   stChange({ checkUpdates: stEls.updates.checked });
 });
 
+// Start at sign-in lives in Windows, not in the settings file: read it each time the page opens, write it on its own channel.
+let stLoginSaving = false;
+
+function stDrawLogin(on) {
+  stEls.login.checked = on;
+  stEls.loginText.textContent = on ? "On" : "Off";
+}
+
+stEls.login.addEventListener("change", () => {
+  // A flag, not `disabled`: a disabled switch drops keyboard focus. A click while a write runs is put back.
+  if (stLoginSaving) {
+    stDrawLogin(!stEls.login.checked);
+    return;
+  }
+  const on = stEls.login.checked;
+  stDrawLogin(on);
+  stLoginSaving = true;
+  void stApi
+    .saveLoginItem(on)
+    .catch(() => "failed")
+    .then((reply) => {
+      if (reply === "saved") {
+        stStatus("");
+        return;
+      }
+      stDrawLogin(!on);
+      stStatus("Could not change start at sign-in. See the log.");
+    })
+    .finally(() => {
+      stLoginSaving = false;
+    });
+});
+
 document.addEventListener("senderban-view", (event) => {
   if (event.detail !== "settings") return;
+  if (!stLoginSaving) {
+    // null: not offered here (a Store install), or the answer did not come: the card stays hidden.
+    void stApi.loginItem().then(
+      (on) => {
+        stEls.startupCard.hidden = typeof on !== "boolean";
+        if (typeof on === "boolean") stDrawLogin(on);
+      },
+      () => {
+        stEls.startupCard.hidden = true;
+      },
+    );
+  }
   if (stSaving) return;
   void stApi.settings().then(
     (settings) => {

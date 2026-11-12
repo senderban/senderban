@@ -68,6 +68,7 @@ describe("quietTarget", () => {
     expect(quietTarget(pending, id, "address", own)).toEqual({
       status: "ok",
       value: "news@deals.example",
+      accountId: "a",
     });
   });
 
@@ -76,6 +77,7 @@ describe("quietTarget", () => {
     expect(quietTarget(pending, id, "domain", own)).toEqual({
       status: "ok",
       value: "mail.deals.example",
+      accountId: "a",
     });
   });
 

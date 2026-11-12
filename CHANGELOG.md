@@ -4,8 +4,22 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-12
+
 ### Added
 
+- **Home**, the first view of the Senderban window: how many senders are blocked, with the blocks of
+  each of the last 12 weeks as a bar and where their mail goes; three status lines (**Watch**,
+  **Blocks**, **Servers**) that open the view they report on; your mailboxes with what each watcher
+  is doing; and the four newest blocks.
+- Each block and each **Don't ask again** entry shows the mailbox it was made from, and both lists
+  have a mailbox filter. It lists every mailbox you have set up, each with its count. Entries made
+  before 0.3 have no mailbox: they show under **All accounts** and under **Not recorded (before
+  0.3)**.
+- **Start Senderban when you sign in to Windows** in **Settings**, **Startup**. Off unless you turn it
+  on; Windows keeps the choice. Not in the Microsoft Store version.
+- **Sponsor** at the foot of the menu opens the maintainer's GitHub Sponsors page. Not in the
+  Microsoft Store version.
 - **Help** in the Senderban window: report a problem on GitHub, report a security problem privately,
   open the release notes, the website or the folder with the log files.
 - An update check: once a day Senderban asks GitHub whether a newer version is out, and says so in a
@@ -15,6 +29,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ### Changed
 
+- **Blocked senders** is a shorter list, newest first: the address, one line with the mailbox, where
+  the mail goes and the date, and a mark only on an entry that needs a look.
 - The Senderban window has a new look: a frosted side bar and sheet over a calm water colour, icons in
   the menu, and lists and cards as tinted panes. It follows the light or dark mode, and draws solid
   panes when the system asks for less transparency, more contrast or a contrast theme.
@@ -28,6 +44,10 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 - **Block** is on a notification only after you turn on **Block at server when the mailbox can** in
   **Settings**. Before, it was always in the list and the switch only pre-selected it.
 - A Gmail notification has **Trash** and **Mute**; its button is no longer red. Red is for **Block**.
+
+### Security
+
+- Electron 45.3.0 with its Chromium security fixes (0.2 shipped 45.2.1).
 
 ## [0.2.0] - 2026-11-01
 

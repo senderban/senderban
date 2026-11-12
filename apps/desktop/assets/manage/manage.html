@@ -18,6 +18,13 @@
           <span>Senderban</span>
         </div>
         <nav aria-label="Main">
+          <button type="button" id="nav-home" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.25 7.25 8 2.5l5.75 4.75" />
+              <path d="M3.75 6v7.25h3v-4h2.5v4h3V6" />
+            </svg>
+            <span>Home</span>
+          </button>
           <button type="button" id="nav-blocked" class="nav">
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <circle cx="8" cy="8" r="5.75" />
@@ -61,6 +68,23 @@
             <span id="nav-help-count" class="count"></span>
           </button>
         </nav>
+        <button
+          type="button"
+          id="nav-sponsor"
+          class="nav sponsor"
+          aria-label="Sponsor Senderban on GitHub (opens in your browser)"
+          hidden
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M8 13.25S2.25 9.9 2.25 5.9A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5.75 1.3C13.75 9.9 8 13.25 8 13.25Z"
+            />
+          </svg>
+          <span>Sponsor</span>
+          <svg class="out" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 3.75h6.25V10M12 4 4 12" />
+          </svg>
+        </button>
         <div class="health">
           <p id="health" class="health-line" role="status">
             <span class="dot" aria-hidden="true"></span>
@@ -94,7 +118,7 @@
           <input id="microsoft-approval-link" type="text" readonly spellcheck="false" />
         </div>
 
-        <section id="view-blocked" class="view">
+        <section id="view-home" class="view">
           <div id="first-run" class="first-run" hidden>
             <p class="lead">
               Block a sender once, from the notification. Every mail app you use follows, because
@@ -110,16 +134,96 @@
             </ol>
             <button type="button" id="first-add" class="primary">Add mailbox</button>
           </div>
+          <div id="home-body" class="home">
+            <section class="card hero" aria-labelledby="home-blocked-label">
+              <div class="readout">
+                <h2 id="home-blocked-label" class="eyebrow">Senders blocked</h2>
+                <p id="home-blocked-num" class="hero-num"></p>
+                <p id="home-week" class="meta"></p>
+                <ul id="home-split" class="split" aria-label="Where their mail goes" hidden></ul>
+              </div>
+              <div id="home-trace" class="trace" hidden>
+                <div class="trace-head">
+                  <h2 class="eyebrow">Blocks per week</h2>
+                  <span class="meta">last 12 weeks</span>
+                </div>
+                <svg id="home-chart" class="chart" role="img"></svg>
+                <div class="trace-axis meta" aria-hidden="true">
+                  <span id="home-chart-from" class="data"></span>
+                  <span>Last 7 days</span>
+                </div>
+              </div>
+            </section>
+            <div class="lamps" role="group" aria-label="Status">
+              <button type="button" id="lamp-watch" class="lamp">
+                <span class="eyebrow">Watch</span>
+                <span class="lamp-value">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span id="lamp-watch-text"></span>
+                </span>
+              </button>
+              <button type="button" id="lamp-blocks" class="lamp">
+                <span class="eyebrow">Blocks</span>
+                <span class="lamp-value">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span id="lamp-blocks-text"></span>
+                </span>
+              </button>
+              <button type="button" id="lamp-sync" class="lamp">
+                <span class="eyebrow">Servers</span>
+                <span class="lamp-value">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span id="lamp-sync-text"></span>
+                </span>
+              </button>
+            </div>
+            <div class="home-cols">
+              <section class="card" aria-labelledby="home-boxes-title">
+                <div class="card-head">
+                  <h2 id="home-boxes-title" class="grow">Mailboxes</h2>
+                  <button type="button" id="home-manage" class="small">Manage</button>
+                </div>
+                <ul id="home-boxes" class="list flush" aria-labelledby="home-boxes-title"></ul>
+                <p id="home-boxes-more" class="meta card-body" hidden></p>
+                <p id="home-boxes-empty" class="meta card-body" hidden>
+                  No mailbox is set up. Add one in Accounts.
+                </p>
+              </section>
+              <section class="card recent" aria-labelledby="home-recent-title">
+                <div class="card-head">
+                  <h2 id="home-recent-title" class="grow">Recently blocked</h2>
+                  <button type="button" id="home-all" class="small">See all</button>
+                </div>
+                <ul id="home-recent" class="list flush" aria-labelledby="home-recent-title"></ul>
+                <p id="home-recent-empty" class="meta card-body" hidden>
+                  Nothing is blocked yet. Block a sender from the notification that appears with a
+                  new mail.
+                </p>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-blocked" class="view" hidden>
           <div id="list-section" class="list-section">
-            <input
-              id="filter"
-              type="search"
-              placeholder="Filter by address or domain"
-              aria-label="Filter the list"
-              autocomplete="off"
-              spellcheck="false"
-            />
+            <div id="filter-row" class="filter-row">
+              <input
+                id="filter"
+                type="search"
+                placeholder="Filter by address or domain"
+                aria-label="Filter the list"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <select id="filter-account" aria-label="Show blocks made from">
+                <option value="">All accounts</option>
+              </select>
+            </div>
             <div id="tabs" class="tabs" role="group" aria-label="Show"></div>
+            <p id="local-note" class="meta" hidden>
+              Other (IMAP) mailboxes have no rule on the server: Senderban moves their mail only
+              while it runs.
+            </p>
             <p id="behind" class="status" data-tone="warn" role="status" hidden></p>
             <ul id="list" class="list" aria-label="Blocked senders"></ul>
             <p id="empty" class="muted" hidden></p>
@@ -269,6 +373,29 @@
               </div>
             </div>
           </section>
+          <section
+            id="settings-startup-card"
+            class="card"
+            aria-labelledby="settings-startup"
+            hidden
+          >
+            <div class="card-head">
+              <h2 id="settings-startup">Startup</h2>
+            </div>
+            <div class="setting">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label for="setting-login">Start Senderban when you sign in to Windows</label>
+                  <span class="meta">
+                    It opens in the notification area, with no window. New-mail notifications come
+                    only while Senderban runs.
+                  </span>
+                </div>
+                <span id="setting-login-text" class="state"></span>
+                <input id="setting-login" type="checkbox" role="switch" />
+              </div>
+            </div>
+          </section>
           <section id="settings-updates-card" class="card" aria-labelledby="settings-updates">
             <div class="card-head">
               <h2 id="settings-updates">Updates</h2>
@@ -363,15 +490,19 @@
             your mailbox.
           </p>
           <div id="quiet-section" class="list-section">
-            <input
-              id="quiet-filter"
-              type="search"
-              placeholder="Filter by address or domain"
-              aria-label="Filter the Don't ask again list"
-              autocomplete="off"
-              spellcheck="false"
-              hidden
-            />
+            <div id="quiet-filter-row" class="filter-row" hidden>
+              <input
+                id="quiet-filter"
+                type="search"
+                placeholder="Filter by address or domain"
+                aria-label="Filter the Don't ask again list"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <select id="quiet-account" aria-label="Show entries made from">
+                <option value="">All accounts</option>
+              </select>
+            </div>
             <ul id="quiet-list" class="list" aria-label="Don't ask again"></ul>
             <p id="quiet-empty" class="muted" hidden></p>
             <p id="quiet-cap" class="meta" data-tone="warn" hidden></p>

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AdapterError } from "../../src/adapter.js";
 import type { ApplyResult, OpaqueState, Plan } from "../../src/adapter.js";
-import { MAX_ENTRIES } from "../../src/blocklist.js";
+import { MAX_ENTRIES, SOURCE_MAX } from "../../src/blocklist.js";
 import { SCHEMA_VERSION, openDatabase } from "../../src/store/db.js";
 import { JOURNAL_FAILED_MAX, JOURNAL_KEEP, Store } from "../../src/store/store.js";
 
@@ -129,7 +129,7 @@ describe("database", () => {
   it("rejects a corrupt row instead of using it", () => {
     const db = openDatabase(":memory:");
     db.exec(
-      "INSERT INTO entries VALUES ('not-a-uuid', 'exactAddress', 'a@example.com', 'junk', '2026-10-24T12:00:00.000Z')",
+      "INSERT INTO entries (id, match, value, action, created_at) VALUES ('not-a-uuid', 'exactAddress', 'a@example.com', 'junk', '2026-10-24T12:00:00.000Z')",
     );
     expect(() => new Store(db).list()).toThrow();
   });
@@ -321,6 +321,8 @@ describe("Gmail watcher cursors", () => {
     const first = openDatabase(file);
     new Store(first).add(entry("keep@example.com"));
     first.exec("DROP TABLE gmail_cursor");
+    // Also undo what later migrations added: a real version-3 store has no `source` column.
+    first.exec("ALTER TABLE entries DROP COLUMN source");
     first.exec("PRAGMA user_version = 3");
     first.close();
 
@@ -343,7 +345,7 @@ describe("reject action", () => {
       id text primary key, match text not null check (match in ('exactAddress','exactDomain','subdomains')),
       value text not null, action text not null check (action in ('junk','trash')),
       created_at text not null, unique (match, value)) strict`);
-    first.exec("INSERT INTO entries SELECT * FROM entries_now");
+    first.exec("INSERT INTO entries SELECT id, match, value, action, created_at FROM entries_now");
     first.exec("DROP TABLE entries_now");
     first.exec("DROP TABLE gmail_cursor");
     first.exec("PRAGMA user_version = 2");
@@ -360,6 +362,81 @@ describe("reject action", () => {
   it("still refuses an action the schema does not know", () => {
     const store = new Store(openDatabase(":memory:"));
     expect(store.add({ ...entry("x@example.com"), action: "discard" }).ok).toBe(false);
+  });
+});
+
+describe("source mailbox", () => {
+  it("keeps the mailbox a block came from, and leaves it out when none was given", () => {
+    const store = new Store(openDatabase(":memory:"));
+    store.add({ ...entry("named@example.com"), source: "me@example.org (Gmail)" });
+    store.add(entry("plain@example.com"));
+    const [named, plain] = store.list();
+    expect(named?.source).toBe("me@example.org (Gmail)");
+    expect(plain).not.toHaveProperty("source");
+  });
+
+  it("refuses a name with a control or bidi character, or past the bound", () => {
+    const store = new Store(openDatabase(":memory:"));
+    expect(store.add({ ...entry("a@example.com"), source: "me\u202E@example.org" }).ok).toBe(false);
+    expect(store.add({ ...entry("b@example.com"), source: "me\n@example.org" }).ok).toBe(false);
+    expect(store.add({ ...entry("c@example.com"), source: "x".repeat(SOURCE_MAX + 1) }).ok).toBe(
+      false,
+    );
+    expect(store.add({ ...entry("d@example.com"), source: "x".repeat(SOURCE_MAX) }).ok).toBe(true);
+  });
+
+  it("holds the same bound in the table, for a row written past the schema", () => {
+    const db = openDatabase(":memory:");
+    const insert = (source: string) =>
+      db
+        .prepare(
+          "INSERT INTO entries (id, match, value, action, created_at, source) VALUES (?, 'exactAddress', ?, 'junk', ?, ?)",
+        )
+        .run(
+          crypto.randomUUID(),
+          `${String(source.length)}@example.com`,
+          new Date().toISOString(),
+          source,
+        );
+    expect(() => insert("x".repeat(SOURCE_MAX + 1))).toThrow();
+    expect(() => insert("xy")).toThrow();
+    expect(() => insert("x".repeat(SOURCE_MAX))).not.toThrow();
+    db.close();
+  });
+
+  it("counts a name in code points, as the table does, so a name the schema takes is never refused by it", () => {
+    const store = new Store(openDatabase(":memory:"));
+    // Three UTF-16 units, two code points: under the minimum in both.
+    expect(store.add({ ...entry("e@example.com"), source: "\u{1F600}a" }).ok).toBe(false);
+    const wide = "\u{1F600}".repeat(SOURCE_MAX);
+    expect(store.add({ ...entry("f@example.com"), source: wide })).toMatchObject({ ok: true });
+    expect(store.list().at(-1)?.source).toBe(wide);
+  });
+
+  it("leaves out a stored name that fails its schema instead of failing the list", () => {
+    const db = openDatabase(":memory:");
+    db.prepare(
+      "INSERT INTO entries (id, match, value, action, created_at, source) VALUES (?, 'exactAddress', 'g@example.com', 'junk', ?, ?)",
+    ).run(crypto.randomUUID(), new Date().toISOString(), "me\u202E@example.org");
+    const [row] = new Store(db).list();
+    expect(row?.value).toBe("g@example.com");
+    expect(row).not.toHaveProperty("source");
+  });
+
+  it("migrates a store from before 0.3 without touching its entries", () => {
+    const file = tempFile();
+    const first = openDatabase(file);
+    new Store(first).add(entry("old@example.com"));
+    first.exec("ALTER TABLE entries DROP COLUMN source");
+    first.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION - 1)}`);
+    first.close();
+
+    const upgraded = new Store(openDatabase(file));
+    expect(upgraded.list().map((e) => [e.value, e.source])).toEqual([
+      ["old@example.com", undefined],
+    ]);
+    expect(upgraded.add({ ...entry("new@example.com"), source: "me@example.org" }).ok).toBe(true);
+    upgraded.close();
   });
 });
 

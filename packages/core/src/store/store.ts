@@ -1,6 +1,12 @@
 import { z } from "zod";
 import type { ApplyResult, OpaqueState, Plan } from "../adapter.js";
-import { BlockEntrySchema, BlocklistSchema, MAX_ENTRIES, checkEntry } from "../blocklist.js";
+import {
+  BlockEntrySchema,
+  BlocklistSchema,
+  MAX_ENTRIES,
+  SourceSchema,
+  checkEntry,
+} from "../blocklist.js";
 import type { BlockEntry, Blocklist } from "../blocklist.js";
 import type { GmailCursorStore } from "../gmail/watcher.js";
 import type { OutlookCursorStore } from "../graph/watcher.js";
@@ -112,9 +118,16 @@ export class Store {
 
       this.#db
         .prepare(
-          "INSERT INTO entries (id, match, value, action, created_at) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO entries (id, match, value, action, created_at, source) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .run(entry.id, entry.match, entry.value, entry.action, entry.createdAt);
+        .run(
+          entry.id,
+          entry.match,
+          entry.value,
+          entry.action,
+          entry.createdAt,
+          entry.source ?? null,
+        );
       this.#listCache = null;
       return { ok: true, entry, added: true };
     });
@@ -379,6 +392,8 @@ function toEntry(row: Record<string, unknown>): BlockEntry {
     value: row["value"],
     action: row["action"],
     createdAt: row["created_at"],
+    // Shown only, no rule depends on it: a name that fails its schema is left out instead of failing the whole list.
+    ...(SourceSchema.safeParse(row["source"]).success ? { source: row["source"] } : {}),
   });
 }
 

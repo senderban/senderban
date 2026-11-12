@@ -112,10 +112,12 @@
             <li>
               <strong>Your block list.</strong> The senders you chose to block, in a local database
               on your device, and written as rules to every mail account you added: a block applies
-              to all of them. An Other (IMAP) mailbox gets no rule: the app itself moves that
-              sender's mail out of its inbox while it runs, including mail of the last 30 days when
-              you add the block. To do that it reads the sender of older messages in that inbox, on
-              your device, and keeps nothing of them.
+              to all of them. From version 0.3 each block, and each Don't ask again entry, also
+              keeps which of your mailboxes it was made from, on your device only, to show and
+              filter the lists; it is not written to any provider. An Other (IMAP) mailbox gets no
+              rule: the app itself moves that sender's mail out of its inbox while it runs,
+              including mail of the last 30 days when you add the block. To do that it reads the
+              sender of older messages in that inbox, on your device, and keeps nothing of them.
             </li>
             <li>
               <strong>A diagnostic log.</strong> A local file on your device with events, states,

@@ -25,12 +25,29 @@ export function folderAction(action: BlockAction): "junk" | "trash" {
 // and the Sieve script size check (S4) have run.
 export const MAX_ENTRIES = 5000;
 
+/**
+ * The clicked mailbox's name, as the app labels it: an address with a provider tag, `me@example.com (Outlook)`. Unit: Unicode code
+ * points, the unit SQLite's length() counts (SQLite core functions, "length"), so the column's CHECK (db.ts) holds the same
+ * numbers: an address (254) plus the longest tag, " (MXroute)" or " (Outlook)" (10), within 16.
+ */
+export const SOURCE_MIN = 3;
+export const SOURCE_MAX = ADDRESS_LIMITS.totalMax + 16;
+const codePoints = (value: string): number => Array.from(value).length;
+/** No control or format characters (bidi): it is drawn as text. The UTF-16 cap first bounds the work of counting. */
+export const SourceSchema = z
+  .string()
+  .max(SOURCE_MAX * 2)
+  .regex(/^[^\p{Cc}\p{Cf}]+$/u)
+  .refine((value) => codePoints(value) >= SOURCE_MIN && codePoints(value) <= SOURCE_MAX);
+
 export const BlockEntrySchema = z.strictObject({
   id: z.uuid(),
   match: z.enum(MATCH_KINDS),
   value: z.string().min(3).max(ADDRESS_LIMITS.totalMax),
   action: z.enum(ACTIONS),
   createdAt: z.iso.datetime(),
+  /** Shown on the list only. Absent on entries made before 0.3. */
+  source: SourceSchema.optional(),
 });
 export type BlockEntry = z.infer<typeof BlockEntrySchema>;
 

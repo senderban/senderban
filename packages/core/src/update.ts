@@ -7,13 +7,19 @@ import { z } from "zod";
  * one that will not (404, an answer we cannot read) waits a day. GitHub allows 60 unauthenticated requests per hour per IP
  * (docs.github.com, rate limits for the REST API), and a 304 still counts there without a token, so the ETag only saves the body.
  * Fleet, from 3 downloads of 0.2.0 (gh releases, 2026-11-11): 3 / 30 / 150 requests a day at 1x / 10x / 50x, 12 / 120 / 600
- * if every install fails. The wall is per egress IP: 61 installs behind one address in one hour; the 25 % jitter spreads a
- * cohort that starts together over the following days.
+ * if every install fails. The wall is per egress IP: 61 installs behind one address in one hour. A machine that stays on is
+ * spread by the 25 % jitter over the following days; one that is off at night finds its check due at every sign-in, and 0.3
+ * can start at sign-in, so an office signing in at 09:00 would ask in the same 15 s (performance review 2026-11-12, W1). A
+ * check that is already due at start is therefore spread over 3 h after the first delay: 60 per hour per address holds 180
+ * installs behind one egress on average, about 150 with 95 % confidence (binomial estimate, not measured), so the whole 50x
+ * fleet behind one address is at that edge; the 403 path (rateLimitWait, 6 h or more) catches the rest.
  */
 export const UPDATE_URL = "https://api.github.com/repos/senderban/senderban/releases/latest";
 export const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** The first check after a start waits this long, so it never competes with the mailboxes signing in. */
 export const UPDATE_FIRST_DELAY_MS = 60 * 1000;
+/** A check already due at start waits a random 0 to 3 h more, so a sign-in cohort does not ask in the same minute. */
+export const UPDATE_START_SPREAD_MS = 3 * 60 * 60 * 1000;
 export const UPDATE_TIMEOUT_MS = 10_000;
 /** After a failure that can pass: 4 tries a day at most while offline. */
 export const UPDATE_RETRY_MS = 6 * 60 * 60 * 1000;
@@ -80,10 +86,24 @@ export function jittered(ms: number, random: () => number): number {
 }
 
 /**
- * The wait after a start or after the switch is turned on: never sooner than the first delay, never past `nextAt`, and never
- * longer than one jittered interval, so a `nextAt` far in the future (a clock set back, an edited file) cannot stop the checks.
+ * The wait after a start (`spread` true) or after the switch is turned on (`spread` false). Two cases:
+ * - not due yet: until `nextAt`, never sooner than the jittered first delay, and never longer than one jittered interval, so a
+ *   `nextAt` far in the future (a clock set back, an edited file) cannot stop the checks;
+ * - already due: the jittered first delay, plus a random 0-3 h (UPDATE_START_SPREAD_MS) only after a start, where installs
+ *   that sign in together would otherwise ask together. A person turning the switch on is one event, not a cohort.
  */
-export function startDelay(nextAt: number, now: number, random: () => number): number {
+export function startDelay(
+  nextAt: number,
+  now: number,
+  random: () => number,
+  spread: boolean,
+): number {
   const ceiling = Math.round(UPDATE_INTERVAL_MS * (1 + UPDATE_JITTER));
-  return Math.min(ceiling, Math.max(jittered(UPDATE_FIRST_DELAY_MS, random), nextAt - now));
+  const floor = jittered(UPDATE_FIRST_DELAY_MS, random);
+  if (nextAt <= now) {
+    if (!spread) return floor;
+    const r = Math.min(1, Math.max(0, random()));
+    return floor + Math.round(UPDATE_START_SPREAD_MS * r);
+  }
+  return Math.min(ceiling, Math.max(floor, nextAt - now));
 }

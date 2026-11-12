@@ -494,3 +494,24 @@ describe("isOwnEntry", () => {
     expect(isOwnEntry({ match: "subdomains", value: "spam.example" }, own)).toBe(false);
   });
 });
+
+describe("sourceOf", () => {
+  it("stores the clicked mailbox's name with the entry", async () => {
+    const t = setup();
+    const sourceOf = vi.fn(() => "me@example.org (Gmail)");
+    await blockPending({ ...t.deps, sourceOf }, ID, "address", "junk");
+    expect(sourceOf).toHaveBeenCalledWith("a");
+    expect(t.add).toHaveBeenCalledWith(
+      expect.objectContaining({ value: "spam@news.example.com", source: "me@example.org (Gmail)" }),
+    );
+  });
+
+  it("blocks without a name when the name would fail the schema, or there is none", async () => {
+    for (const name of ["me\u202E@example.org", "x", undefined]) {
+      const t = setup();
+      const result = await blockPending({ ...t.deps, sourceOf: () => name }, ID, "address", "junk");
+      expect(result.status).toBe("blocked");
+      expect(t.add.mock.calls[0]?.[0]).not.toHaveProperty("source");
+    }
+  });
+});
