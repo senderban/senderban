@@ -4,6 +4,13 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-12
+
+### Added
+
+- The release build also makes the Microsoft Store package and attests it beside the installer (ADR 0019). The Store
+  listing is not live yet.
+
 ### Fixed
 
 - A notification clicked in the notification centre after Senderban was closed came back without its subject ("subject not

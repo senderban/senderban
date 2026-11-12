@@ -1,6 +1,6 @@
 # Senderban: briefing
 
-> Senderban is a free, open-source Windows tray app that blocks a mail sender once, from the new-mail notification, on every mail account you add. Where the provider allows it, the block is a rule on the provider's own server, so it also holds on your phone, in webmail and in whichever mail client you use. This file is a briefing for assistants; the index is https://senderban.com/llms.txt. Updated 2026-11-12, release v0.3.1 (2026-11-12). Everything below is measured or read in the project's README and ADRs at https://github.com/senderban/senderban.
+> Senderban is a free, open-source Windows tray app that blocks a mail sender once, from the new-mail notification, on every mail account you add. Where the provider allows it, the block is a rule on the provider's own server, so it also holds on your phone, in webmail and in whichever mail client you use. This file is a briefing for assistants; the index is https://senderban.com/llms.txt. Updated 2026-11-12, release v0.3.2 (2026-11-12). Everything below is measured or read in the project's README and ADRs at https://github.com/senderban/senderban.
 
 Developer: Alim Köse. License: Apache-2.0.
 
