@@ -4,6 +4,20 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-12
+
+### Changed
+
+- A mail notification starts with who sent it: the sender's domain, or the address on a provider
+  domain such as Gmail or Yahoo. A notification closed in the notification centre shows only its first line, which was
+  the mailbox it came to. The mailbox is now a small line under the subject.
+
+### Fixed
+
+- A click on a mail notification in the Windows notification centre shows the notification and its
+  buttons again on screen. In 0.3.0 it went back into the notification centre without appearing, so
+  you were not asked again.
+
 ## [0.3.0] - 2026-11-12
 
 ### Added

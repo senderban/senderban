@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, createActivationSigner } from "@senderban/core";
 import type { MailToast, Settings } from "@senderban/core";
 import { join, sep } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const created: FakeNotification[] = [];
 const activate = vi.hoisted((): { click: (details: unknown) => void; registeredAfter: number } => ({
@@ -42,7 +42,7 @@ interface FakeNotification {
   options: { readonly toastXml?: string; readonly body?: string };
 }
 
-const { Toasts, spamStripUrls } = await import("../src/toasts.js");
+const { REOPEN_DELAY_MS, Toasts, spamStripUrls } = await import("../src/toasts.js");
 
 const STRIPS = spamStripUrls(join("C:", sep, "Senderban", "assets"));
 
@@ -73,6 +73,8 @@ describe("the person's settings", () => {
     const choose = vi.fn(() => Promise.resolve({ tone, text: "done" }));
     const quiet = vi.fn(() => Promise.resolve({ tone, text: "quiet done" }));
     const onRefused = vi.fn();
+    const onReshown = vi.fn();
+    const onError = vi.fn();
     const held: string[] = [];
     const reopen = vi.fn((): Promise<MailToast | { tone: "ok" | "warn" | "error"; text: string }> =>
       Promise.resolve({ ...toast(1), subject: "rebuilt" }),
@@ -82,6 +84,8 @@ describe("the person's settings", () => {
       quiet,
       reopen,
       onRefused,
+      onReshown,
+      onError,
       held,
       toasts: new Toasts({
         settings: () => settings,
@@ -93,7 +97,8 @@ describe("the person's settings", () => {
         onActivation: () => undefined,
         onIgnored: () => undefined,
         onRefused,
-        onError: () => undefined,
+        onReshown,
+        onError,
         hold: async <T>(work: () => Promise<T>): Promise<T> => {
           held.push("start");
           const value = await work();
@@ -120,16 +125,24 @@ describe("the person's settings", () => {
   });
 
   describe("a click on the toast's body", () => {
+    // setImmediate stays real: it lets the click's promises settle, while the wait before the answer is on the fake clock.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
     const body = async (): Promise<void> => {
       activate.click({ arguments: `act=open;id=${ID}` });
       await new Promise((resolve) => setImmediate(resolve));
     };
 
     it("shows the same toast again, kept on screen, and blocks nothing", async () => {
-      const { toasts, choose, quiet, reopen } = make("ok");
+      const { toasts, choose, quiet, reopen, onReshown } = make("ok");
       toasts.show({ ...toast(1), subject: "the mail's own subject" });
       created.length = 0;
       await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
       expect(reopen).toHaveBeenCalledOnce();
       expect(choose).not.toHaveBeenCalled();
       expect(quiet).not.toHaveBeenCalled();
@@ -138,26 +151,102 @@ describe("the person's settings", () => {
       expect(created[0]?.options.toastXml).toContain('<toast scenario="reminder"');
       expect(created[0]?.options.toastXml).toContain("the mail&apos;s own subject");
       expect(created[0]?.options.toastXml).toContain('<action content="Junk"');
+      expect(onReshown).toHaveBeenCalledWith("toast", REOPEN_DELAY_MS);
+    });
+
+    it("waits for the notification centre to close before it shows the toast", async () => {
+      make("ok");
+      await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS - 1);
+      expect(created).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(created).toHaveLength(1);
     });
 
     it("uses what the app can rebuild for a toast of an earlier run", async () => {
       const { reopen } = make("ok");
       await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
       expect(reopen).toHaveBeenCalledOnce();
       expect(created[0]?.options.toastXml).toContain("rebuilt");
     });
 
-    it("says why when there is no toast to show", async () => {
-      const { reopen } = make("ok");
+    it("says why when there is no toast to show, after the same wait", async () => {
+      const { reopen, onReshown } = make("ok");
       reopen.mockResolvedValue({ tone: "warn", text: "Already handled." });
       await body();
+      expect(created).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
       expect(created).toHaveLength(1);
       expect(created[0]?.options.body).toBe("! Already handled.");
+      expect(onReshown).toHaveBeenCalledWith("notice", REOPEN_DELAY_MS);
+    });
+
+    it("says something went wrong, after the same wait, when the app cannot answer", async () => {
+      const { reopen, onError } = make("ok");
+      reopen.mockRejectedValue(new Error("boom"));
+      await body();
+      expect(onError).toHaveBeenCalledWith("toast:reopen", expect.any(Error));
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      expect(created[0]?.options.body).toBe("✗ Something went wrong. See the log.");
+    });
+
+    it("answers a second delivery of the same click, inside the wait, once", async () => {
+      const { reopen } = make("ok");
+      await body();
+      await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      expect(reopen).toHaveBeenCalledOnce();
+      expect(created).toHaveLength(1);
+    });
+
+    it("shows nothing after quit", async () => {
+      const { toasts } = make("ok");
+      await body();
+      toasts.closeAll();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      expect(created).toHaveLength(0);
+    });
+
+    it("shows nothing after quit, for a click the app was still answering, nor for a click after it", async () => {
+      const { toasts, reopen } = make("ok");
+      let answer: (value: MailToast) => void = () => undefined;
+      reopen.mockReturnValueOnce(
+        new Promise<MailToast>((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await body();
+      toasts.closeAll();
+      answer(toast(1));
+      await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      expect(reopen).toHaveBeenCalledOnce();
+      expect(created).toHaveLength(0);
+    });
+
+    it("runs a button of the same toast clicked during the wait, and does not show the toast again", async () => {
+      const { choose } = make("ok");
+      await body();
+      await click();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      expect(choose).toHaveBeenCalledOnce();
+      expect(created.filter((made) => made.options.toastXml !== undefined)).toHaveLength(0);
+    });
+
+    it("frees the id after a failed answer, so a block after it runs", async () => {
+      const { reopen, choose } = make("ok");
+      reopen.mockRejectedValue(new Error("boom"));
+      await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      await click();
+      expect(choose).toHaveBeenCalledOnce();
     });
 
     it("a block after it still runs once, and the id is free again", async () => {
       const { choose } = make("ok");
       await body();
+      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
       await click();
       expect(choose).toHaveBeenCalledOnce();
     });
@@ -266,6 +355,7 @@ describe("Toasts tracking", () => {
       onActivation: () => undefined,
       onIgnored: () => undefined,
       onRefused: () => undefined,
+      onReshown: () => undefined,
       onError: () => undefined,
       hold: (work) => work(),
     });
@@ -299,6 +389,7 @@ describe("Toasts tracking", () => {
       onActivation: () => undefined,
       onIgnored: () => undefined,
       onRefused: () => undefined,
+      onReshown: () => undefined,
       onError: () => undefined,
       hold: (work) => work(),
     });
@@ -331,6 +422,7 @@ describe("a click that outlives the app, through the toast", () => {
       onActivation: () => undefined,
       onIgnored,
       onRefused: () => undefined,
+      onReshown: () => undefined,
       onError: () => undefined,
       hold: (work) => work(),
     });

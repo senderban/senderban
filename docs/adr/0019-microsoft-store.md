@@ -45,6 +45,11 @@ senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z 
 6. **A click on the body opens the buttons again.** The toast has `launch="act=open;…"`. The click blocks nothing; it shows the toast again,
    kept on screen until answered, from what the app can rebuild (the sender, the lane, the offer of the provider). The subject of a toast
    of an earlier run is not kept.
+   The answer waits `REOPEN_DELAY_MS` (1 second) before it is shown. Measured on the installed 0.3.0 (2026-11-12): the toast shown
+   again 3 ms after a click from the notification centre was in the centre's store and never appeared on screen. With the wait it
+   appeared on screen after each of 7 clicks (2026-11-12, dev build on Electron 45.3.0, shown 1003-1019 ms after the click). Why is not
+   documented; the likely cause is that the centre is still open at 3 ms and Windows files the toast there without a banner. The id stays busy during
+   the wait; a button of the same toast clicked meanwhile runs and cancels it; quitting cancels it.
 
 ## What stays open
 

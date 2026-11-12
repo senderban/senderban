@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Where do blocked emails go? Is the sender told? - Senderban</title>
+    <meta
+      name="description"
+      content="Blocked emails go to Spam in Gmail, Junk in new Outlook (kept 14 days) and Trash or the Inbox in Apple Mail. Whether the sender is told is not documented."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Senderban" />
+    <meta
+      property="og:title"
+      content="Where do blocked emails go, and does the sender know? - Senderban"
+    />
+    <meta
+      property="og:description"
+      content="Blocked emails go to Spam in Gmail, Junk in new Outlook (kept 14 days) and Trash or the Inbox in Apple Mail. Whether the sender is told is not documented."
+    />
+    <meta property="og:url" content="https://senderban.com/writing/where-do-blocked-emails-go/" />
+    <meta
+      property="og:image"
+      content="https://senderban.com/assets/writing/where-do-blocked-emails-go/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Where do blocked emails go, and does the sender know? Gmail files them in Spam, Outlook in Junk. Whether the sender is told is not documented. A refusal at the server sent back 550, measured 25 October 2026."
+    />
+    <meta property="article:published_time" content="2026-11-11" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "Where do blocked emails go, and does the sender know?",
+        "datePublished": "2026-11-11",
+        "author": {
+          "@type": "Person",
+          "name": "Alim Köse",
+          "url": "https://senderban.com/work/",
+          "sameAs": [
+            "https://www.linkedin.com/in/alim-kose-544801ab/",
+            "https://github.com/AlimKose"
+          ]
+        },
+        "image": "https://senderban.com/assets/writing/where-do-blocked-emails-go/og.png",
+        "mainEntityOfPage": "https://senderban.com/writing/where-do-blocked-emails-go/"
+      }
+    </script>
+    <link rel="canonical" href="https://senderban.com/writing/where-do-blocked-emails-go/" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"
+          ><img src="/assets/icon.png" alt="" width="28" height="28" />Senderban</a
+        >
+        <nav aria-label="Main">
+          <a href="/#how">How it works</a>
+          <a href="/#providers">Providers</a>
+          <a href="/writing/" aria-current="page">Writing</a>
+          <a href="/work/">Work</a>
+          <a class="keep" href="/engineering/">Engineering</a>
+          <a class="keep" href="https://github.com/senderban/senderban">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <div class="wrap page-head">
+        <p class="eyebrow">Guide · <time datetime="2026-11-11">11 November 2026</time></p>
+        <h1>Where do blocked emails go, and does the sender know?</h1>
+        <p class="lead">
+          Blocked emails usually still arrive: Gmail files them in Spam, Outlook in the Junk Email
+          folder, and Apple Mail on a Mac leaves them in the Inbox or moves them to the Trash, as
+          you choose. Whether the sender is told is not documented: none of the Google, Microsoft or
+          Apple help pages we read says so either way. The one reply we saw go back was from a
+          refusal at the mail server: a 550 error, on MXroute.
+        </p>
+      </div>
+
+      <section class="article">
+        <div class="wrap prose">
+          <div class="key-facts">
+            <p class="key-facts-title">Key facts</p>
+            <ul>
+              <li>
+                Gmail's Block sends a sender's future mail to Spam; Outlook's moves it to the Junk
+                Email folder (help pages, read 11 November 2026).
+              </li>
+              <li>
+                New Outlook and Outlook on the web remove mail from Junk after 14 days; the classic
+                Outlook steps give no period. iCloud deletes mail in Junk after 30 days. The Google
+                pages read do not say how long Gmail keeps Spam.
+              </li>
+              <li>
+                Whether a blocked sender is told is not documented on any of the 10 Google,
+                Microsoft and Apple pages read on 11 November 2026.
+              </li>
+              <li>
+                On one MXroute mailbox on 25 October 2026, a block at the server refused the mail:
+                the sending side got <code>550 High scoring spam message has been dropped</code>,
+                and no copy was kept.
+              </li>
+              <li>
+                Senderban runs on Windows today. The providers' own blocks on this page need no
+                extra app.
+              </li>
+            </ul>
+          </div>
+
+          <nav class="toc" aria-label="On this page">
+            <p class="toc-title">On this page</p>
+            <ol>
+              <li><a href="#where-do-blocked-emails-go">Where do blocked emails go?</a></li>
+              <li><a href="#do-blocked-emails-go-to-spam">Do blocked emails go to spam?</a></li>
+              <li>
+                <a href="#does-the-sender-know"
+                  >If you block an email address, does the sender know?</a
+                >
+              </li>
+              <li>
+                <a href="#how-long-is-blocked-mail-kept">How long is blocked mail kept?</a>
+              </li>
+              <li>
+                <a href="#filed-or-refused"
+                  >Filed in a folder or refused: what is the difference?</a
+                >
+              </li>
+              <li>
+                <a href="#what-senderban-does">Where does Senderban put a blocked sender's mail?</a>
+              </li>
+              <li><a href="#how-we-measured">How was this measured?</a></li>
+              <li><a href="#what-was-not-measured">What was not measured?</a></li>
+              <li><a href="#related-reading">Related reading</a></li>
+            </ol>
+          </nav>
+
+          <h2 id="where-do-blocked-emails-go">Where do blocked emails go?</h2>
+          <p>
+            Into a folder in your own mailbox, on the pages read. The block decides where the mail
+            lands; it does not stop the sender from sending it. One Microsoft page says otherwise
+            for Outlook.com (below). This is what each provider's help page says about its own
+            block, read on 11 November 2026. None of these blocks was run for this post.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Where each provider's own block puts the mail, read 11 November 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Where you block</th>
+                  <th scope="col">Where the mail goes</th>
+                  <th scope="col">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Gmail, Block <code>"&#8288;{sender}&#8288;"</code></td>
+                  <td>Spam</td>
+                  <td>
+                    <a href="https://support.google.com/mail/answer/8151?hl=en" rel="noopener"
+                      >Google, Block an email address in Gmail</a
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>Outlook, Blocked senders</td>
+                  <td>Junk Email folder</td>
+                  <td>
+                    <a
+                      href="https://support.microsoft.com/en-us/outlook/mail/block-or-unblock-senders-in-outlook"
+                      rel="noopener"
+                      >Microsoft, Block or unblock senders in Outlook</a
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>Mail on iPhone or iPad, Block this Contact</td>
+                  <td>The trash folder</td>
+                  <td>
+                    <a href="https://support.apple.com/en-us/111104" rel="noopener"
+                      >Apple, Block phone numbers, contacts, and emails</a
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>Mail on Mac, Blocked settings</td>
+                  <td>The Inbox, marked as blocked, or the Trash: your choice</td>
+                  <td>
+                    <a
+                      href="https://support.apple.com/guide/mail/change-blocked-settings-mlhle407d4a3/mac"
+                      rel="noopener"
+                      >Apple, Change Blocked settings in Mail on Mac</a
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The Mac setting is under <strong>Mail</strong>, <strong>Settings</strong>,
+            <strong>Junk Mail</strong>, <strong>Blocked</strong>. Apple's page gives two choices:
+            "Mark as blocked mail, but leave it in my Inbox", which shows a banner on the message,
+            and "Move it to the Trash", which "Automatically move[s] messages from blocked senders
+            to the Trash mailbox". Apple's iPhone User Guide page on
+            <a
+              href="https://support.apple.com/guide/iphone/flag-or-block-emails-iph3caefa61/ios"
+              rel="noopener"
+              >flagging or blocking emails</a
+            >
+            says a block is "to prevent a particular sender from emailing you in the future", and
+            does not say where the mail goes; the support article in the table does.
+          </p>
+
+          <h2 id="do-blocked-emails-go-to-spam">Do blocked emails go to spam?</h2>
+          <p>
+            In Gmail, yes: "After you block the sender, all future emails from them go to Spam".
+            Google's
+            <a href="https://support.google.com/mail/answer/1366858?hl=en" rel="noopener"
+              >page on spam in Gmail</a
+            >
+            adds that "When you block a sender, even when you remove their emails from Spam, Gmail
+            still automatically identifies their emails as spam". In Outlook they go to the Junk
+            Email folder, Outlook's spam folder. Apple's iPhone article says blocked mail goes to
+            the trash folder; Apple's Mac page lists the Trash or the Inbox as a choice, and does
+            not say which is the default.
+          </p>
+          <p>
+            So can a blocked email still email you? On Outlook, Microsoft's page says so in so many
+            words, of classic Outlook: "The blocked person can still send you mail, but if anything
+            from his or her email address makes it to your email account, it's immediately moved to
+            the Junk Email folder." The same page says the Junk Email Filter "doesn't stop junk
+            email from being delivered". A second Microsoft page,
+            <a
+              href="https://support.microsoft.com/en-us/outlook/receiving-email-from-blocked-senders-in-outlook-com"
+              rel="noopener"
+              >Receiving email from blocked senders in Outlook.com</a
+            >, says instead that "Blocking someone stops their email from coming to your mailbox".
+            The two pages do not agree, and we did not test Outlook's own block to see which holds.
+          </p>
+          <p>
+            If a blocked sender's mail is in your inbox rather than in one of these folders, that is
+            a different problem, with four usual causes:
+            <a href="/writing/blocked-sender-still-coming-through/"
+              >Why are blocked emails still coming through?</a
+            >
+          </p>
+
+          <h2 id="does-the-sender-know">If you block an email address, does the sender know?</h2>
+          <p>
+            Not documented. We read 10 help pages from Google, Microsoft and Apple on 11 November
+            2026, every help page linked in this post, and none of them says whether a person you
+            block by email is told. This post does not claim either answer.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="What each help page says about telling the sender, read 11 November 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th>
+                  <th scope="col">Pages read</th>
+                  <th scope="col">Sender told about an email block?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Google, Gmail</td>
+                  <td>3</td>
+                  <td>Not documented</td>
+                </tr>
+                <tr>
+                  <td>Microsoft, Outlook and Outlook.com</td>
+                  <td>2</td>
+                  <td>Not documented</td>
+                </tr>
+                <tr>
+                  <td>Apple, Mail and iCloud</td>
+                  <td>5</td>
+                  <td>
+                    Not documented for email; Apple's page says the sender is not told, for calls
+                    and messages only
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The Apple row needs care. Apple's page on blocking contacts, read 11 November 2026, says
+            of a blocked phone number or contact: "the contact won't get a notification that the
+            call or message was blocked". The sentence about email follows it: "When you block an
+            email address from Mail, it goes to the trash folder." It says nothing about telling the
+            sender, so the first sentence cannot be stretched to cover email.
+          </p>
+          <p>
+            What most of the pages read do say is that a filing block accepts the mail. Gmail files
+            it in Spam, Outlook in Junk, Apple Mail in the Trash or the Inbox: in each case the mail
+            reaches your mailbox. The exception is Microsoft's Outlook.com page, which says blocking
+            "stops their email from coming to your mailbox"; we did not test which holds. A refusal
+            at the server is different: the server turns the mail away and replies to the sending
+            server. That is the one outcome on this page we measured.
+          </p>
+
+          <h2 id="how-long-is-blocked-mail-kept">How long is blocked mail kept?</h2>
+          <p>
+            That depends on the folder, and not every page says. These are the retention periods
+            stated on the help pages, read on 11 November 2026.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="How long each folder keeps mail, read 11 November 2026"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Folder</th>
+                  <th scope="col">Kept for</th>
+                  <th scope="col">The page's words</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>New Outlook and Outlook on the web, Junk Email</td>
+                  <td>14 days</td>
+                  <td>
+                    "automatically removed from the Junk Email folder after 14 days and can't be
+                    recovered after that"
+                  </td>
+                </tr>
+                <tr>
+                  <td>iCloud, Junk</td>
+                  <td>30 days</td>
+                  <td>"Email messages in the Junk folder automatically delete after 30 days"</td>
+                </tr>
+                <tr>
+                  <td>Gmail, Trash</td>
+                  <td>30 days</td>
+                  <td>
+                    "Up to 30 days after deletion: You can find the message in Trash" and "After 30
+                    days: The message is permanently deleted"
+                  </td>
+                </tr>
+                <tr>
+                  <td>Gmail, Spam</td>
+                  <td>Not stated</td>
+                  <td>The three Google pages read give no period for Spam</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Sources: Outlook from Microsoft's
+            <a
+              href="https://support.microsoft.com/en-us/outlook/mail/block-or-unblock-senders-in-outlook"
+              rel="noopener"
+              >blocking page</a
+            >, whose new Outlook and Outlook on the web sections state the 14 days and whose classic
+            Outlook section gives no period; iCloud from Apple's
+            <a href="https://support.apple.com/en-us/102376" rel="noopener"
+              >Report and reduce spam in iCloud Mail</a
+            >
+            and
+            <a
+              href="https://support.apple.com/guide/icloud/manage-junk-mail-mm6b1a2ced/icloud"
+              rel="noopener"
+              >Manage junk mail in Mail on iCloud.com</a
+            >, which says Junk is "automatically deleted after 30 days"; Gmail's Trash from Google's
+            <a href="https://support.google.com/mail/answer/7401?hl=en" rel="noopener"
+              >page on deleting and recovering messages</a
+            >. If you want to check a blocked sender's mail, check it within the shortest of these.
+          </p>
+
+          <h2 id="filed-or-refused">Filed in a folder or refused: what is the difference?</h2>
+          <p>
+            A block files the mail or refuses it. Filing is what the provider buttons above do: the
+            server accepts the mail and puts it in a folder, so you can still find it until that
+            folder is emptied or the provider's retention above runs out. Refusing turns the mail
+            away at the receiving server: in our test it answered the sending server with an error
+            code and kept nothing.
+          </p>
+          <figure class="figure">
+            <img
+              src="/assets/writing/where-do-blocked-emails-go/filed-or-refused.svg"
+              width="420"
+              height="462"
+              loading="lazy"
+              alt="Diagram: most blocks accept the mail into Spam, Junk or Trash, or on a Mac the Inbox, and whether the sender is told is not documented. A refusal on MXroute sent back 550 to the sending server and kept no copy."
+            />
+            <figcaption>
+              Filed against refused. Retention from the help pages read 11 November 2026; the 550
+              reply measured on one MXroute mailbox, 25 October 2026 (<a
+                href="https://github.com/senderban/senderban/blob/main/docs/adr/0008-reject-action.md"
+                >ADR 0008</a
+              >).
+            </figcaption>
+          </figure>
+          <p>
+            We measured a refusal once. On 25 October 2026, on one MXroute mailbox, Senderban put a
+            sender's address on MXroute's blacklist from its notification (then a choice called
+            <strong>Block at server</strong>; in 0.3.0 it is the notification's
+            <strong>Block</strong> button, shown once Block at server is switched on in Settings).
+            Mail from that address was then refused with
+            <code>550 High scoring spam message has been dropped</code>, and the mailbox kept no
+            copy. Unblock removed the entry again. That 550 reply goes to the sending server, the
+            only signal in this post that leaves your mailbox. Whether the person who wrote the mail
+            then saw a returned-mail notice was not observed.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Filing a blocked mail against refusing it"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Question</th>
+                  <th scope="col">Filed in a folder</th>
+                  <th scope="col">Refused at the server</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Who does it</th>
+                  <td>Gmail, Outlook, Apple Mail; Senderban by default</td>
+                  <td>Senderban's Block at server, MXroute only</td>
+                </tr>
+                <tr>
+                  <th scope="row">Is a copy kept?</th>
+                  <td>Yes, until the folder is emptied or the provider's retention runs out</td>
+                  <td>No (measured 25 October 2026)</td>
+                </tr>
+                <tr>
+                  <th scope="row">Reply to the sending server</th>
+                  <td>Not documented on the pages read</td>
+                  <td><code>550 High scoring spam message has been dropped</code></td>
+                </tr>
+                <tr>
+                  <th scope="row">Can you undo it for past mail?</th>
+                  <td>Yes, move the mail back before the folder's retention runs out</td>
+                  <td>No: refused mail is gone</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The refusal is not guaranteed. It depends on the spam-score limit in the MXroute panel,
+            so Senderban also keeps a Junk rule for a mail that still gets through. More on
+            MXroute's two ways to block:
+            <a href="/writing/mxroute-block-sender/"
+              >How do I block a sender on MXroute, and what does each way cover?</a
+            >
+          </p>
+
+          <h2 id="what-senderban-does">Where does Senderban put a blocked sender's mail?</h2>
+          <p>
+            Senderban is a free, open-source Windows app. It shows a notification for new mail, and
+            one click writes the block on the provider's server where the provider lets a program
+            write a rule. Where it cannot, it moves the mail itself while it runs. It does not send
+            mail, so it never writes to the blocked sender. Each choice below is from the README and
+            ADR 0013, for v0.3.0.
+          </p>
+          <div
+            class="table-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Where a Senderban block puts the mail on each provider, Senderban v0.3.0"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th>
+                  <th scope="col">Where the mail goes</th>
+                  <th scope="col">Measured on a real account</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Gmail / Workspace</td>
+                  <td>Trash: a Gmail filter cannot file mail into Spam</td>
+                  <td>Yes, 30 October 2026</td>
+                </tr>
+                <tr>
+                  <td>Outlook / Hotmail / Microsoft 365</td>
+                  <td>Junk or Deleted Items</td>
+                  <td>Personal account only, 1 November 2026: mail went to Deleted Items</td>
+                </tr>
+                <tr>
+                  <td>MXroute</td>
+                  <td>Junk (default) or Trash; Block at server refuses one address</td>
+                  <td>Yes: filing 30 October 2026, refusal 25 October 2026</td>
+                </tr>
+                <tr>
+                  <td>Other ManageSieve servers</td>
+                  <td>Junk (default) or Trash</td>
+                  <td>No: a local Dovecot server only</td>
+                </tr>
+                <tr>
+                  <td>iCloud, Yahoo, AOL, GMX, Web.de</td>
+                  <td>Junk (default) or Trash, moved by the app while it runs</td>
+                  <td>iCloud only, 1 November 2026: 3 mails moved; the others on Dovecot only</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>What it does not do, as the README and ADRs state for v0.3.0:</p>
+          <ul>
+            <li>
+              <strong>No Spam on Gmail.</strong> A Gmail entry goes to Trash, which Gmail keeps for
+              up to 30 days. Gmail's own Block, above, is the way to send a sender to Spam.
+            </li>
+            <li>
+              <strong>No refusal except on MXroute</strong>, for single addresses, off until you
+              switch it on. Everywhere else a Senderban block files the mail.
+            </li>
+            <li>
+              <strong>No rule on iCloud, Yahoo, AOL, GMX or Web.de.</strong> With Senderban closed,
+              a blocked sender's mail stays in the inbox.
+            </li>
+            <li>
+              <strong>No permanent delete by Senderban.</strong> Junk and Trash can be undone until
+              the provider's own retention runs out (14 days for Junk in new Outlook and Outlook on
+              the web, 30 days for iCloud Junk). Block at server is the one choice where Senderban
+              itself leaves no copy, and you have to pick it.
+            </li>
+          </ul>
+          <p>
+            If you use one provider, its own block above does the same filing without Senderban.
+            What Senderban adds is the block from the notification, one list for every account you
+            add, and the refusal on MXroute. See <a href="/#providers">where it works</a>.
+          </p>
+
+          <h2 id="how-we-measured">How was this measured?</h2>
+          <dl class="spec">
+            <div>
+              <dt>Help pages</dt>
+              <dd>
+                Ten pages, all linked above, fetched on 11 November 2026: three from Google, two
+                from Microsoft, five from Apple. Each returned HTTP 200. Quotes are copied from the
+                page text, and each page was searched for words about telling or notifying the
+                sender. Providers can change these pages later.
+              </dd>
+            </div>
+            <div>
+              <dt>Refusal at the server</dt>
+              <dd>
+                25 October 2026, one MXroute mailbox: a block from the notification with Block at
+                server, then mail from the blocked address, refused with
+                <code>550 High scoring spam message has been dropped</code>; Unblock removed the
+                entry.
+              </dd>
+            </div>
+            <div>
+              <dt>Senderban on other providers</dt>
+              <dd>
+                Gmail and MXroute filing on 30 October 2026; a personal Outlook.com mailbox and one
+                iCloud mailbox on 1 November 2026. One account each, one day each.
+              </dd>
+            </div>
+            <div>
+              <dt>Names</dt>
+              <dd>Real domains and addresses are replaced by reserved example names (RFC 2606).</dd>
+            </div>
+            <div>
+              <dt>Record</dt>
+              <dd>
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0008-reject-action.md"
+                  >ADR 0008, the refusal</a
+                >,
+                <a href="https://github.com/senderban/senderban#provider-support"
+                  >README, provider support</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0013-graph-adapter.md"
+                  >ADR 0013, "Measured"</a
+                >,
+                <a
+                  href="https://github.com/senderban/senderban/blob/main/docs/adr/0014-imap-clean.md"
+                  >ADR 0014</a
+                >.
+              </dd>
+            </div>
+          </dl>
+
+          <h2 id="what-was-not-measured">What was not measured?</h2>
+          <ul>
+            <li>
+              The providers' own blocks: Gmail's Block, Outlook's Blocked senders, Block this
+              Contact on iPhone and the Mac's Blocked settings were not run. What they do here is
+              what the pages say.
+            </li>
+            <li>
+              Whether a sender sees anything after a filing block. No sender's mailbox was watched.
+            </li>
+            <li>
+              Whether the person who sent a refused mail saw a returned-mail notice after the 550.
+              That is up to the sending side, which was not observed.
+            </li>
+            <li>
+              How long Gmail keeps Spam, how long Outlook keeps Deleted Items, and how long iCloud
+              keeps Trash: the pages read do not say.
+            </li>
+            <li>
+              Which of Microsoft's two Outlook.com statements holds: Junk, or not reaching the
+              mailbox at all.
+            </li>
+            <li>
+              Other MXroute accounts, and the refusal at other spam-score limits. Each measurement
+              here is one account on one day.
+            </li>
+          </ul>
+
+          <h2 id="related-reading">Related reading</h2>
+          <ul>
+            <li>
+              <a href="/writing/blocked-sender-still-coming-through/"
+                >Why are blocked emails still coming through?</a
+              >: the four causes when a blocked sender's mail reaches the inbox.
+            </li>
+            <li>
+              <a href="/writing/mxroute-block-sender/"
+                >How do I block a sender on MXroute, and what does each way cover?</a
+              >: the blacklist that refused the mail, and a Sieve rule on one mailbox.
+            </li>
+            <li>
+              <a href="/writing/icloud-block-sender/"
+                >How do I block email on iCloud, and what does each way cover?</a
+              >: Apple's three ways, and a block that moves mail only while the app runs.
+            </li>
+            <li>
+              <a href="/writing/gmail-block-domain/"
+                >How do I block a domain in Gmail, and does it work?</a
+              >: Gmail's Block covers one sender; what a <code>from:</code> filter matched.
+            </li>
+            <li>
+              <a href="/#providers">Where Senderban works</a>: what each provider keeps, and what
+              was tested on a real account.
+            </li>
+          </ul>
+          <p class="note" id="platform">
+            <strong>Platform.</strong> Senderban runs on Windows today. The providers' blocks above
+            work in their own apps and websites, without Senderban.
+          </p>
+          <p>
+            <a href="/writing/">All writing</a> · <a href="/engineering/">How Senderban is built</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span
+          >Senderban · Apache-2.0 · <a href="/writing/">Writing</a> ·
+          <a href="/work/">Work with me</a></span
+        >
+        <span>
+          <a href="/privacy/">Privacy policy</a> ·
+          <a href="https://github.com/senderban/senderban/security/policy">Security</a> ·
+          <a href="https://github.com/senderban/senderban/issues">Issues</a> ·
+          <a href="/contact/">Contact</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

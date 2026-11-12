@@ -5,6 +5,7 @@ import {
   BUTTON_LABEL_MAX,
   DOMAIN_CHOICE_MAX,
   DOMAIN_LINE_MAX,
+  LOCAL_PART_MAX,
   REOPEN_CHOICE,
   TOAST_TEXT_MAX,
   SPAM_HIGH,
@@ -63,13 +64,13 @@ describe("buildMailToastXml", () => {
       m[2] ?? "",
     ]);
 
-  it("says the mailbox first, then the sender's domain in bold, the address, the subject and the spam score", () => {
+  it("says the sender's domain first, outside the group, then the address, the subject, the mailbox and the spam score", () => {
     const xml = buildMailToastXml(toast());
     const lines = [
-      '<text hint-maxLines="1">To: info@example.com</text>',
-      '<text hint-style="base" hint-wrap="true" hint-maxLines="2">🚫 example.com</text>',
+      '<text hint-maxLines="2">🚫 example.com</text><group>',
       '<text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="2">news@example.com</text>',
       '<text hint-style="body" hint-wrap="true" hint-maxLines="2">Hello</text>',
+      '<text hint-style="captionSubtle" hint-maxLines="1">To: info@example.com</text>',
       '<text hint-style="captionSubtle" hint-align="right">Spam 1.6</text>',
       '<text hint-style="base" hint-align="right">🟢 low</text>',
     ];
@@ -81,21 +82,19 @@ describe("buildMailToastXml", () => {
     expect(xml).toContain(`launch="act=open;id=${ID}"`);
   });
 
-  it("makes the whole address the bold line on a free-mail domain, where the domain says nothing of the sender", () => {
+  it("makes the whole address the first line on a free-mail domain, where the domain says nothing of the sender", () => {
     const xml = buildMailToastXml(toast({ sender: "someone@gmail.com", domain: null }));
-    expect(xml).toContain(
-      '<text hint-style="base" hint-wrap="true" hint-maxLines="2">🚫 someone@gmail.com</text>',
-    );
+    expect(xml).toContain('<text hint-maxLines="2">🚫 someone@gmail.com</text><group>');
     expect(xml.match(/someone@gmail\.com/gu)).toHaveLength(1);
   });
 
-  it("shows the domain of the sender in bold even where the whole domain is not offered", () => {
+  it("shows the domain of the sender first even where the whole domain is not offered", () => {
     const xml = buildMailToastXml(toast({ trashOnly: true, domain: null }));
     expect(xml).toContain(">🚫 example.com</text>");
     expect(xml).toContain(">news@example.com</text>");
   });
 
-  it("keeps the end of a long domain on the bold line, which Windows would cut", () => {
+  it("keeps the end of a long domain on the first line, which Windows would cut", () => {
     const fits = "paypal.com.attacker.test";
     expect(fits).toHaveLength(DOMAIN_LINE_MAX);
     expect(buildMailToastXml(toast({ sender: `x@${fits}` }))).toContain(`>🚫 ${fits}</text>`);
@@ -103,6 +102,39 @@ describe("buildMailToastXml", () => {
     expect(xml).toContain(">🚫 …example.attacker.test</text>");
     // The address under it is whole.
     expect(xml).toContain(">x@bank.example.attacker.test</text>");
+  });
+
+  it("puts the sender line before any other text", () => {
+    const xml = buildMailToastXml(toast());
+    expect(xml.match(/<text[^>]*>[^<]*<\/text>/u)?.[0]).toBe(
+      '<text hint-maxLines="2">🚫 example.com</text>',
+    );
+  });
+
+  it("makes the address the first line on any provider domain, not only the free-mail seeds", () => {
+    const xml = buildMailToastXml(toast({ sender: "someone@yahoo.fr", domain: null }));
+    expect(xml).toContain('<text hint-maxLines="2">🚫 someone@yahoo.fr</text><group>');
+  });
+
+  it("cuts a long local part on a provider domain so the domain stays in view, and gives the whole address under it", () => {
+    const local = "paypal.security.team.notice.center";
+    const xml = buildMailToastXml(toast({ sender: `${local}@gmail.com`, domain: null }));
+    expect(xml).toContain(`>🚫 ${local.slice(0, LOCAL_PART_MAX - 1)}…@gmail.com</text>`);
+    expect(xml).toContain(`>${local}@gmail.com</text>`);
+  });
+
+  it("escapes a hostile sender on the first line", () => {
+    const xml = buildMailToastXml(toast({ sender: "a&b'c@gmail.com", domain: null }));
+    expect(xml).toContain(">🚫 a&amp;b&apos;c@gmail.com</text>");
+    expect(xml).not.toContain("a&b'c");
+  });
+
+  it("takes our marks out of the subject, so it cannot pass for the sender line", () => {
+    const xml = buildMailToastXml(toast({ subject: "🚫 bank.example 🔴 high" }));
+    expect(xml).toContain(
+      '<text hint-style="body" hint-wrap="true" hint-maxLines="2">bank.example  high</text>',
+    );
+    expect(buildMailToastXml(toast({ subject: "🚫" }))).toContain(">(no subject)</text>");
   });
 
   it("has one button per effect, each a fixed word that fits a row of four", () => {
@@ -239,7 +271,9 @@ describe("buildMailToastXml", () => {
 
   it("omits the score when the server sent none", () => {
     const xml = buildMailToastXml(toast({ spamScore: null }));
-    expect(xml).toContain('<text hint-maxLines="1">To: info@example.com</text>');
+    expect(xml).toContain(
+      '<text hint-style="captionSubtle" hint-maxLines="1">To: info@example.com</text>',
+    );
     expect(xml).not.toContain("Spam");
     // One column and the note.
     expect(xml.match(/<subgroup/gu)).toHaveLength(2);

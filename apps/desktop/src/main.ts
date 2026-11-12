@@ -1452,6 +1452,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onRefused: () => {
         log("toast-refused");
       },
+      onReshown: (shown, waitedMs) => {
+        log("toast-reshown", { shown, ms: waitedMs });
+      },
       hold: (work) => (manage === null ? work() : manage.hold(work)),
       quiet: async (id, scope, restore) => {
         const { pending, own, lanes, labels } = await ready.promise;

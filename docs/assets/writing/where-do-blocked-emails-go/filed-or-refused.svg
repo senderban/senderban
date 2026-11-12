@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 462" width="420" height="462" role="img" aria-labelledby="t d">
+  <title id="t">Two outcomes of a block: filed in a folder, or refused at the server</title>
+  <desc id="d">Top: most blocks above are filed. The sender's mail reaches your provider, which accepts it and files it in Spam, Junk or Trash; Mail on Mac can instead leave it in the Inbox, and Microsoft's Outlook.com page says a block stops the mail from coming to the mailbox. New Outlook and Outlook on the web empty Junk after 14 days (the classic Outlook steps give no period) and iCloud after 30 days; Google's pages read do not say how long Gmail keeps Spam. Whether the sender is told is not documented. Bottom: on MXroute, Block at server refuses the mail. The sending server got the reply 550 High scoring spam message has been dropped, and no copy was kept. Measured 25 October 2026 on one MXroute mailbox.</desc>
+  <style>
+    .bg{fill:#ffffff}.fg{fill:#1f2328}.mu{fill:#59636e}
+    .chip{fill:#f6f8fa;stroke:#848d97;stroke-width:1}
+    .ok{fill:#dafbe1;stroke:#1a7f37;stroke-width:2}
+    .hit{fill:#ffebe9;stroke:#cf222e;stroke-width:2}
+    .ln{stroke:#848d97;stroke-width:1.5;fill:none}.ah{fill:#848d97}
+    .rule{stroke:#d0d7de;stroke-width:1}
+    text{font-family:"Segoe UI",system-ui,sans-serif;font-size:16px}
+    .s{font-size:15px}.ct{text-anchor:middle}
+    .h{font-size:17px;font-weight:600}
+    .m{font-family:"Cascadia Mono",Consolas,monospace;font-size:15px}
+    @media (prefers-color-scheme: dark){
+      .bg{fill:#14171b}.fg{fill:#e6edf3}.mu{fill:#9ba3ad}
+      .chip{fill:#1c1f24;stroke:#6e7681}
+      .ok{fill:#12261e;stroke:#3fb950}
+      .hit{fill:#3d1d1f;stroke:#f85149}
+      .ln{stroke:#8b949e}.ah{fill:#8b949e}.rule{stroke:#30363d}
+    }
+  </style>
+  <rect class="bg" width="420" height="462"/>
+
+  <text class="fg h" x="10" y="26">Filed in a folder: most blocks above</text>
+  <rect class="chip" x="10" y="40" width="96" height="36" rx="6"/>
+  <text class="fg ct" x="58" y="64">Sender</text>
+  <path class="ln" d="M106 58H132"/>
+  <path class="ah" d="M140 58l-9-5v10z"/>
+  <rect class="chip" x="140" y="40" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="64">Your provider accepts it</text>
+  <path class="ln" d="M275 76V92"/>
+  <path class="ah" d="M275 100l-5-9h10z"/>
+  <rect class="ok" x="140" y="100" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="124">Spam, Junk, Trash (or Inbox, Mac)</text>
+  <text class="fg" x="10" y="162">Kept: new Outlook Junk 14 days, iCloud</text>
+  <text class="fg" x="10" y="184">Junk 30 days, Gmail Spam not stated.</text>
+  <text class="fg" x="10" y="212">Is the sender told? Not documented.</text>
+
+  <line class="rule" x1="10" y1="234" x2="410" y2="234"/>
+
+  <text class="fg h" x="10" y="264">Refused at the server: on MXroute</text>
+  <rect class="chip" x="10" y="278" width="96" height="36" rx="6"/>
+  <text class="fg ct" x="58" y="302">Sender</text>
+  <path class="ln" d="M106 296H132"/>
+  <path class="ah" d="M140 296l-9-5v10z"/>
+  <rect class="hit" x="140" y="278" width="270" height="36" rx="6"/>
+  <text class="fg ct" x="275" y="302">MXroute refuses the mail</text>
+  <path class="ln" d="M275 314V332H58V326"/>
+  <path class="ah" d="M58 316l-5 9h10z"/>
+  <text class="mu s" x="10" y="358">Reply to the sending server:</text>
+  <text class="fg m" x="10" y="380">550 High scoring spam</text>
+  <text class="fg m" x="10" y="400">message has been dropped</text>
+  <text class="fg" x="10" y="428">No copy kept. Measured 25 Oct 2026,</text>
+  <text class="fg" x="10" y="450">one MXroute mailbox.</text>
+</svg>
