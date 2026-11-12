@@ -1,79 +1,217 @@
-/* senderban.com. Colours come from the app (apps/desktop/assets/tokens.css) so the site and the app read as one product.
-   No remote font, script or image: the site keeps the app's promise of talking to no one. */
+/*
+ * senderban.com, "sea glass": the app's design language on the web (target for docs/assets/site.css).
+ * One stylesheet, no script, no remote font or image: the site keeps the app's promise of talking to no one.
+ *
+ * Model: a still water backdrop fixed to the viewport, sheets of glass scrolling over it, untinted text.
+ * The first :root and the dark :root carry the app's token values (apps/desktop/assets/tokens.css) so the
+ * site and the window read as one product; the contrast gate reads them from this file:
+ *   node .claude/skills/ui-design/tools/contrast.mjs docs/assets/site.css
+ * Blur is spent only where something passes behind a pane: the header bar and the hero's rule pane.
+ * A sheet lies on the water alone, and a blur of a smooth gradient is the same gradient, so sheets do not blur.
+ */
 :root {
-  --bg: #ffffff;
-  --bg-soft: #f6f8fa;
-  --fg: #1f2328;
-  --muted: #59636e;
-  --line: #d0d7de;
-  --accent: #0b5fff;
+  color-scheme: light dark;
+
+  /* Opaque pair: what glass falls back to (reduced transparency, more contrast, print). */
+  --bg: #f4f8fb;
+  --surface: #ffffff;
+
+  /* Text and state. Never tinted, never translucent. */
+  --fg: #0b2239;
+  --muted: #465b70;
+  --accent: #0a5c8a;
   --accent-fg: #ffffff;
-  --accent-soft: #e8f0ff;
-  /* Accent text on --accent-soft: #0b5fff there is 4.48:1, under WCAG's 4.5 (Lighthouse 13.6, 2026-11-02); this is 5.66:1. */
-  --accent-on-soft: #0a52db;
-  --ban: #cf222e;
+  --ok: #0b6b44;
+  --warn: #7a4f00;
+  --error: #a81f15;
+
+  /* Edges. --line divides; a control's own edge is --control-border (SC 1.4.11). */
+  --line: rgb(11 34 57 / 0.12);
+  --control-border: #5d7287;
+
+  /* Water: four stops bound every pixel behind a pane. */
+  --water-base: #e3edf6;
+  --water-1: #9cc6f3;
+  --water-2: #a6e0ec;
+  --water-3: #d3e0f0;
+
+  /* Glass. 1 = quiet pane (footer, rule pane), 2 = sheet, 3 = opaque-enough fallback, bar = header over scrolling content. */
+  --glass-1: rgb(255 255 255 / 0.62);
+  --glass-2: rgb(255 255 255 / 0.78);
+  --glass-3: rgb(255 255 255 / 0.92);
+  --glass-bar: rgb(255 255 255 / 0.88);
+  --tint-card: rgb(255 255 255 / 0.55);
+  --tint-active: rgb(255 255 255 / 0.72);
+  --tint-hover: rgb(11 34 57 / 0.06);
+  --field: rgb(255 255 255 / 0.86);
+  --glass-edge: rgb(11 34 57 / 0.1);
+  --glass-shine: rgb(255 255 255 / 0.85);
+  --glass-blur: 24px;
+  --stage-blur: 4px;
+  --glass-saturate: 1.2;
+  --shadow-pane: 0 1px 2px rgb(7 24 43 / 0.06), 0 12px 32px rgb(7 24 43 / 0.1);
+  --shadow-object: 0 2px 6px rgb(7 24 43 / 0.12), 0 18px 44px rgb(7 24 43 / 0.24);
+
+  /* The Windows notification is drawn by Windows, not by us: it keeps Windows' own opaque colours. */
   --toast-bg: #f3f3f3;
   --toast-fg: #1a1a1a;
   --toast-muted: #5f5f5f;
   --toast-control: #ffffff;
   --toast-line: #d1d1d1;
-  --radius: 10px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
-  color-scheme: light dark;
+  --ban: #cf222e;
+
+  /* Shape. Concentric: an inner radius is never larger than the outer one. */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-pane: 20px;
+  --gutter: 12px;
+  --page: 70rem;
+  --pad: clamp(1.25rem, 4vw, 3rem);
+
+  /* Type. System faces only. Mono is the evidence voice: an address, a number from an artifact, a path, a commit. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-data: "Cascadia Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14171b;
-    --bg-soft: #1c1f24;
-    --fg: #e6edf3;
-    --muted: #9ba3ad;
-    --line: #30363d;
-    --accent: #4c8dff;
-    --accent-fg: #0b0d10;
-    --accent-soft: #172440;
-    --accent-on-soft: #4c8dff;
-    --ban: #ff7b72;
+    --bg: #07182b;
+    --surface: #0c2540;
+    --fg: #e4eef7;
+    --muted: #9db3c8;
+    --accent: #5fcbec;
+    --accent-fg: #04141f;
+    --ok: #4ad6a3;
+    --warn: #e8b955;
+    --error: #ff948b;
+    --line: rgb(228 238 247 / 0.12);
+    --control-border: #7f9bb6;
+    --water-base: #051322;
+    --water-1: #0c3a6b;
+    --water-2: #0a4d60;
+    --water-3: #071d36;
+    --glass-1: rgb(8 26 46 / 0.58);
+    --glass-2: rgb(9 30 52 / 0.72);
+    --glass-3: rgb(10 32 56 / 0.92);
+    --glass-bar: rgb(9 30 52 / 0.88);
+    --tint-card: rgb(255 255 255 / 0.045);
+    --tint-active: rgb(255 255 255 / 0.1);
+    --tint-hover: rgb(255 255 255 / 0.06);
+    --field: rgb(4 16 30 / 0.55);
+    --glass-edge: rgb(0 0 0 / 0.4);
+    --glass-shine: rgb(255 255 255 / 0.12);
+    --shadow-pane: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.35);
+    --shadow-object: 0 2px 6px rgb(0 0 0 / 0.4), 0 18px 44px rgb(0 0 0 / 0.5);
     --toast-bg: #2b2b2b;
     --toast-fg: #ffffff;
     --toast-muted: #c5c5c5;
     --toast-control: #3a3a3a;
     --toast-line: #4a4a4a;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+    --ban: #ff7b72;
+  }
+}
+/* The fallbacks: glass becomes the opaque pair, nothing below has to know. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --water-base: var(--bg);
+    --water-1: var(--bg);
+    --water-2: var(--bg);
+    --water-3: var(--bg);
+    --glass-1: var(--bg);
+    --glass-2: var(--surface);
+    --glass-3: var(--surface);
+    --glass-bar: var(--surface);
+    --tint-card: var(--surface);
+    --tint-active: var(--surface);
+    --field: var(--surface);
+    --glass-blur: 0px;
+    --stage-blur: 0px;
+    --glass-saturate: 1;
+    --glass-shine: transparent;
+    --shadow-pane: 0 0 0 transparent;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --muted: var(--fg);
+    --control-border: var(--fg);
+    --line: var(--fg);
+    --glass-edge: var(--fg);
+  }
+}
+@media (max-width: 52rem) {
+  :root {
+    --gutter: 8px;
+    --radius-pane: 16px;
   }
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 html {
   -webkit-text-size-adjust: 100%;
+  background: var(--water-base);
 }
 body {
   margin: 0;
-  background: var(--bg);
   color: var(--fg);
-  font:
-    1rem/1.6 "Segoe UI",
-    system-ui,
-    -apple-system,
-    sans-serif;
+  font: 1rem/1.6 var(--font-ui);
+}
+/* The water. A fixed layer rather than background-attachment: fixed, which iOS Safari is documented not to honour (not measured here). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(62% 58% at 8% 4%, var(--water-1) 0%, transparent 72%),
+    radial-gradient(58% 62% at 96% 96%, var(--water-2) 0%, transparent 72%),
+    linear-gradient(180deg, transparent 45%, var(--water-3) 100%), var(--water-base);
 }
 a {
   color: var(--accent);
   text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
 }
+/* Two-colour focus ring (WCAG C40): visible whatever lies behind the glass. */
 a:focus-visible,
 summary:focus-visible,
 .table-scroll:focus-visible,
 pre:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
   border-radius: 4px;
 }
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  text-wrap: balance;
+}
+[id] {
+  scroll-margin-top: 5.5rem;
+}
+
+/* Pane geometry: one recipe, three fills. Only .site-header and .stage-rule add a blur. */
+.site-header .wrap,
+main > *,
+.site-footer .wrap {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-pane);
+  box-shadow:
+    inset 0 1px 0 var(--glass-shine),
+    var(--shadow-pane);
+}
+
 .wrap {
-  max-width: 68rem;
-  margin: 0 auto;
-  padding: 0 1rem;
+  padding: 0 var(--pad);
 }
 .skip {
   position: absolute;
@@ -82,29 +220,39 @@ pre:focus-visible {
 .skip:focus {
   left: 1rem;
   top: 1rem;
-  background: var(--bg);
+  z-index: 20;
+  background: var(--surface);
   padding: 0.5rem 0.75rem;
-  z-index: 1;
+  border-radius: var(--radius-control);
 }
 
-/* Header */
+/* Header: the one pane with page content passing beneath it, so the one sheet-sized blur. */
 .site-header {
-  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: var(--gutter) var(--gutter) 0;
 }
 .site-header .wrap {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  min-height: 3.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  min-height: 3.75rem;
+  background: var(--glass-bar);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   color: var(--fg);
-  font-weight: 600;
-  font-size: 1.1rem;
+  font: 600 1.1rem/1.2 var(--font-display);
+  letter-spacing: -0.005em;
   text-decoration: none;
 }
 .brand img {
@@ -113,46 +261,73 @@ pre:focus-visible {
 }
 .site-header nav {
   display: flex;
-  gap: 1.25rem;
+  gap: 0.25rem;
   font-size: 0.95rem;
 }
 .site-header nav a {
   color: var(--muted);
   text-decoration: none;
-  padding: 0.25rem 0;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-control);
   white-space: nowrap;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
 .site-header nav a:hover {
   color: var(--fg);
+  background: var(--tint-hover);
+}
+.site-header nav a[aria-current="page"] {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Main: every top-level block is a sheet of glass; the water shows in the gutters between them. */
+main {
+  max-width: calc(var(--page) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: var(--gutter);
+  display: grid;
+  gap: var(--gutter);
+}
+/* Reading pages get a reading-width column. Without :has() the sheet is simply wider. */
+main:has(> .article),
+main:has(> .policy) {
+  --page: 54rem;
+}
+main > * {
+  min-width: 0;
+  background: var(--glass-2);
+}
+main > section {
+  padding: clamp(2rem, 5vw, 3.5rem) 0;
 }
 
 /* Hero */
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 3rem;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 4rem);
   align-items: center;
-  padding-top: 4.5rem;
-  padding-bottom: 4rem;
+  padding-top: clamp(2.5rem, 6vw, 4.5rem);
+  padding-bottom: clamp(2.5rem, 6vw, 4.5rem);
 }
 .eyebrow {
-  display: inline-block;
   margin: 0 0 1rem;
-  padding: 0.2rem 0.65rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-on-soft);
-  font-size: 0.85rem;
-  font-weight: 600;
+  color: var(--muted);
+  font: 0.8rem/1.4 var(--font-data);
+  letter-spacing: 0.01em;
 }
 h1 {
-  font-size: clamp(2.1rem, 4.5vw, 3.1rem);
-  line-height: 1.12;
-  letter-spacing: -0.02em;
-  margin: 0 0 1rem;
+  font-size: clamp(2.1rem, 4.6vw, 3.3rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.022em;
+  margin: 0 0 1.1rem;
 }
 .lead {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   color: var(--muted);
   margin: 0 0 2rem;
   max-width: 34rem;
@@ -169,14 +344,18 @@ h1 {
   gap: 0.5rem;
   min-height: 2.75rem;
   padding: 0 1.25rem;
-  border-radius: 8px;
-  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--field);
   color: var(--fg);
   font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    filter var(--dur-fast) var(--ease);
 }
 .button:hover {
-  background: var(--bg-soft);
+  background: var(--surface);
 }
 .button.primary {
   background: var(--accent);
@@ -184,7 +363,8 @@ h1 {
   color: var(--accent-fg);
 }
 .button.primary:hover {
-  filter: brightness(1.08);
+  background: var(--accent);
+  filter: brightness(1.1);
 }
 .button svg {
   width: 18px;
@@ -197,21 +377,110 @@ h1 {
   margin: 0;
 }
 
-/* The example notification: drawn, not a screenshot, so it follows the theme. Text is sample data. */
-.toast-figure {
+/*
+ * The address: Senderban's signature, the same in the window. Mono, the local part quiet, the domain bold,
+ * so the real domain behind a display name is what the eye lands on.
+ */
+.addr {
+  font-family: var(--font-data);
+  color: var(--muted);
+}
+.addr b {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+/*
+ * The stage: glass as the block itself. Back to front: later mail from the sender, the rule (a frosted
+ * pane that mail does not cross), the notification whose click wrote it. Drawn, sample data, aria-hidden.
+ */
+.stage {
   margin: 0;
 }
+.stage-scene {
+  position: relative;
+  isolation: isolate;
+  padding-top: 12.5rem;
+}
+.stage-mail {
+  position: absolute;
+  top: 4.75rem;
+  left: 0;
+  width: 86%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+.stage-mail li {
+  display: flex;
+  gap: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--field);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.stage-rule {
+  position: absolute;
+  top: 0;
+  left: 4.25rem;
+  right: 0;
+  height: 18.25rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-card);
+  background: var(--glass-1);
+  box-shadow:
+    inset 0 1px 0 var(--glass-shine),
+    var(--shadow-pane);
+  -webkit-backdrop-filter: blur(var(--stage-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--stage-blur)) saturate(var(--glass-saturate));
+}
+.stage-rule p {
+  margin: 0;
+}
+.stage-rule-name {
+  color: var(--muted);
+  font: 0.72rem/1.4 var(--font-data);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.stage-rule-line {
+  font: 0.9rem/1.5 var(--font-data);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stage figcaption {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0.9rem 0 0 auto;
+  max-width: 24rem;
+  text-align: right;
+}
+
+/* The notification: drawn, not a screenshot, so it follows the theme. Opaque, like the real one. */
 .toast {
+  position: relative;
+  z-index: 1;
+  width: min(22.5rem, 90%);
+  margin-left: auto;
   background: var(--toast-bg);
   color: var(--toast-fg);
   border: 1px solid var(--toast-line);
   border-radius: 8px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-object);
   padding: 0.9rem 1rem 1rem;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  max-width: 24rem;
-  margin-left: auto;
+  font:
+    0.9rem/1.4 "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 .toast-app {
   display: flex;
@@ -229,7 +498,8 @@ h1 {
   margin-left: auto;
 }
 .toast-sender {
-  margin: 0 0 0.35rem;
+  font-weight: 600;
+  margin: 0.35rem 0 0;
 }
 .toast-row {
   display: flex;
@@ -237,8 +507,7 @@ h1 {
   gap: 1rem;
 }
 .toast-subject {
-  font-weight: 600;
-  margin: 0;
+  margin: 0.35rem 0 0;
 }
 .toast-small {
   color: var(--toast-muted);
@@ -261,6 +530,14 @@ h1 {
   background: var(--ban);
   margin-right: 0.3rem;
 }
+/* The coloured spam strip 0.3.0 puts under the text whenever there is a score (toast.ts). */
+.toast-strip {
+  height: 4px;
+  margin-top: 0.6rem;
+  border-radius: 2px;
+  background: var(--ban);
+  forced-color-adjust: none;
+}
 .toast-select {
   display: flex;
   justify-content: space-between;
@@ -281,7 +558,7 @@ h1 {
 }
 .toast-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
 }
 .toast-buttons span {
@@ -292,66 +569,69 @@ h1 {
   background: var(--toast-control);
   border: 1px solid var(--toast-line);
 }
-.toast-buttons .critical {
-  background: #c42b1c;
-  border-color: #c42b1c;
-  color: #ffffff;
-}
-.toast-figure figcaption {
-  font-size: 0.8rem;
-  color: var(--muted);
-  text-align: right;
-  margin-top: 0.6rem;
-}
 
 /* Sections */
-section {
-  padding: 3.5rem 0;
-  border-top: 1px solid var(--line);
-}
 h2 {
-  font-size: 1.6rem;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
+  font-size: 1.7rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
   margin: 0 0 0.5rem;
+}
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
 }
 .section-lead {
   color: var(--muted);
   margin: 0 0 2rem;
   max-width: 42rem;
 }
+/* Cards lie on a sheet: a tint and an edge, never a blur of their own. */
+.steps li,
+.cards > div,
+.facts li,
+.support,
+.spec,
+.key-facts,
+.arch-layer,
+.table-scroll,
+.policy-status {
+  background: var(--tint-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
 .steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.25rem;
+  gap: 1rem;
   list-style: none;
   padding: 0;
   margin: 0;
   counter-reset: step;
 }
 .steps li {
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
   padding: 1.25rem;
   counter-increment: step;
 }
-.steps li::before {
-  content: counter(step);
+/* Numbered because it is a sequence: add, arrive, block. The number is data, so it is mono and not filled. */
+.steps li::before,
+.pipeline li::before {
   display: inline-grid;
   place-items: center;
+  border: 1px solid var(--control-border);
+  border-radius: 50%;
+  color: var(--fg);
+  font-family: var(--font-data);
+  font-weight: 700;
+}
+.steps li::before {
+  content: counter(step);
   width: 1.75rem;
   height: 1.75rem;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-fg);
-  font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   margin-bottom: 0.75rem;
-}
-h3 {
-  font-size: 1.05rem;
-  margin: 0 0 0.35rem;
 }
 .steps p,
 .cards p {
@@ -359,14 +639,12 @@ h3 {
   color: var(--muted);
 }
 .cards {
-  margin-top: 1.25rem;
+  margin-top: 1rem;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
+  gap: 1rem;
 }
 .cards > div {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
   padding: 1.25rem;
 }
 
@@ -374,18 +652,19 @@ h3 {
 .shots {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
+  gap: 1rem;
 }
 .shots figure {
   margin: 0;
 }
-.shots img {
+.shots img,
+.figure-shot img {
   display: block;
   width: 100%;
   height: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-pane);
 }
 .shots figcaption {
   margin-top: 0.6rem;
@@ -393,11 +672,9 @@ h3 {
   color: var(--muted);
 }
 
-/* Provider table */
+/* Tables */
 .table-scroll {
   overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
 }
 table {
   width: 100%;
@@ -415,7 +692,7 @@ tr:last-child td {
   border-bottom: 0;
 }
 th {
-  background: var(--bg-soft);
+  background: var(--tint-hover);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -432,12 +709,9 @@ td small {
   max-width: 48rem;
 }
 
+/* Reading text is --fg: a long read gets the full contrast, not the secondary tone. */
 .prose > * {
   max-width: 46rem;
-}
-.prose p,
-.prose li {
-  color: var(--muted);
 }
 .prose li + li {
   margin-top: 0.4rem;
@@ -459,9 +733,6 @@ details p {
 }
 
 .support {
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
   padding: 1.75rem;
   display: flex;
   flex-wrap: wrap;
@@ -474,17 +745,20 @@ details p {
   color: var(--muted);
   max-width: 36rem;
 }
+.support .actions {
+  margin: 0;
+}
 
 /* Engineering page */
-.site-header nav a[aria-current="page"] {
-  color: var(--fg);
-}
 .page-head {
-  padding-top: 4rem;
-  padding-bottom: 3rem;
+  padding-top: clamp(2.25rem, 5vw, 3.75rem);
+  padding-bottom: clamp(2rem, 4vw, 3rem);
 }
 .page-head .lead {
   max-width: 42rem;
+}
+.page-head > :last-child {
+  margin-bottom: 0;
 }
 .facts {
   display: grid;
@@ -495,14 +769,12 @@ details p {
   margin: 0;
 }
 .facts li {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
   padding: 1rem 1.25rem;
 }
 .facts strong {
   display: block;
-  font-size: 1.35rem;
-  letter-spacing: -0.01em;
+  font: 700 1.4rem/1.3 var(--font-data);
+  letter-spacing: -0.02em;
 }
 .facts span {
   color: var(--muted);
@@ -511,13 +783,10 @@ details p {
 .arch {
   display: grid;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 .arch-layer {
   position: relative;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-soft);
   padding: 1rem 1.25rem;
 }
 .arch-layer + .arch-layer::before {
@@ -526,19 +795,20 @@ details p {
   left: 50%;
   top: calc(-0.75rem - 1px);
   height: 0.75rem;
-  border-left: 2px solid var(--accent);
+  border-left: 2px solid var(--control-border);
 }
+/* The server is where the block lives: the one layer with the accent edge. */
 .arch-server {
-  background: var(--accent-soft);
+  background: var(--tint-active);
   border-color: var(--accent);
 }
 .arch-name {
   margin: 0 0 0.6rem;
   font-weight: 600;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
 }
 .arch-name small {
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-weight: 400;
   color: var(--muted);
   margin-left: 0.4rem;
@@ -549,7 +819,7 @@ details p {
   gap: 0.5rem;
 }
 .arch-boxes span {
-  background: var(--bg);
+  background: var(--field);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.3rem 0.65rem;
@@ -557,8 +827,6 @@ details p {
 }
 .spec {
   margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
 }
 .spec > div {
   display: grid;
@@ -579,19 +847,21 @@ details p {
 }
 code,
 pre {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-data);
   font-size: 0.88em;
 }
 :not(pre) > code {
-  background: var(--bg-soft);
+  background: var(--tint-hover);
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0.05em 0.3em;
+  /* A long URL or path in a sentence breaks rather than widen a 360 px page (measured on /privacy/). */
+  overflow-wrap: anywhere;
 }
 pre {
-  background: var(--bg-soft);
+  background: var(--field);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   padding: 1rem 1.25rem;
   overflow-x: auto;
   line-height: 1.5;
@@ -607,6 +877,7 @@ pre {
 }
 .pipeline li {
   counter-increment: stage;
+  background: var(--tint-card);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0.35rem 0.9rem 0.35rem 0.45rem;
@@ -614,16 +885,10 @@ pre {
 }
 .pipeline li::before {
   content: counter(stage);
-  display: inline-grid;
-  place-items: center;
   width: 1.4rem;
   height: 1.4rem;
   margin-right: 0.45rem;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-fg);
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.75rem;
 }
 .adr-list {
   columns: 2;
@@ -637,7 +902,8 @@ pre {
 }
 .adr-list li::marker {
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-data);
+  font-size: 0.85em;
 }
 
 /* Privacy page: the policy text is read by Google's OAuth review, so only its frame is styled here */
@@ -645,15 +911,12 @@ pre {
   max-width: 46rem;
   margin: 1.5rem 0 0;
   padding: 0.9rem 1.1rem;
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
   border-left: 4px solid var(--accent);
-  border-radius: var(--radius);
   color: var(--muted);
 }
 .policy h2,
 .article h2 {
-  font-size: 1.3rem;
+  font-size: 1.35rem;
   margin-top: 2.5rem;
 }
 .policy h2:first-child,
@@ -669,31 +932,28 @@ pre {
   max-width: 46rem;
 }
 .post-list li + li {
-  margin-top: 1.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
 }
 .post-list a {
-  font-size: 1.15rem;
-  font-weight: 600;
+  font: 600 1.2rem/1.3 var(--font-display);
 }
 .post-list p {
   margin: 0.35rem 0 0.25rem;
   color: var(--muted);
 }
-.post-date {
-  font-size: 0.9rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
+.post-date,
 .post-kind {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--muted);
+}
+.post-date {
+  font-family: var(--font-data);
 }
 
 /* Guides: key facts, the contents list (plain anchors, no script), figures */
 .key-facts {
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
   padding: 1rem 1.25rem;
   margin: 0 0 2rem;
 }
@@ -705,10 +965,6 @@ pre {
 .prose .toc-title {
   margin: 0 0 0.5rem;
   font-weight: 600;
-  color: var(--fg);
-}
-.prose .key-facts li {
-  color: var(--fg);
 }
 .toc {
   border-left: 3px solid var(--accent);
@@ -726,9 +982,6 @@ pre {
   display: block;
   padding: 0.2rem 0;
 }
-.article h2[id] {
-  scroll-margin-top: 1rem;
-}
 .figure {
   margin: 1.75rem 0;
 }
@@ -740,9 +993,6 @@ pre {
 }
 .figure-shot img {
   max-width: 100%;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
 }
 .figure figcaption {
   margin-top: 0.6rem;
@@ -753,18 +1003,21 @@ pre {
   margin: 1.25rem 0;
 }
 
-/* Footer */
+/* Footer: the quiet pane. */
 .site-footer {
-  border-top: 1px solid var(--line);
-  padding: 2rem 0 3rem;
+  padding: 0 var(--gutter) var(--gutter);
   font-size: 0.9rem;
   color: var(--muted);
 }
 .site-footer .wrap {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 1.25rem var(--pad);
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
+  background: var(--glass-1);
 }
 .site-footer a {
   color: var(--muted);
@@ -773,15 +1026,10 @@ pre {
 @media (max-width: 52rem) {
   .hero {
     grid-template-columns: minmax(0, 1fr);
-    gap: 2.5rem;
-    padding-top: 3rem;
-    padding-bottom: 3rem;
   }
-  .toast {
-    margin: 0 auto;
-  }
-  .toast-figure figcaption {
-    text-align: center;
+  .stage figcaption {
+    margin-left: 0;
+    text-align: left;
   }
   .steps,
   .cards,
@@ -808,9 +1056,67 @@ pre {
   .toc a {
     padding: 0.6rem 0;
   }
+  .stage-rule {
+    left: 2.75rem;
+  }
+  .stage-rule-line {
+    font-size: 0.8rem;
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+/* A browser without backdrop-filter gets the opaque-enough fill instead of a see-through bar. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .site-header .wrap,
+  .stage-rule {
+    background: var(--glass-3);
+  }
+}
+/* Windows contrast themes paint the page: no water, no blur; edges stay because every pane has a border. */
+@media (forced-colors: active) {
+  body::before {
+    display: none;
+  }
+  .site-header .wrap,
+  .stage-rule {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The frost cannot be drawn in a contrast theme, so the mail behind it is not drawn either. */
+  .stage-mail {
+    display: none;
+  }
+  .button.primary {
+    border-width: 2px;
+  }
+  .dot {
+    forced-color-adjust: none;
+  }
+}
+@media print {
+  html {
+    background: #fff;
+  }
+  body::before {
+    display: none;
+  }
+  .site-header {
+    position: static;
+  }
+  .site-header .wrap,
+  main > *,
+  .site-footer .wrap {
+    background: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }

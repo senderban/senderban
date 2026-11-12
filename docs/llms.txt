@@ -2,7 +2,7 @@
 
 > Senderban is a free, open-source Windows tray app. When a new mail arrives it shows a Windows notification; one click writes the block as a rule on the mail provider's own server (a Gmail filter, a Sieve script, an Outlook rule) where the provider allows it, so the block also holds on your phone and in webmail. It is not an email client: it does not send, sync or search mail and does not download message bodies.
 
-Developer: Alim Köse. License: Apache-2.0. Current release: v0.2.0 (2026-11-01). Source: https://github.com/senderban/senderban
+Developer: Alim Köse. License: Apache-2.0. Current release: v0.3.0 (2026-11-12). Source: https://github.com/senderban/senderban
 
 ## Site Structure
 - [Home](https://senderban.com/): what Senderban does, the provider list and how to download it
@@ -10,6 +10,7 @@ Developer: Alim Köse. License: Apache-2.0. Current release: v0.2.0 (2026-11-01)
 - [Writing](https://senderban.com/writing/): guides and engineering notes, each with a dated measurement
 - [How do I block a domain in Gmail, and does it work?](https://senderban.com/writing/gmail-block-domain/): Gmail has no domain block; the Block button covers one sender and a `from:` filter also matches display names and look-alike domains
 - [Why are blocked emails still coming through?](https://senderban.com/writing/blocked-sender-still-coming-through/): four causes, each provider's own steps first, and what a block kept in one app misses
+- [Where do blocked emails go, and does the sender know?](https://senderban.com/writing/where-do-blocked-emails-go/): Gmail files blocked mail in Spam, Outlook in Junk (removed after 14 days in new Outlook and Outlook on the web; classic Outlook gives no period), Apple Mail in Trash or the Inbox; whether the sender is told is not documented on the providers' pages; a refusal on MXroute returned 550 (measured 2026-10-25)
 - [How do I block email on iCloud?](https://senderban.com/writing/icloud-block-sender/): Apple's own ways first (Block this Contact in iPhone Mail sends mail to Trash, iCloud.com rules, Junk); Senderban writes no rule on iCloud and moves mail only while it runs
 - [How do I block a sender on MXroute?](https://senderban.com/writing/mxroute-block-sender/): the account blacklist versus a Sieve rule on one mailbox, with a look-alike run on Dovecot
 - [Outlook keeps a domain block as a text match](https://senderban.com/writing/outlook-domain-text-match/): why blocking a look-alike domain can silence the real sender
@@ -17,12 +18,15 @@ Developer: Alim Köse. License: Apache-2.0. Current release: v0.2.0 (2026-11-01)
 - [A scale budget for a desktop app](https://senderban.com/writing/scale-budget-desktop-app/): 50 accounts, 5 slots and a deadline on every job
 - [Work with me](https://senderban.com/work/): the developer's profile
 - [Privacy policy](https://senderban.com/privacy/): what the app reads and writes
+- [Contact](https://senderban.com/contact/): GitHub issues, private security reports, sponsoring; no support inbox
 
 ## What It Does
-- Shows a notification for each new mail and blocks the sender with one click.
+- Shows a notification for each new mail with one button per action: Junk, Trash, Block (only after the person turns it on in Settings, on a server that can refuse a sender) and Mute (no block, no more notifications for that sender). A list above the buttons picks Only this sender or Whole domain.
 - Writes the block as a rule on the provider's server: a Gmail filter, a Sieve script (MXroute and other ManageSieve servers) or an Outlook message rule. The block list is shared by all accounts and every block can be undone in the Blocked senders window.
 - On iCloud and other IMAP-only providers it moves the mail itself while the app runs.
 - Offers an optional per-mailbox spam-score filter on mail servers that add a spam score.
+- Opens on a Home view: the number of blocked senders, the blocks of the last 12 weeks, the state of each mailbox and the newest blocks.
+- Asks GitHub once a day whether a newer version is out and says so; it downloads and installs nothing, and the check can be turned off in Settings.
 - Measured against real accounts: MXroute and Gmail on 2026-10-30; a personal Outlook.com account and iCloud on 2026-11-01. Migadu, mailbox.org, Purelymail, Yahoo, AOL, GMX and Web.de ran on a local Dovecot server only, not at the provider.
 
 ## What It Does Not Do
