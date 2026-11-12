@@ -31,7 +31,7 @@ senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z 
    created before it. Without one, Windows kept starting the app again every two minutes (5 starts in 8 minutes, measured); with it there
    was no repeat in 8.5 minutes. This is a side effect measured on Electron 45.2.1, not something the Electron docs promise, so it is
    measured again on every Electron bump: close a toast with its X button, click its body, click a button, each with the app closed, and
-   count the `start` lines over 10 minutes (one per click).
+   count the `start` lines over 10 minutes (one per click). Measured again on Electron 45.3.0 (2026-11-12, unsigned package, local Dovecot): the X button started nothing, a body click and a button each started the app once (`cold: true`, the toast shown again in 1,048 and 1,029 ms, the button then blocked with `verified: true`), and no start followed in the next 10 minutes.
 4. **The button carries the sender, signed.** A button writes `act`, `id`, and a tail (`acct`, `from`, `t`) plus `mac`: the first 16 bytes
    of HMAC-SHA-256 (RFC 2104) over the five fields (six on the body's click, point 6), as a JSON array so no sender can run two fields together. The key is 32 random bytes
    made on first use and kept with `safeStorage` in `activation-key.json`, like the account passwords. Without it a forged activation could
