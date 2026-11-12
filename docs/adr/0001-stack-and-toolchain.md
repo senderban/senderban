@@ -10,7 +10,7 @@ Versions were measured with `npm view` on 2026-10-24 and pinned exactly:
 
 | Package            | Version | Note                                                                                              |
 | ------------------ | ------- | ------------------------------------------------------------------------------------------------- |
-| electron           | 45.2.1  | latest stable; 45.0.0 on 2026-10-24, 45.2.1 since 2026-11-01                                      |
+| electron           | 45.3.0  | latest stable; 45.0.0 on 2026-10-24, 45.2.1 since 2026-11-01, 45.3.0 since 2026-11-12             |
 | typescript (`tsc`) | 7.0.2   | installed as `@typescript/native` alias; used for type checking                                   |
 | typescript (API)   | 6.0.2   | `typescript` is aliased to `@typescript/typescript6`                                              |
 | vitest             | 5.0.5   |                                                                                                   |

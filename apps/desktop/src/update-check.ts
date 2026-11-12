@@ -86,19 +86,24 @@ export class UpdateChecker {
     return latest !== null && isNewerVersion(latest, this.#deps.current) ? latest : null;
   }
 
+  /**
+   * After a start: at `nextAt` (never sooner than the first delay); a check already due waits the first delay plus a random
+   * 0-3 h, so installs that start at the same sign-in do not ask GitHub together (core `startDelay`).
+   */
   async start(): Promise<void> {
     this.#state = await this.#load();
     this.#started = true;
-    this.#schedule(startDelay(this.#state.nextAt, this.#now(), () => this.#random()));
+    this.#schedule(startDelay(this.#state.nextAt, this.#now(), () => this.#random(), true));
   }
 
   /**
    * The switch was turned on: ask after the first delay (or at `nextAt` if that is later) instead of at the next daily tick,
-   * which may be a day away. Never a second timer, never during a check.
+   * which may be a day away. No start spread: one person flipping a switch is not a cohort. Never a second timer, never
+   * during a check.
    */
   nudge(): void {
     if (!this.#started || this.#running) return;
-    this.#schedule(startDelay(this.#state.nextAt, this.#now(), () => this.#random()));
+    this.#schedule(startDelay(this.#state.nextAt, this.#now(), () => this.#random(), false));
   }
 
   stop(): void {

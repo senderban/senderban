@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-12
+
 ### Added
 
 - **Home**, the first view of the Senderban window: how many senders are blocked, with the blocks of
@@ -42,6 +44,10 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 - **Block** is on a notification only after you turn on **Block at server when the mailbox can** in
   **Settings**. Before, it was always in the list and the switch only pre-selected it.
 - A Gmail notification has **Trash** and **Mute**; its button is no longer red. Red is for **Block**.
+
+### Security
+
+- Electron 45.3.0 with its Chromium security fixes (0.2 shipped 45.2.1).
 
 ## [0.2.0] - 2026-11-01
 
