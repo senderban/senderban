@@ -15,7 +15,8 @@ Windows 11 build 26200 at 100%, light theme, development build (2026-11-10): the
 to 7 characters stays on one line and 8 ("Not spam") or 9 ("Don't ask") wrap, so every label is a fixed word of at most 7 characters
 (`BUTTON_LABEL_MAX`) and no mail text goes on a button. The title line is drawn regular whatever it holds, and without one Windows writes
 "New notification"; text is bold only inside a group. Amended 2026-11-12: a toast closed in the notification centre shows only the
-title, so the title is the sender: the domain (on a free-mail domain, the address), regular. The group holds the whole address small,
+title, so the title is the sender: the domain (on any provider domain, `isNotOffered`, the address, its part before `@` cut past
+`LOCAL_PART_MAX` so the domain stays in view), regular. Our marks (🚫 and the spam dots) are taken out of the subject. The group holds the whole address small,
 the subject and the mailbox ("To: ...") small. Until then the title was the mailbox and the domain the bold first line of the group. The domain line does not
 break inside a domain: it showed 32 characters beside the score column and cut the end; the closed selection showed 27 after
 "Whole domain " and cut with no ellipsis. Past 24 and 20 characters (`DOMAIN_LINE_MAX`, `DOMAIN_CHOICE_MAX`) the domain keeps its end

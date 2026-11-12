@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ACTIONS } from "../blocklist.js";
 import type { BlockAction } from "../blocklist.js";
 import { parseAddress } from "../address.js";
-import { isFreemail, isPublicSuffix } from "../freemail.js";
+import { isNotOffered, isPublicSuffix } from "../freemail.js";
 import { DEFAULT_SETTINGS } from "../settings.js";
 import type { DefaultAction, Settings } from "../settings.js";
 import type { BlockScope } from "./block-action.js";
@@ -143,8 +143,10 @@ export const SPAM_HIGH = 5;
 /** The one line a Gmail toast carries about what is missing (a Gmail filter takes single addresses and Trash only, ADR 0009). */
 const GMAIL_MISSING_NOTE = "Gmail has no whole-domain or block-at-server option";
 
-/** Marks the sender line: this is the address the buttons act on. A fixed emoji, so it adds no mail text to the XML. */
+/** Marks the first line, the sender the buttons act on. A fixed emoji, so it adds no mail text to the XML; a subject cannot carry it (OUR_MARKS). */
 const SENDER_MARK = "🚫";
+/** Every mark the toast draws itself (the sender mark and the spam dots). */
+const OUR_MARKS = /[🚫🟢🟡🔴]/gu;
 
 /**
  * Unit: characters of a button's label. Measured on Windows 11 at 100% (2026-11-10): four buttons share the width equally, and a label of
@@ -168,13 +170,17 @@ const SCOPE_SENDER = "sender";
 const SCOPE_DOMAIN = "domain";
 
 /**
- * Unit: characters of a domain. Measured on Windows 11 at 100% (2026-11-10) with a ruler domain: the bold line does not break inside a
- * domain, it shows 32 characters beside the score column and cuts the END, which is the part that matters; the closed choice box shows
- * 27 after "Whole domain " and cuts with no ellipsis. Three quarters of each leaves room for wide letters. Past these the domain keeps
- * its end behind a mark.
+ * Unit: characters of a domain. Measured on Windows 11 at 100% (2026-11-10) with a ruler domain: a line of the group does not break
+ * inside a domain, it shows 32 characters beside the score column and cuts the END, which is the part that matters; the closed choice box
+ * shows 27 after "Whole domain " and cuts with no ellipsis. Three quarters of each leaves room for wide letters. Past these the domain keeps
+ * its end behind a mark. Since 2026-11-12 the domain is the toast's first line, which spans the full width, so 24 is on the safe side
+ * there (not measured on that line).
  */
 export const DOMAIN_LINE_MAX = 24;
 export const DOMAIN_CHOICE_MAX = 20;
+/** Unit: characters of the part of an address before `@`, on the first line. Past it the part keeps its start behind a mark, so the
+ * domain after `@` is never the part Windows cuts. */
+export const LOCAL_PART_MAX = 24;
 
 /** A long domain keeps its end, with a mark of its own: the end is what tells `paypal.com.attacker.test` from PayPal. */
 function domainTail(domain: string, max: number): string {
@@ -199,13 +205,19 @@ const SPAM_DOT: Readonly<Record<SpamLevel, string>> = { low: "🟢", medium: "�
  * Who the mail is from, as the first line of the toast. A toast closed in the notification centre shows only the line outside the group
  * (measured 2026-11-12: a card whose first line was "To: <mailbox>" said nothing of the sender), so the sender is that line. It is the
  * domain, the part of a sender that a long local part cannot dress up, with its end kept where Windows would cut it; on a free-mail domain
- * the address is the identity, so it is the address. That line is drawn regular whatever it holds (measured 2026-11-10). The mark is ours,
+ * (any provider whose domain other people's mail lives under, `isNotOffered`) the address is the identity, so it is the address, its local
+ * part shortened and its domain kept. That line is drawn regular whatever it holds (measured 2026-11-10). The mark is ours,
  * not mail's.
  */
-function senderTitle(sender: string): string {
-  const domain = sender.slice(sender.lastIndexOf("@") + 1);
-  const identity = isFreemail(domain) ? sender : domainTail(domain, DOMAIN_LINE_MAX);
-  return `<text hint-maxLines="2">${SENDER_MARK} ${escapeXml(identity)}</text>`;
+function senderIdentity(sender: string): string {
+  const at = sender.lastIndexOf("@");
+  const domain = sender.slice(at + 1);
+  const local = sender.slice(0, at);
+  const shortLocal =
+    local.length <= LOCAL_PART_MAX ? local : `${local.slice(0, LOCAL_PART_MAX - 1)}…`;
+  return isNotOffered(domain)
+    ? `${shortLocal}@${domainTail(domain, DOMAIN_LINE_MAX)}`
+    : domainTail(domain, DOMAIN_LINE_MAX);
 }
 
 /**
@@ -214,11 +226,15 @@ function senderTitle(sender: string): string {
  * first line is the address), the subject and the mailbox the mail came to; the score, when there is one, a second column on the right.
  */
 function textLines(toast: MailToast): string {
-  const subject = toast.subject === "" ? "(no subject)" : toast.subject;
-  const domain = toast.sender.slice(toast.sender.lastIndexOf("@") + 1);
-  const address = isFreemail(domain)
-    ? ""
-    : `<text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="2">${escapeXml(toast.sender)}</text>`;
+  // Our marks are taken out of the subject: a subject reading "🚫 bank.example" would pass for the sender line.
+  const cleaned = toast.subject.replace(OUR_MARKS, "").trim();
+  const subject = cleaned === "" ? "(no subject)" : cleaned;
+  const identity = senderIdentity(toast.sender);
+  // On a provider domain the first line is the address; it is repeated here only when a part of it was cut there.
+  const address =
+    identity === toast.sender
+      ? ""
+      : `<text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="2">${escapeXml(toast.sender)}</text>`;
   const left =
     address +
     `<text hint-style="body" hint-wrap="true" hint-maxLines="2">${escapeXml(subject)}</text>` +
@@ -233,7 +249,7 @@ function textLines(toast: MailToast): string {
         // Not a subtle style: Windows would fade the colour of the dot too (measured 2026-10-31).
         `<text hint-style="base" hint-align="right">${SPAM_DOT[spamLevel(score)]} ${spamLevel(score)}</text>` +
         `</subgroup>`;
-  return `${senderTitle(toast.sender)}<group>${columns}</group>`;
+  return `<text hint-maxLines="2">${SENDER_MARK} ${escapeXml(identity)}</text><group>${columns}</group>`;
 }
 
 /**
@@ -270,7 +286,7 @@ function noteText(
 
 /**
  * The small line, as a group of its own under the sender and the subject. Measured on Windows 11 (2026-11-10): an attribution text is
- * drawn straight under the first line, so with the mailbox as the first line it would stand between the mailbox and the sender.
+ * drawn straight under the first line, so it would stand between the sender line and the rest of the toast.
  */
 function noteLine(note: string | null): string {
   return note === null
