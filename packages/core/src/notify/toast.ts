@@ -196,32 +196,33 @@ export function spamLevel(score: number): SpamLevel {
 const SPAM_DOT: Readonly<Record<SpamLevel, string>> = { low: "🟢", medium: "🟡", high: "🔴" };
 
 /**
- * Who the mail is from, as the first lines of the left column. Text is only bold inside a group (measured 2026-11-10: the title line
- * is drawn regular whatever it holds), so the domain is the bold line here and the whole address the small line under it: the domain is
- * the part of a sender that a long local part cannot dress up. On a free-mail domain the address is the identity, so it is the bold
- * line and there is no second one. The mark is ours, not mail's.
+ * Who the mail is from, as the first line of the toast. A toast closed in the notification centre shows only the line outside the group
+ * (measured 2026-11-12: a card whose first line was "To: <mailbox>" said nothing of the sender), so the sender is that line. It is the
+ * domain, the part of a sender that a long local part cannot dress up, with its end kept where Windows would cut it; on a free-mail domain
+ * the address is the identity, so it is the address. That line is drawn regular whatever it holds (measured 2026-11-10). The mark is ours,
+ * not mail's.
  */
-function senderLines(sender: string): string {
-  const bold = (text: string): string =>
-    `<text hint-style="base" hint-wrap="true" hint-maxLines="2">${SENDER_MARK} ${escapeXml(text)}</text>`;
+function senderTitle(sender: string): string {
   const domain = sender.slice(sender.lastIndexOf("@") + 1);
-  if (isFreemail(domain)) return bold(sender);
-  return (
-    bold(domainTail(domain, DOMAIN_LINE_MAX)) +
-    `<text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="2">${escapeXml(sender)}</text>`
-  );
+  const identity = isFreemail(domain) ? sender : domainTail(domain, DOMAIN_LINE_MAX);
+  return `<text hint-maxLines="2">${SENDER_MARK} ${escapeXml(identity)}</text>`;
 }
 
 /**
  * The lines of a toast. The first line stays outside the group: a toast needs one (without it Windows writes "New notification",
- * measured 2026-11-10), and it says which mailbox the mail came to. The sender and the subject are a column, and the score, when there
- * is one, a second column on the right.
+ * measured 2026-11-10), and it says who the mail is from. Under it a column: the whole address (not on a free-mail domain, where the
+ * first line is the address), the subject and the mailbox the mail came to; the score, when there is one, a second column on the right.
  */
 function textLines(toast: MailToast): string {
   const subject = toast.subject === "" ? "(no subject)" : toast.subject;
+  const domain = toast.sender.slice(toast.sender.lastIndexOf("@") + 1);
+  const address = isFreemail(domain)
+    ? ""
+    : `<text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="2">${escapeXml(toast.sender)}</text>`;
   const left =
-    senderLines(toast.sender) +
-    `<text hint-style="body" hint-wrap="true" hint-maxLines="2">${escapeXml(subject)}</text>`;
+    address +
+    `<text hint-style="body" hint-wrap="true" hint-maxLines="2">${escapeXml(subject)}</text>` +
+    `<text hint-style="captionSubtle" hint-maxLines="1">${escapeXml(`To: ${toast.account}`)}</text>`;
   const score = toast.spamScore;
   const columns =
     score === null
@@ -232,7 +233,7 @@ function textLines(toast: MailToast): string {
         // Not a subtle style: Windows would fade the colour of the dot too (measured 2026-10-31).
         `<text hint-style="base" hint-align="right">${SPAM_DOT[spamLevel(score)]} ${spamLevel(score)}</text>` +
         `</subgroup>`;
-  return `<text hint-maxLines="1">${escapeXml(`To: ${toast.account}`)}</text><group>${columns}</group>`;
+  return `${senderTitle(toast.sender)}<group>${columns}</group>`;
 }
 
 /**

@@ -63,13 +63,13 @@ describe("buildMailToastXml", () => {
       m[2] ?? "",
     ]);
 
-  it("says the mailbox first, then the sender's domain in bold, the address, the subject and the spam score", () => {
+  it("says the sender's domain first, outside the group, then the address, the subject, the mailbox and the spam score", () => {
     const xml = buildMailToastXml(toast());
     const lines = [
-      '<text hint-maxLines="1">To: info@example.com</text>',
-      '<text hint-style="base" hint-wrap="true" hint-maxLines="2">🚫 example.com</text>',
+      '<text hint-maxLines="2">🚫 example.com</text><group>',
       '<text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="2">news@example.com</text>',
       '<text hint-style="body" hint-wrap="true" hint-maxLines="2">Hello</text>',
+      '<text hint-style="captionSubtle" hint-maxLines="1">To: info@example.com</text>',
       '<text hint-style="captionSubtle" hint-align="right">Spam 1.6</text>',
       '<text hint-style="base" hint-align="right">🟢 low</text>',
     ];
@@ -81,11 +81,9 @@ describe("buildMailToastXml", () => {
     expect(xml).toContain(`launch="act=open;id=${ID}"`);
   });
 
-  it("makes the whole address the bold line on a free-mail domain, where the domain says nothing of the sender", () => {
+  it("makes the whole address the first line on a free-mail domain, where the domain says nothing of the sender", () => {
     const xml = buildMailToastXml(toast({ sender: "someone@gmail.com", domain: null }));
-    expect(xml).toContain(
-      '<text hint-style="base" hint-wrap="true" hint-maxLines="2">🚫 someone@gmail.com</text>',
-    );
+    expect(xml).toContain('<text hint-maxLines="2">🚫 someone@gmail.com</text><group>');
     expect(xml.match(/someone@gmail\.com/gu)).toHaveLength(1);
   });
 
@@ -239,7 +237,9 @@ describe("buildMailToastXml", () => {
 
   it("omits the score when the server sent none", () => {
     const xml = buildMailToastXml(toast({ spamScore: null }));
-    expect(xml).toContain('<text hint-maxLines="1">To: info@example.com</text>');
+    expect(xml).toContain(
+      '<text hint-style="captionSubtle" hint-maxLines="1">To: info@example.com</text>',
+    );
     expect(xml).not.toContain("Spam");
     // One column and the note.
     expect(xml.match(/<subgroup/gu)).toHaveLength(2);

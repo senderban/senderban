@@ -14,8 +14,9 @@ person switched it on, ADR 0008, and "Mute", ADR 0016) and above them a selectio
 Windows 11 build 26200 at 100%, light theme, development build (2026-11-10): the buttons share the width equally; with four, a label of up
 to 7 characters stays on one line and 8 ("Not spam") or 9 ("Don't ask") wrap, so every label is a fixed word of at most 7 characters
 (`BUTTON_LABEL_MAX`) and no mail text goes on a button. The title line is drawn regular whatever it holds, and without one Windows writes
-"New notification"; text is bold only inside a group. So the title is the mailbox ("To: ..."), and the first line of the group is the
-sender's domain in bold with the whole address small under it (on a free-mail domain the address is the bold line). The bold line does not
+"New notification"; text is bold only inside a group. Amended 2026-11-12: a toast closed in the notification centre shows only the
+title, so the title is the sender: the domain (on a free-mail domain, the address), regular. The group holds the whole address small,
+the subject and the mailbox ("To: ...") small. Until then the title was the mailbox and the domain the bold first line of the group. The domain line does not
 break inside a domain: it showed 32 characters beside the score column and cut the end; the closed selection showed 27 after
 "Whole domain " and cut with no ellipsis. Past 24 and 20 characters (`DOMAIN_LINE_MAX`, `DOMAIN_CHOICE_MAX`) the domain keeps its end
 behind a mark: `…example.attacker.test`. Not measured: 125% and 150% scaling, dark theme, the installed build, an open selection list.
