@@ -6,7 +6,9 @@ import {
   DOMAIN_CHOICE_MAX,
   DOMAIN_LINE_MAX,
   LOCAL_PART_MAX,
+  OPEN_ARGUMENTS_MAX,
   REOPEN_CHOICE,
+  SUBJECT_ARG_MAX,
   TOAST_TEXT_MAX,
   SPAM_HIGH,
   SPAM_MEDIUM,
@@ -699,7 +701,85 @@ describe("a click that outlives the app", () => {
     for (const act of ["junk", "trash", "reject", "quiet"]) {
       expect(xml).toContain(`arguments="act=${act};id=${ID}${tail(act)}"`);
     }
-    expect(xml).toContain(`launch="act=open;id=${ID}${tail("open")}"`);
+    const kept = signer.sign("open", ID, ACCOUNT, FROM, SECONDS, "Hello");
+    const subj = Buffer.from("Hello").toString("base64url");
+    expect(xml).toContain(
+      `launch="act=open;id=${ID};acct=${ACCOUNT};from=${FROM};t=${String(SECONDS)};mac=${kept};subj=${subj}"`,
+    );
+  });
+
+  describe("the subject kept in the body's click", () => {
+    const openArgs = (subject: string): string => {
+      const xml = buildMailToastXml(toast({ accountId: ACCOUNT, issuedAt: SECONDS, subject }), {
+        signer,
+      });
+      const launch = /launch="([^"]*)"/u.exec(xml)?.[1] ?? "";
+      return launch.replaceAll("&amp;", "&").replaceAll("&apos;", "'");
+    };
+    const restored = (subject: string) => {
+      const result = parse(openArgs(subject));
+      return result.ok ? result.activation.restore?.subject : undefined;
+    };
+
+    it("comes back with the click, so a toast shown after a restart has its subject", () => {
+      expect(restored("Store test 5")).toBe("Store test 5");
+      expect(restored("Fatura & ödeme; vade=yarın 🙂")).toBe("Fatura & ödeme; vade=yarın 🙂");
+    });
+
+    it("is cut to SUBJECT_ARG_MAX and ends in an ellipsis, without splitting a pair", () => {
+      const long = restored("x".repeat(500));
+      expect(long).toHaveLength(SUBJECT_ARG_MAX);
+      expect(long?.endsWith("…")).toBe(true);
+      const pairs = restored(`${"a".repeat(58)}${"🙂".repeat(10)}`);
+      expect(pairs).toBe(`${"a".repeat(58)}…`);
+    });
+
+    it("drops our own marks and leaves no subject when nothing is left", () => {
+      expect(restored("🚫 bank.example")).toBe("bank.example");
+      expect(openArgs("🚫")).not.toContain(";subj=");
+      expect(restored("🚫")).toBeUndefined();
+    });
+
+    it("fits the longest subject inside OPEN_ARGUMENTS_MAX", () => {
+      const args = openArgs("中".repeat(500));
+      expect(args.length).toBeLessThanOrEqual(OPEN_ARGUMENTS_MAX);
+      expect(restored("中".repeat(500))).toBe(`${"中".repeat(SUBJECT_ARG_MAX - 1)}…`);
+    });
+
+    it("is signed: an edited or swapped subject is refused", () => {
+      const args = openArgs("Invoice");
+      const other = Buffer.from("Pay now").toString("base64url");
+      expect(parse(args.replace(/;subj=.*$/u, `;subj=${other}`))).toEqual({
+        ok: false,
+        reason: "tail-refused",
+      });
+      expect(parse(args.replace(/;subj=.*$/u, ""))).toEqual({ ok: false, reason: "tail-refused" });
+    });
+
+    it("refuses bytes that are not UTF-8 or a text longer than a toast writes", () => {
+      const base = `act=open;id=${ID};acct=${ACCOUNT};from=${FROM};t=${String(SECONDS)}`;
+      const bad = Buffer.from([0xff, 0xfe]).toString("base64url");
+      expect(parse(`${base};mac=${mac("open")};subj=${bad}`)).toEqual({
+        ok: false,
+        reason: "tail-refused",
+      });
+      const tooLong = "y".repeat(SUBJECT_ARG_MAX + 1);
+      const tag = signer.sign("open", ID, ACCOUNT, FROM, SECONDS, tooLong);
+      expect(
+        parse(`${base};mac=${tag};subj=${Buffer.from(tooLong).toString("base64url")}`),
+      ).toEqual({ ok: false, reason: "tail-refused" });
+    });
+
+    it("still takes a body click of a toast from before 0.3.2, which kept no subject", () => {
+      const result = parse(`act=open;id=${ID}${tail("open")}`);
+      expect(result).toMatchObject({ ok: true, activation: { action: REOPEN_CHOICE } });
+      expect(result.ok && result.activation.restore?.subject).toBeUndefined();
+    });
+
+    it("stays off the buttons", () => {
+      const xml = buildMailToastXml(toast({ accountId: ACCOUNT, issuedAt: SECONDS }), { signer });
+      expect(xml.match(/;subj=/gu)).toHaveLength(1);
+    });
   });
 
   it("writes no tail when the caller has no signer, so no toast carries a sender it cannot vouch for", () => {

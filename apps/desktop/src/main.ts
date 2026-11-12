@@ -1501,7 +1501,8 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
           accountId,
           issuedAt: restore?.issuedAt ?? Math.floor(Date.now() / 1000),
           sender,
-          subject: SUBJECT_NOT_KEPT,
+          // The body's click keeps the subject (0.3.2); a button, or a toast from before, does not.
+          subject: restore?.subject ?? SUBJECT_NOT_KEPT,
           account: labels.get(accountId) ?? accountId,
           spamScore: null,
           ...(gmailWatchers.toastOffer(accountId, sender) ??

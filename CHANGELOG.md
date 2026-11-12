@@ -4,6 +4,12 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Fixed
+
+- A notification clicked in the notification centre after Senderban was closed came back without its subject ("subject not
+  kept after a restart"). The click on the notification now carries the subject, cut to 60 characters and signed with the
+  rest, so the notification shown again has it.
+
 ## [0.3.1] - 2026-11-12
 
 ### Changed
