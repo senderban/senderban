@@ -530,6 +530,14 @@ h1 {
   background: var(--ban);
   margin-right: 0.3rem;
 }
+/* The coloured spam strip 0.3.0 puts under the text whenever there is a score (toast.ts). */
+.toast-strip {
+  height: 4px;
+  margin-top: 0.6rem;
+  border-radius: 2px;
+  background: var(--ban);
+  forced-color-adjust: none;
+}
 .toast-select {
   display: flex;
   justify-content: space-between;

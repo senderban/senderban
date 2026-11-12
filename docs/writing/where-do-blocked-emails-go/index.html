@@ -416,8 +416,10 @@
           </figure>
           <p>
             We measured a refusal once. On 25 October 2026, on one MXroute mailbox, Senderban put a
-            sender's address on MXroute's blacklist from its notification (the choice is called
-            <strong>Block at server</strong>). Mail from that address was then refused with
+            sender's address on MXroute's blacklist from its notification (then a choice called
+            <strong>Block at server</strong>; in 0.3.0 it is the notification's
+            <strong>Block</strong> button, shown once Block at server is switched on in Settings).
+            Mail from that address was then refused with
             <code>550 High scoring spam message has been dropped</code>, and the mailbox kept no
             copy. Unblock removed the entry again. That 550 reply goes to the sending server, the
             only signal in this post that leaves your mailbox. Whether the person who wrote the mail
@@ -476,13 +478,13 @@
             one click writes the block on the provider's server where the provider lets a program
             write a rule. Where it cannot, it moves the mail itself while it runs. It does not send
             mail, so it never writes to the blocked sender. Each choice below is from the README and
-            ADR 0013, for v0.2.0.
+            ADR 0013, for v0.3.0.
           </p>
           <div
             class="table-scroll"
             tabindex="0"
             role="region"
-            aria-label="Where a Senderban block puts the mail on each provider, Senderban v0.2.0"
+            aria-label="Where a Senderban block puts the mail on each provider, Senderban v0.3.0"
           >
             <table>
               <thead>
@@ -521,7 +523,7 @@
               </tbody>
             </table>
           </div>
-          <p>What it does not do, as the README and ADRs state for v0.2.0:</p>
+          <p>What it does not do, as the README and ADRs state for v0.3.0:</p>
           <ul>
             <li>
               <strong>No Spam on Gmail.</strong> A Gmail entry goes to Trash, which Gmail keeps for
