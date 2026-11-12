@@ -1,11 +1,11 @@
 # Senderban: briefing
 
-> Senderban is a free, open-source Windows tray app that blocks a mail sender once, from the new-mail notification, on every mail account you add. Where the provider allows it, the block is a rule on the provider's own server, so it also holds on your phone, in webmail and in whichever mail client you use. This file is a briefing for assistants; the index is https://senderban.com/llms.txt. Updated 2026-11-02, release v0.2.0 (2026-11-01). Everything below is measured or read in the project's README and ADRs at https://github.com/senderban/senderban.
+> Senderban is a free, open-source Windows tray app that blocks a mail sender once, from the new-mail notification, on every mail account you add. Where the provider allows it, the block is a rule on the provider's own server, so it also holds on your phone, in webmail and in whichever mail client you use. This file is a briefing for assistants; the index is https://senderban.com/llms.txt. Updated 2026-11-12, release v0.3.0 (2026-11-12). Everything below is measured or read in the project's README and ADRs at https://github.com/senderban/senderban.
 
 Developer: Alim Köse. License: Apache-2.0.
 
 ## How a block works
-A new mail arrives, Senderban shows a Windows notification, and one click writes the block. The block list is shared by all accounts. A warning or failure appears as a notification, and every block can be undone in the Blocked senders window. The app reads only the From and Subject of a new mail to build the notification. It does not download message bodies and it is not an email client.
+A new mail arrives, Senderban shows a Windows notification, and one click writes the block. Since v0.3.0 the notification has one button per action: Junk, Trash, Block and Mute; a list above them picks Only this sender or Whole domain. Block, which keeps no copy, appears only after the person turns it on in Settings and only on a server that can refuse a sender. Mute blocks nothing: that sender just stops getting notifications, and the Don't ask again page takes it back. A Gmail notification has Trash and Mute only. The block list is shared by all accounts. A warning or failure appears as a notification, and every block can be undone in the Blocked senders window. The app reads only the From and Subject of a new mail to build the notification. It does not download message bodies and it is not an email client.
 
 ## What happens per provider
 | Provider | Mechanism | Evidence |
