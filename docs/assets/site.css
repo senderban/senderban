@@ -648,13 +648,12 @@ h3 {
   padding: 1.25rem;
 }
 
-/* App screenshots: one per row, so a 1109 px shot is shown near its own size and its text stays readable.
-   Light in both themes: the dark shot sank into the dark page. */
+/* App screenshots: one per row, so a 1109 px shot is shown near its own size (1020 px on a wide window) and its text
+   reads from about 1000 px of window up. Light in both themes: the dark shot sank into the dark page. */
 .shots {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2rem;
-  max-width: 1109px;
 }
 .shots figure {
   margin: 0;
