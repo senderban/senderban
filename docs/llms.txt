@@ -2,7 +2,7 @@
 
 > Senderban is a free, open-source Windows tray app. When a new mail arrives it shows a Windows notification; one click writes the block as a rule on the mail provider's own server (a Gmail filter, a Sieve script, an Outlook rule) where the provider allows it, so the block also holds on your phone and in webmail. It is not an email client: it does not send, sync or search mail and does not download message bodies.
 
-Developer: Alim Köse. License: Apache-2.0. Current release: v0.3.1 (2026-11-12). Source: https://github.com/senderban/senderban
+Developer: Alim Köse. License: Apache-2.0. Current release: v0.3.2 (2026-11-12). Source: https://github.com/senderban/senderban
 
 ## Site Structure
 - [Home](https://senderban.com/): what Senderban does, the provider list and how to download it
