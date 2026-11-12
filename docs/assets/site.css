@@ -498,8 +498,8 @@ h1 {
   margin-left: auto;
 }
 .toast-sender {
-  font-weight: 600;
-  margin: 0.35rem 0 0;
+  /* The toast's first line, which Windows draws regular. */
+  margin: 0.35rem 0 0.2rem;
 }
 .toast-row {
   display: flex;
