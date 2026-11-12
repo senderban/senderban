@@ -478,6 +478,8 @@ function restoreOf(
   // Only the exact form a toast writes: a sender that needed any rewriting did not come from us.
   if (!parsed.ok || parsed.value.address !== from) return "bad";
   const issuedAt = Number(t);
+  // Only the body's click keeps a subject; a button that carries one was not written by us.
+  if (subj !== undefined && act !== "open") return "bad";
   const subject = subj === undefined ? undefined : subjectOf(subj);
   if (subject === null) return "bad";
   if (!signer.verify(act, id, accountId, from, issuedAt, mac, subject)) return "bad";
@@ -486,13 +488,18 @@ function restoreOf(
     : { accountId, sender: from, issuedAt, subject };
 }
 
+/** What sanitizeSubject (watcher.ts) takes out of a subject. */
+const CONTROL_OR_BIDI = /[\p{Cc}\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
 /** The kept subject, or null when the bytes are not UTF-8 or the text is longer than a toast writes. */
 function subjectOf(encoded: string): string | null {
   try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
       Buffer.from(encoded, "base64url"),
     );
-    return text === "" || text.length > SUBJECT_ARG_MAX ? null : text;
+    // The watcher took control and bidi marks out before signing (sanitizeSubject); one here was not signed by a toast of ours.
+    if (text === "" || text.length > SUBJECT_ARG_MAX || CONTROL_OR_BIDI.test(text)) return null;
+    return text;
   } catch {
     return null;
   }

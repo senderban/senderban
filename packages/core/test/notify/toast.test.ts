@@ -471,7 +471,7 @@ describe("the size of a toast", () => {
         accountId: "a".repeat(64),
         issuedAt: 9_999_999_999,
         sender,
-        subject: hostile,
+        subject: "中".repeat(1_000),
         account: hostile,
         domain: hostile,
         rejectsAtServer: true,
@@ -560,6 +560,16 @@ describe("parseActivation, a toast of an earlier version", () => {
     ["null", null],
   ])("ignores %s", (_name, details) => {
     expect(parseActivation(details).ok).toBe(false);
+  });
+
+  it("refuses an envelope one past OPEN_ARGUMENTS_MAX as malformed, and a subject past its bound as no button", () => {
+    const over = click(`act=open;id=${ID}${"a".repeat(OPEN_ARGUMENTS_MAX)}`);
+    expect(parseActivation(over)).toEqual({ ok: false, reason: "malformed" });
+    const base = `act=open;id=${ID};acct=a;from=news@example.com;t=1;mac=${"A".repeat(22)}`;
+    expect(parseActivation(click(`${base};subj=${"Q".repeat(241)}`), undefined, signer)).toEqual({
+      ok: false,
+      reason: "not-a-button",
+    });
   });
 
   it("falls back to the person's default action when no choice came back", () => {
@@ -770,6 +780,13 @@ describe("a click that outlives the app", () => {
       ).toEqual({ ok: false, reason: "tail-refused" });
     });
 
+    it("refuses a kept subject with a control or bidi mark, which the watcher never lets through", () => {
+      const text = "Invoice\u202Efdp.exe";
+      const tag = signer.sign("open", ID, ACCOUNT, FROM, SECONDS, text);
+      const args = `act=open;id=${ID};acct=${ACCOUNT};from=${FROM};t=${String(SECONDS)};mac=${tag};subj=${Buffer.from(text).toString("base64url")}`;
+      expect(parse(args)).toEqual({ ok: false, reason: "tail-refused" });
+    });
+
     it("still takes a body click of a toast from before 0.3.2, which kept no subject", () => {
       const result = parse(`act=open;id=${ID}${tail("open")}`);
       expect(result).toMatchObject({ ok: true, activation: { action: REOPEN_CHOICE } });
@@ -779,6 +796,9 @@ describe("a click that outlives the app", () => {
     it("stays off the buttons", () => {
       const xml = buildMailToastXml(toast({ accountId: ACCOUNT, issuedAt: SECONDS }), { signer });
       expect(xml.match(/;subj=/gu)).toHaveLength(1);
+      const tag = signer.sign("junk", ID, ACCOUNT, FROM, SECONDS, "Hello");
+      const onButton = `act=junk;id=${ID};acct=${ACCOUNT};from=${FROM};t=${String(SECONDS)};mac=${tag};subj=${Buffer.from("Hello").toString("base64url")}`;
+      expect(parse(onButton)).toEqual({ ok: false, reason: "tail-refused" });
     });
   });
 
