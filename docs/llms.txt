@@ -18,6 +18,7 @@ Developer: Alim Köse. License: Apache-2.0. Current release: v0.2.0 (2026-11-01)
 - [A scale budget for a desktop app](https://senderban.com/writing/scale-budget-desktop-app/): 50 accounts, 5 slots and a deadline on every job
 - [Work with me](https://senderban.com/work/): the developer's profile
 - [Privacy policy](https://senderban.com/privacy/): what the app reads and writes
+- [Contact](https://senderban.com/contact/): GitHub issues, private security reports, sponsoring; no support inbox
 
 ## What It Does
 - Shows a notification for each new mail and blocks the sender with one click.
