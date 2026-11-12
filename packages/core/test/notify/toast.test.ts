@@ -724,7 +724,7 @@ describe("a click that outlives the app", () => {
         signer,
       });
       const launch = /launch="([^"]*)"/u.exec(xml)?.[1] ?? "";
-      return launch.replaceAll("&amp;", "&").replaceAll("&apos;", "'");
+      return launch.replaceAll("&apos;", "'").replaceAll("&amp;", "&");
     };
     const restored = (subject: string) => {
       const result = parse(openArgs(subject));
