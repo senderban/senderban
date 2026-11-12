@@ -121,9 +121,11 @@ export class Toasts {
   readonly #handlers: ToastHandlers;
   readonly #live = new Map<string, Notification>();
   readonly #busy = new Set<string>();
-  /** The answers to a click on a toast's body still waiting for the notification centre to close, by id. */
+  /** The answers to a click on a toast's body still waiting for the notification centre to close, by id. No named cap: an entry lives
+   * REOPEN_DELAY_MS and is one per id, so the size is the body clicks of the last second, a person's clicking speed, not accounts. */
   readonly #waiting = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Set at quit: no click is answered and nothing is shown after it. */
+  /** Set at quit: no new click is answered and no waiting answer is shown. A block already running at quit still shows its result,
+   * until the process exits. */
   #closed = false;
   /** What each toast said, so one shown again has its subject; a toast of an earlier run does not. */
   readonly #announced = new Map<string, MailToast>();
