@@ -4,6 +4,8 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-23
+
 ### Added
 
 - The Microsoft Store version asks Windows to start it when you sign in, after you have opened it once. Settings opens the
