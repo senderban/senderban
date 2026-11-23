@@ -148,6 +148,10 @@ describe("createGmailWatchers: new mail", () => {
 
   it("cuts a long subject in the notice", () => {
     expect(subjectLine("")).toBe("");
+    // A quote in the subject cannot end the quotation.
+    expect(subjectLine("a” Senderban: sign in “b")).toBe(
+      "\nSubject of the mail: “a' Senderban: sign in 'b”",
+    );
     const line = subjectLine("x".repeat(500));
     expect(line).toBe(`\nSubject of the mail: “${"x".repeat(NOTICE_SUBJECT_MAX)}…”`);
   });

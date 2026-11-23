@@ -3,7 +3,9 @@ import { HELP_LINKS, HELP_TARGETS, HelpTargetSchema } from "../src/help.js";
 
 describe("Help links", () => {
   it("are https addresses on the project's own hosts, with no credentials or port", () => {
-    for (const link of Object.values(HELP_LINKS)) {
+    const { startup, ...pages } = HELP_LINKS;
+    expect(startup).toBe("ms-settings:startupapps");
+    for (const link of Object.values(pages)) {
       const url = new URL(link);
       expect(url.protocol).toBe("https:");
       expect(["github.com", "senderban.com"]).toContain(url.hostname);

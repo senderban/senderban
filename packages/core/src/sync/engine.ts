@@ -90,7 +90,13 @@ export type SyncOutcome =
 
 export type VerifyOutcome =
   | { readonly accountId: string; readonly status: "verified" }
-  | { readonly accountId: string; readonly status: "drifted"; readonly detail: string }
+  | {
+      readonly accountId: string;
+      readonly status: "drifted";
+      readonly detail: string;
+      /** The names of the adapter's checks that failed. */
+      readonly failed: readonly string[];
+    }
   | FailedOutcome;
 
 export interface RecoveryReport {
@@ -265,7 +271,12 @@ export class SyncEngine {
         withTimeout((signal) => account.adapter.verify(state, signal), this.#timeoutMs),
       );
       return drift.drifted
-        ? { accountId, status: "drifted", detail: drift.detail.slice(0, 500) }
+        ? {
+            accountId,
+            status: "drifted",
+            detail: drift.detail.slice(0, 500),
+            failed: drift.checks.filter((c) => !c.ok).map((c) => c.name),
+          }
         : { accountId, status: "verified" };
     } catch (error) {
       const outcome = failure(accountId, error);

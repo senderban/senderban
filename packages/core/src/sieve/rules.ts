@@ -142,6 +142,20 @@ export function assertScriptName(name: string): void {
 export const isOurMain = (script: string): boolean =>
   normalizeNewlines(script).split("\n").includes(MAIN_MARKER);
 
+/**
+ * True when this is the main script as we wrote it and nothing else: blank lines aside, the same lines. Anything more in it is the
+ * person's (a rule, a comment, an include they switched off), and such a script is treated as theirs.
+ */
+export function isOnlyOurMain(script: string, rulesName: string): boolean {
+  const lines = (text: string): string =>
+    normalizeNewlines(text)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "")
+      .join("\n");
+  return lines(script) === lines(renderMain(rulesName));
+}
+
 /** True when this rules script carries our marker: anything else of that name is not ours to delete. */
 export const isOurRules = (script: string): boolean =>
   normalizeNewlines(script).split("\n").includes(RULES_MARKER);

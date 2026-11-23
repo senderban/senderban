@@ -33,9 +33,12 @@ export function reopenAfterStart(
   );
 }
 
-/** Who asked for a restart and, for `auto`, the time since the add that armed the timer (unit: milliseconds; `bar` is 0). */
+/**
+ * Who asked for a restart and, for `auto`, the time since the add that armed the timer (unit: milliseconds; `bar` is 0). `crash`: a fault
+ * nobody caught (crash-guard.ts), and how long that run had lasted.
+ */
 export interface RestartWhy {
-  readonly by: "auto" | "bar";
+  readonly by: "auto" | "bar" | "crash";
   readonly waitedMs: number;
 }
 

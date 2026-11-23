@@ -101,7 +101,7 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
         for await (const row of reduceRows(stream)) {
           scanned += 1;
           // Only what was asked for: a server decides what it sends, not what is moved.
-          if (row !== null && asked.has(row.uid)) rows.push({ uid: row.uid, from: row.from });
+          if (row.from !== null && asked.has(row.uid)) rows.push({ uid: row.uid, from: row.from });
           if (scanned >= uids.length * READ_SCAN_FACTOR) break;
         }
       } catch (error) {

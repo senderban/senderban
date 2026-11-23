@@ -18,7 +18,8 @@ The manage window gets a **Settings** view with four choices, kept in `settings.
 - **0.3: a fifth choice, Start Senderban when you sign in to Windows, is not in `settings.json`.** Windows keeps it (HKCU Run, Electron
   `app.setLoginItemSettings`); the page reads it from Windows each time (`executableWillLaunchAtLogin`, which also honours Task Manager >
   Startup) and writes it on its own channel (`manage:login-item-save`, `z.boolean()`, sender checked), read back after the write. Off
-  unless the person turns it on. Not offered in a Store install (a package starts at sign-in only through a manifest StartupTask).
+  unless the person turns it on. A Store install has no switch of its own: it starts at sign-in through its manifest (ADR 0019 point 7)
+  and the card opens Windows Settings > Apps > Startup (`ms-settings:startupapps`, a fixed word from the page, the address in main).
 - **Every field is a closed list or a switch**, so the list is the bound. The page sends the whole object, and main checks it with
   the same strict schema (`manage:settings-save`, sender checked as on every channel).
 - **"Confirm each block" off hides success only.** A warning or a failure always shows: `ok` is the one tone that may stay quiet.

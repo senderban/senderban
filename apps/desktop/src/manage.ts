@@ -372,6 +372,10 @@ export class ManageWindow {
     win.once("ready-to-show", () => {
       win.show();
     });
+    // A page whose process died stays blank for good: drop the window, so the next open makes a new one. main.ts logs why.
+    win.webContents.on("render-process-gone", () => {
+      if (!win.isDestroyed()) win.destroy();
+    });
     win.on("closed", () => {
       if (this.#win === win) this.#win = null;
       if (this.#statusTimer !== null) clearTimeout(this.#statusTimer);

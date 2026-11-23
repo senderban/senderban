@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mailboxKey, validateDomain } from "../address.js";
 import { BlockEntrySchema, folderAction } from "../blocklist.js";
 import { canRefuseAtServer } from "../mxroute/client.js";
-import type { BlockAction, BlockEntry } from "../blocklist.js";
+import type { BlockAction, BlockEntry, Blocklist } from "../blocklist.js";
 import { isNotOffered } from "../freemail.js";
 import type { Store } from "../store/store.js";
 import type { SyncEngine, SyncOutcome } from "../sync/engine.js";
@@ -140,6 +140,21 @@ function covers(entry: BlockEntry, match: "exactAddress" | "subdomains", value: 
   const domain = match === "exactAddress" ? value.slice(value.lastIndexOf("@") + 1) : value;
   if (domain === entry.value) return true;
   return entry.match === "subdomains" && domain.endsWith(`.${entry.value}`);
+}
+
+/**
+ * The entry that should have kept mail from `sender` out of the Inbox, or null. The oldest one: a mail delivered after it had every
+ * rule in place. An entry over the person's own mail is written nowhere (`isOwnEntry`), so it covers nothing.
+ */
+export function coveringEntry(list: Blocklist, sender: string, own: OwnMail): BlockEntry | null {
+  let oldest: BlockEntry | null = null;
+  for (const entry of list) {
+    if (!covers(entry, "exactAddress", sender) || isOwnEntry(entry, own)) continue;
+    if (oldest === null || Date.parse(entry.createdAt) < Date.parse(oldest.createdAt)) {
+      oldest = entry;
+    }
+  }
+  return oldest;
 }
 
 function describeSync(outcome: SyncOutcome): string | null {

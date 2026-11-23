@@ -148,6 +148,18 @@ export class PollLoop<Summary> {
     this.#schedule(this.#spread());
   }
 
+  /**
+   * The network is back (another account just connected): a loop waiting out a passing failure polls soon, spread like a start. Never
+   * for a quota or a refusal: those wait for their own reason. Returns whether the wait was cut short.
+   */
+  nudge(): boolean {
+    if (this.#state !== "backoff" || this.#detail !== "transient" || this.#timer === null) {
+      return false;
+    }
+    this.#schedule(this.#spread());
+    return true;
+  }
+
   /** Started and not stopped or halted: a timer or a poll is, or is about to be, in the air. */
   #isRunning(): boolean {
     return this.#state === "starting" || this.#state === "watching" || this.#state === "backoff";

@@ -6,6 +6,8 @@ import {
   initialSieveState,
   sieveFit,
   sieveStateForReinstall,
+  sieveStateHasWork,
+  sieveStateHolds,
   sieveStateHoldsRules,
 } from "../../src/sieve/adapter.js";
 import type { SpamRule } from "../../src/spam-filter.js";
@@ -277,6 +279,191 @@ describe("SieveAdapter failure handling", () => {
     expect((await adapter.verify(first.result.state)).drifted).toBe(true);
     await sync(adapter, [], first.result.state);
     expect((await adapter.verify(first.result.state)).drifted).toBe(false);
+  });
+
+  // What the person keeps in the main script next to our marker, with our include switched off.
+  const editedMain =
+    'require ["include", "fileinto"];\n# senderban-managed\n# include :personal "senderban-rules";\nif header :contains "subject" "invoice" {\n  fileinto "Bills";\n}\n';
+
+  it("never replaces a main script the person edited: one line goes in, with a copy of it from before", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(adapter, [], initialSieveState());
+    server.scripts.set("senderban-main", editedMain);
+    const drift = await adapter.verify(first.result.state);
+    expect(drift.checks.filter((c) => !c.ok).map((c) => c.name)).toEqual(["main-edited"]);
+
+    const { result } = await sync(adapter, [e("a@example.com")], first.result.state);
+    const after = server.scripts.get("senderban-main") ?? "";
+    expect(hasInclude(after, "senderban-rules")).toBe(true);
+    for (const line of editedMain.split("\n").filter((l) => l !== "")) {
+      expect(after).toContain(line);
+    }
+    expect(result.state.data).toMatchObject({
+      includeBackup: { scriptName: "senderban-main", content: editedMain },
+    });
+    expect((await adapter.verify(result.state)).drifted).toBe(false);
+  });
+
+  it.each([
+    ["without our include", editedMain],
+    ["with it", `${editedMain}include :personal "senderban-rules";\n`],
+  ])(
+    "never switches a main script the person edited and switched off on (%s)",
+    async (_name, text) => {
+      const { server, adapter } = setup();
+      const first = await sync(adapter, [], initialSieveState());
+      server.scripts.set("senderban-main", text);
+      server.active = null;
+      expect(await failure(sync(adapter, [e("a@example.com")], first.result.state))).toBe(
+        "REMOTE_CHANGED",
+      );
+      expect(server.active).toBeNull();
+      expect(server.scripts.get("senderban-main")).toBe(text);
+    },
+  );
+
+  it("switches its own main script on again when it holds nothing else", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(adapter, [], initialSieveState());
+    server.active = null;
+    await sync(adapter, [e("a@example.com")], first.result.state);
+    expect(server.active).toBe("senderban-main");
+  });
+
+  it("takes the include out of every script on uninstall, not only the active one", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, [e("a@example.com")], initialSieveState());
+    server.scripts.set(
+      "old",
+      'require ["include"];\n# mine\ninclude :personal "senderban-rules";\nkeep;\n',
+    );
+    server.scripts.set("mixed", 'if true { include :personal "senderban-rules"; }\n');
+    server.scripts.set("webmail", "keep;\n");
+    server.active = "webmail";
+    await adapter.uninstall(result.state);
+    expect(server.active).toBe("webmail");
+    expect(server.scripts.get("webmail")).toBe("keep;\n");
+    expect(server.scripts.get("old")).toContain("# mine");
+    expect(hasInclude(server.scripts.get("old") ?? "", "senderban-rules")).toBe(false);
+    // Ours and nothing else: gone. One that cannot be edited safely does not hold the removal up.
+    expect([...server.scripts.keys()].sort()).toEqual(["mixed", "old", "webmail"]);
+  });
+
+  it.each([
+    ["REJECTED", "no error"],
+    ["TRANSIENT", "TRANSIENT"],
+  ] as const)(
+    "is not held up by an inactive script the server will not hand out (%s: %s)",
+    async (code, expected) => {
+      const server = new FakeSieveServer();
+      const adapter = new SieveAdapter({
+        accountId: "acct-1",
+        connect: () => {
+          const session = server.session();
+          return Promise.resolve({
+            ...session,
+            getScript: (name: string) =>
+              name === "odd"
+                ? Promise.reject(new AdapterError(code, "no"))
+                : session.getScript(name),
+          });
+        },
+      });
+      const { result } = await sync(adapter, [e("a@example.com")], initialSieveState());
+      server.scripts.set("odd", "keep;\n");
+      expect(await failure(adapter.uninstall(result.state))).toBe(expected);
+      expect(server.scripts.has("senderban-rules")).toBe(expected !== "no error");
+      expect(server.scripts.get("odd")).toBe("keep;\n");
+    },
+  );
+
+  it("takes a main script that lost only our marker for the person's on uninstall", async () => {
+    const { server, adapter } = setup();
+    const { result } = await sync(adapter, [e("a@example.com")], initialSieveState());
+    server.scripts.set(
+      "senderban-main",
+      'require ["include"];\ninclude :personal "senderban-rules";\nkeep;\n',
+    );
+    await adapter.uninstall(result.state);
+    expect(server.scripts.get("senderban-main")).toContain("keep;");
+    expect(hasInclude(server.scripts.get("senderban-main") ?? "", "senderban-rules")).toBe(false);
+    expect(server.scripts.has("senderban-rules")).toBe(false);
+  });
+
+  it("tells an include taken out of the script it had been put into apart from another script", async () => {
+    const { server, adapter } = setup();
+    server.scripts.set("roundcube", "keep;\n");
+    server.active = "roundcube";
+    const { result } = await sync(adapter, [e("a@example.com")], initialSieveState());
+    server.scripts.set("roundcube", "keep;\n");
+    const drift = await adapter.verify(result.state);
+    expect(drift.checks.filter((c) => !c.ok).map((c) => c.name)).toEqual(["include-removed"]);
+  });
+
+  it("the same when the person took the marker out too and runs that script", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(adapter, [], initialSieveState());
+    server.scripts.set("senderban-main", "keep;\n");
+    const { result } = await sync(adapter, [e("a@example.com")], first.result.state);
+    expect(server.scripts.get("senderban-main")).toContain("keep;");
+    expect((await adapter.verify(result.state)).drifted).toBe(false);
+  });
+
+  it("gives an edited main script back on uninstall instead of deleting it", async () => {
+    const { server, adapter } = setup();
+    const first = await sync(adapter, [], initialSieveState());
+    server.scripts.set("senderban-main", editedMain);
+    const { result } = await sync(adapter, [e("a@example.com")], first.result.state);
+    await adapter.uninstall(result.state);
+    expect(server.scripts.get("senderban-main")).toBe(editedMain);
+    expect(server.active).toBe("senderban-main");
+    expect(server.scripts.has("senderban-rules")).toBe(false);
+  });
+
+  it.each([
+    ["active", true],
+    ["not active", false],
+  ])(
+    "keeps rules the person added beside our include on uninstall (%s)",
+    async (_name, isActive) => {
+      const { server, adapter } = setup();
+      const first = await sync(adapter, [e("a@example.com")], initialSieveState());
+      const ours = server.scripts.get("senderban-main") ?? "";
+      server.scripts.set("senderban-main", `${ours}# mine\nkeep;\n`);
+      if (!isActive) server.active = null;
+      await adapter.uninstall(first.result.state);
+      const after = server.scripts.get("senderban-main") ?? "";
+      expect(after).toContain("# mine\nkeep;");
+      expect(hasInclude(after, "senderban-rules")).toBe(false);
+      expect(server.scripts.has("senderban-rules")).toBe(false);
+    },
+  );
+
+  it("tells the ways the rules can stop running apart", async () => {
+    const failed = async (change: (server: FakeSieveServer) => void) => {
+      const { server, adapter } = setup();
+      const { result } = await sync(adapter, [e("a@example.com")], initialSieveState());
+      change(server);
+      const drift = await adapter.verify(result.state);
+      return drift.checks.filter((c) => !c.ok).map((c) => c.name);
+    };
+    expect(
+      await failed((server) => {
+        server.scripts.set("webmail", "keep;\n");
+        server.active = "webmail";
+      }),
+    ).toEqual(["include-active"]);
+    expect(
+      await failed((server) => {
+        server.active = null;
+      }),
+    ).toEqual(["none-active"]);
+    expect(
+      await failed((server) => {
+        server.scripts.set("webmail", 'if header "x" "unclosed {\n');
+        server.active = "webmail";
+      }),
+    ).toEqual(["active-unreadable"]);
   });
 
   it("recovers from a failure after the first rules write (retry is idempotent)", async () => {
@@ -880,6 +1067,22 @@ describe("sieveStateHoldsRules", () => {
       initialSieveState(),
     );
     expect(sieveStateHoldsRules(result.state)).toBe(true);
+  });
+});
+
+describe("what a stored state says", () => {
+  it("has work with an entry or a spam rule, and holds the entries of the last finished round", async () => {
+    const { adapter } = setup();
+    expect(sieveStateHasWork(initialSieveState())).toBe(false);
+    const one = entry(1, "exactAddress", "a@example.com");
+    const { result } = await sync(adapter, [one], initialSieveState());
+    expect(sieveStateHasWork(result.state)).toBe(true);
+    expect(sieveStateHolds(result.state, one.id)).toBe(true);
+    expect(sieveStateHolds(result.state, entry(2, "exactAddress", "b@example.com").id)).toBe(false);
+    // Everything unblocked: the rules script is still there, with nothing in it.
+    const { result: emptied } = await sync(adapter, [], result.state);
+    expect(sieveStateHoldsRules(emptied.state)).toBe(true);
+    expect(sieveStateHasWork(emptied.state)).toBe(false);
   });
 });
 

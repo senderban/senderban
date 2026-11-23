@@ -18,6 +18,7 @@ import {
   hasInclude,
   includeState,
   insertInclude,
+  isOnlyOurMain,
   isOurMain,
   isOurRules,
   normalizeNewlines,
@@ -46,6 +47,9 @@ const REQUIRED_EXTENSIONS = ["fileinto", "mailbox", "envelope"] as const;
 
 /** Unanswered rule writes remembered per session (`#sent`): one retry after another, each with a changed list, stays far below it. */
 const SENT_MAX = 8;
+
+/** Scripts a removal looks through for our include line. Unit: scripts. A mailbox has a handful; each one is a command of its own. */
+const LEFTOVER_SCRIPTS_MAX = 64;
 
 /** The name `initialSieveState` gives the rules script. */
 const RULES_SCRIPT = "senderban-rules";
@@ -248,23 +252,31 @@ async function ensureInclude(
   state: SieveState,
   active: SieveScriptInfo | undefined,
 ): Promise<SieveState["includeBackup"]> {
-  if (active === undefined || active.name === state.mainName) {
-    // Ours: either nothing is active (we activate our own script) or our script already is.
+  if (active === undefined) {
+    // Nothing is active: our own script becomes it.
     const current = await session.getScript(state.mainName);
-    if (current !== null && !isOurMain(current)) {
+    // With more in it than we wrote it is the person's, and they switched it off: a block must not switch a redirect of theirs on.
+    if (current !== null && !isOnlyOurMain(current, state.rulesName)) {
       throw new AdapterError("REMOTE_CHANGED", `script "${state.mainName}" exists and is not ours`);
     }
-    const wanted = renderMain(state.rulesName);
-    if (current === null || !hasInclude(current, state.rulesName)) {
-      await session.putScript(state.mainName, wanted);
-    }
-    if (active === undefined) await session.setActive(state.mainName);
+    if (current === null) await session.putScript(state.mainName, renderMain(state.rulesName));
+    await session.setActive(state.mainName);
     return null;
   }
 
-  // The user's own active script: add one include line, never activate anything else.
+  // An active script, the person's or our main one, which they may have edited: one include line, never another script made active.
   const before = await session.getScript(active.name);
   if (before === null) throw new AdapterError("REMOTE_CHANGED", "active script disappeared");
+  return addInclude(session, state, active.name, before);
+}
+
+/** Adds the include line to a script that has none, and returns the copy from before. Never replaces what else is in it. */
+async function addInclude(
+  session: SieveSession,
+  state: SieveState,
+  name: string,
+  before: string,
+): Promise<SieveState["includeBackup"]> {
   const present = includeState(before, state.rulesName);
   if (present === "yes") return null;
   if (present === "unreadable") {
@@ -275,24 +287,45 @@ async function ensureInclude(
     throw new AdapterError("REJECTED", "active script too large to back up before editing");
   }
   const edited = insertInclude(before, state.rulesName);
-  const recheck = await session.getScript(active.name);
+  const recheck = await session.getScript(name);
   if (recheck === null || scriptSha256(recheck) !== scriptSha256(before)) {
     throw new AdapterError("REMOTE_CHANGED", "active script changed while we were reading it");
   }
-  if (!(await session.haveSpace(active.name, scriptBytes(edited)))) {
+  if (!(await session.haveSpace(name, scriptBytes(edited)))) {
     throw new AdapterError("QUOTA_EXCEEDED", "no room for the include line");
   }
-  await session.putScript(active.name, edited);
+  await session.putScript(name, edited);
 
-  const after = await session.getScript(active.name);
+  const after = await session.getScript(name);
   if (after === null || !hasInclude(after, state.rulesName)) {
     throw new AdapterError("REJECTED", "server did not keep the include line");
   }
   return {
-    scriptName: active.name,
+    scriptName: name,
     sha256: scriptSha256(before),
     content: normalizeNewlines(before),
   };
+}
+
+/** The other way round: takes our line out of a script that keeps the rest, before the script it points at is deleted. */
+async function takeIncludeOut(
+  session: SieveSession,
+  state: SieveState,
+  name: string,
+  text: string,
+): Promise<void> {
+  const included = includeState(text, state.rulesName);
+  // Deleting the rules script under an include nobody could see would break every delivery to this mailbox.
+  if (included === "unreadable") {
+    throw new AdapterError("REJECTED", "active script could not be read");
+  }
+  if (included === "no") return;
+  const original = state.includeBackup?.scriptName === name ? state.includeBackup.content : null;
+  await session.putScript(name, removeInclude(text, state.rulesName, original));
+  const after = await session.getScript(name);
+  if (after === null || hasInclude(after, state.rulesName)) {
+    throw new AdapterError("REJECTED", "server did not keep the include removal");
+  }
 }
 
 /** True while this state says rules of ours are on the server; a false answer needs no connection to take them out. */
@@ -301,6 +334,17 @@ export function sieveStateHoldsRules(state: OpaqueState): boolean {
   return (
     current.applied.length > 0 || current.rulesSha256 !== null || current.includeBackup !== null
   );
+}
+
+/** True while this state holds something the server should act on: an entry or a spam rule. An emptied rule set does nothing. */
+export function sieveStateHasWork(state: OpaqueState): boolean {
+  const current = parseState(state);
+  return current.applied.length > 0 || current.spam !== undefined;
+}
+
+/** True when the last finished round wrote this entry to the server. */
+export function sieveStateHolds(state: OpaqueState, entryId: string): boolean {
+  return parseState(state).applied.some((e) => e.id === entryId);
 }
 
 /**
@@ -544,7 +588,7 @@ export class SieveAdapter implements BlockAdapter {
   /**
    * Takes the include out first, then deletes the rules script, so no moment exists where the
    * user's script points at something that is gone. The user's own script gets back its original
-   * text; our own main script is deactivated and deleted.
+   * text; our own main script is deactivated and deleted, unless it holds more than we wrote: then it is the user's too.
    */
   async uninstall(state: OpaqueState, signal?: AbortSignal): Promise<OpaqueState> {
     const current = parseState(state);
@@ -572,32 +616,37 @@ export class SieveAdapter implements BlockAdapter {
         await session.setActive("");
       } else if (active?.name === current.mainName) {
         const text = await session.getScript(current.mainName);
-        if (text === null || !isOurMain(text)) {
+        if (text === null || (!isOurMain(text) && includeState(text, current.rulesName) === "no")) {
           throw new AdapterError("REMOTE_CHANGED", `script "${current.mainName}" is not ours`);
         }
-        await session.setActive("");
-        await session.deleteScript(current.mainName);
+        if (isOnlyOurMain(text, current.rulesName)) {
+          await session.setActive("");
+          await session.deleteScript(current.mainName);
+        } else {
+          await takeIncludeOut(session, current, current.mainName, text);
+        }
       } else if (active !== undefined) {
         const text = await session.getScript(active.name);
-        const included = text === null ? "no" : includeState(text, current.rulesName);
-        // Deleting the rules script under an include nobody could see would break every delivery to this mailbox.
-        if (included === "unreadable") {
-          throw new AdapterError("REJECTED", "active script could not be read");
-        }
-        if (text !== null && included === "yes") {
-          const original =
-            current.includeBackup?.scriptName === active.name
-              ? current.includeBackup.content
-              : null;
-          await session.putScript(active.name, removeInclude(text, current.rulesName, original));
-          const after = await session.getScript(active.name);
-          if (after === null || hasInclude(after, current.rulesName)) {
-            throw new AdapterError("REJECTED", "server did not keep the include removal");
+        if (text !== null) await takeIncludeOut(session, current, active.name, text);
+      }
+
+      // The ones that do not run too: an include left in them breaks every delivery the day such a script is switched on (RFC 6609 3.2:
+      // a script that is not there is an error).
+      for (const { name } of scripts.slice(0, LEFTOVER_SCRIPTS_MAX)) {
+        if (name === current.rulesName || name === active?.name) continue;
+        try {
+          const text = await session.getScript(name);
+          if (text === null) continue;
+          if (name === current.mainName && isOnlyOurMain(text, current.rulesName)) {
+            await session.deleteScript(name);
+          } else if (includeState(text, current.rulesName) === "yes") {
+            await takeIncludeOut(session, current, name, text);
           }
+        } catch (error) {
+          // Refused by the server, or an include mixed into other commands: it does not run now, and a removal must not be stuck on it
+          // for good.
+          if (!(error instanceof AdapterError) || error.code !== "REJECTED") throw error;
         }
-      } else if (scripts.some((s) => s.name === current.mainName)) {
-        const text = await session.getScript(current.mainName);
-        if (text !== null && isOurMain(text)) await session.deleteScript(current.mainName);
       }
 
       if (scripts.some((s) => s.name === current.rulesName)) {
@@ -635,20 +684,30 @@ export class SieveAdapter implements BlockAdapter {
         }
 
         const active = (await session.listScripts()).find((s) => s.active);
+        // Why the rules do not run is in the name: only "another script is active" (`include-active`) may be repaired without a click.
         if (active === undefined) {
-          check("include-active", false, "no active script");
+          check("none-active", false, "no active script");
         } else if (active.name === current.rulesName) {
           check("include-active", true, `rules script "${active.name}" is the active script`);
         } else {
           const text = await session.getScript(active.name);
-          const included = text !== null && hasInclude(text, current.rulesName);
-          check(
-            "include-active",
-            included,
-            included
-              ? `active script "${active.name}" includes the rules`
-              : `active script "${active.name}" does not include the rules`,
-          );
+          const included = text === null ? "unreadable" : includeState(text, current.rulesName);
+          if (included === "yes") {
+            check("include-active", true, `active script "${active.name}" includes the rules`);
+          } else if (included === "unreadable") {
+            check("active-unreadable", false, `active script "${active.name}" could not be read`);
+          } else {
+            check(
+              // Taken out of the script we had put it into (by its owner, or by a program that writes it anew): not ours to say.
+              active.name === current.mainName
+                ? "main-edited"
+                : current.includeBackup?.scriptName === active.name
+                  ? "include-removed"
+                  : "include-active",
+              false,
+              `active script "${active.name}" does not include the rules`,
+            );
+          }
         }
 
         const failed = checks.filter((c) => !c.ok);

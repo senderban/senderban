@@ -52,6 +52,7 @@ const els = {
   navHelp: $("nav-help"),
   navHelpCount: $("nav-help-count"),
   updatesCard: $("settings-updates-card"),
+  startupStoreCard: $("settings-startup-store-card"),
   navBlockedCount: $("nav-blocked-count"),
   navAccountsCount: $("nav-accounts-count"),
   health: $("health"),
@@ -766,6 +767,7 @@ function drawWatch() {
   // A newer release from the daily check: a word on Help, and the Help page says which (help.js). Text only, never a link.
   els.navHelpCount.textContent = watch.update ? "New" : "";
   els.updatesCard.hidden = watch.storeManaged === true;
+  els.startupStoreCard.hidden = watch.storeManaged !== true;
   // A link to a payment page is left out of the Store build until the Store's rules on it are read.
   els.navSponsor.hidden = watch.storeManaged === true;
   drawStates();

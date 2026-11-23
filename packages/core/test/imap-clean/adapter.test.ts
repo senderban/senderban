@@ -41,6 +41,7 @@ const incoming = (uid: number, from: string): IncomingMessage => ({
   from,
   subject: "s",
   spamScore: null,
+  deliveredAt: null,
 });
 
 class FakeBox implements CleanMailbox {

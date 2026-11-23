@@ -15,6 +15,7 @@ const stEls = {
   startupCard: document.getElementById("settings-startup-card"),
   login: document.getElementById("setting-login"),
   loginText: document.getElementById("setting-login-text"),
+  startupOpen: document.getElementById("setting-startup-open"),
 };
 
 // What the page shows, and what main last confirmed.
@@ -26,6 +27,8 @@ function stStatus(text) {
   stEls.status.hidden = text === "";
   stEls.status.dataset.tone = "error";
   stEls.status.textContent = text;
+  // The line is at the end of the page: out of view, a failed click looks like no click at all.
+  if (text !== "") stEls.status.scrollIntoView({ block: "nearest" });
 }
 
 function stDrawChoices(group, value) {
@@ -125,6 +128,18 @@ stEls.login.addEventListener("change", () => {
     })
     .finally(() => {
       stLoginSaving = false;
+    });
+});
+
+// A Store install: Windows Settings owns this switch. The page sends one fixed word; main owns the address.
+stEls.startupOpen.addEventListener("click", () => {
+  stStatus("");
+  void stApi
+    .openHelp("startup")
+    .catch(() => "failed")
+    .then((reply) => {
+      if (reply !== "done")
+        stStatus("Could not open Windows Settings. Open it yourself: Apps > Startup.");
     });
 });
 

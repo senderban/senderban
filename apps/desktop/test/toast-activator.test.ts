@@ -14,6 +14,15 @@ describe("the Store toast activator", () => {
     expect(manifest).toContain(`<com:Class Id="${bare}"`);
   });
 
+  it("starts the app at sign-in: the Store package has no other way, and Windows Settings lists it by this name", () => {
+    expect(manifest).toMatch(
+      /Category="windows\.startupTask" Executable="app\\Senderban\.exe" EntryPoint="Windows\.FullTrustApplication"/u,
+    );
+    expect(manifest).toContain(
+      '<desktop:StartupTask TaskId="SenderbanStartup" Enabled="true" DisplayName="Senderban" />',
+    );
+  });
+
   it("starts the app with the argument the log reads as a cold start", () => {
     expect(manifest).toContain('Arguments="-ToastActivated"');
   });
