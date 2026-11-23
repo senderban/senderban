@@ -198,6 +198,10 @@ h3 {
 [id] {
   scroll-margin-top: 5.5rem;
 }
+/* An answer opened by a link: its question, one line above it, must clear the header too. */
+details [id] {
+  scroll-margin-top: 10.5rem;
+}
 
 /* Pane geometry: one recipe, three fills. Only .site-header and .stage-rule add a blur. */
 .site-header .wrap,
@@ -343,7 +347,7 @@ h1 {
   align-items: center;
   gap: 0.5rem;
   min-height: 2.75rem;
-  padding: 0 1.25rem;
+  padding: 0.5rem 1.25rem;
   border-radius: var(--radius-control);
   border: 1px solid var(--control-border);
   background: var(--field);

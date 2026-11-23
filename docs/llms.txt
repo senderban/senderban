@@ -2,7 +2,7 @@
 
 > Senderban is a free, open-source Windows tray app. When a new mail arrives it shows a Windows notification; one click writes the block as a rule on the mail provider's own server (a Gmail filter, a Sieve script, an Outlook rule) where the provider allows it, so the block also holds on your phone and in webmail. It is not an email client: it does not send, sync or search mail and does not download message bodies.
 
-Developer: Alim Köse. License: Apache-2.0. Current release: v0.3.2 (2026-11-12). Source: https://github.com/senderban/senderban
+Developer: Alim Köse. License: Apache-2.0. Current release: v0.3.2 (2026-11-12). Source: https://github.com/senderban/senderban. Download: Microsoft Store (https://apps.microsoft.com/detail/9P73H1CNW9ZP) or the installer on GitHub (https://github.com/senderban/senderban/releases/latest).
 
 ## Site Structure
 - [Home](https://senderban.com/): what Senderban does, the provider list and how to download it
@@ -26,12 +26,12 @@ Developer: Alim Köse. License: Apache-2.0. Current release: v0.3.2 (2026-11-12)
 - On iCloud and other IMAP-only providers it moves the mail itself while the app runs.
 - Offers an optional per-mailbox spam-score filter on mail servers that add a spam score.
 - Opens on a Home view: the number of blocked senders, the blocks of the last 12 weeks, the state of each mailbox and the newest blocks.
-- Asks GitHub once a day whether a newer version is out and says so; it downloads and installs nothing, and the check can be turned off in Settings.
+- The installer version asks GitHub once a day whether a newer version is out and says so; it downloads and installs nothing, and the check can be turned off in Settings. The Microsoft Store version does not ask.
 - Measured against real accounts: MXroute and Gmail on 2026-10-30; a personal Outlook.com account and iCloud on 2026-11-01. Migadu, mailbox.org, Purelymail, Yahoo, AOL, GMX and Web.de ran on a local Dovecot server only, not at the provider.
 
 ## What It Does Not Do
 - It is not an email client and does not send, sync, search or download message bodies.
-- It runs on Windows only today. The installer is unsigned.
+- It runs on Windows only today. The installer from GitHub is unsigned; the Microsoft Store version is signed by Microsoft and updated by the Store. Version 0.3.2 from the Store does not start by itself at sign-in; the installer has a switch for that.
 - Gmail has no whole-domain block through Senderban, because a Gmail `from:` filter also matches display names and look-alike domains; Gmail takes single addresses.
 - Outlook: a personal account was measured; a work or school account was not.
 - On IMAP-only providers (iCloud, Yahoo and similar) there is no server rule: with Senderban closed, a blocked sender's mail stays in the inbox.
