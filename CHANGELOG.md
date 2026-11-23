@@ -4,6 +4,35 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- The Microsoft Store version asks Windows to start it when you sign in, after you have opened it once. Settings opens the
+  Windows page that turns it off. (The installer keeps its own switch.)
+- Senderban reads its rules on ManageSieve servers back: a few minutes after it starts and once a day. When another
+  program had made its own filter script the active one, Senderban's rules are switched on again, next to that script,
+  and you are told. When somebody edited, deleted or switched them off, you are told, nothing is written, and the list
+  says that the blocks of that account are not confirmed.
+- Mail of a sender you already blocked is recognised. If it was delivered after the block, the rule is read back at once
+  and you are told; if it is older than the block (moved back to the Inbox, for example), no notification asks again.
+
+### Fixed
+
+- Filters you had added to the script `senderban-main` yourself could be lost: a block replaced that script when our
+  include line had been taken out of it, and removing the account deleted it. Your lines now stay. Removing an account
+  also takes our line out of scripts that are not active, where they can be edited safely; left there, it would have
+  broken them once switched on.
+- A mail whose sender could not be read (a damaged From line) gave no notification on IMAP accounts. It now gives one
+  without a Block button, at most one an hour per account.
+- After a network outage an account could stay away minutes longer than another one. The first account that gets through
+  now makes the others try at once.
+- A fault nobody caught left Senderban in an unknown state behind a Windows dialog. It is now written to the log and
+  Senderban starts again, or closes when that happens twice within 10 minutes (with a notification, unless it was only
+  starting). After its page died, the window loads afresh the next time you open it.
+
+### Changed
+
+- The log says who asked Senderban to quit, how old an announced mail was, and how each IMAP account is doing.
+
 ## [0.3.2] - 2026-11-12
 
 ### Added

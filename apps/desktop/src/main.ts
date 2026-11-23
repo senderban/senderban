@@ -15,9 +15,13 @@ import {
   createGate,
   willRetry,
   blockableDomain,
+  coveringEntry,
   canRejectSender,
   initialCleanState,
   initialSieveState,
+  sieveStateForReinstall,
+  sieveStateHasWork,
+  sieveStateHolds,
   mxrouteStateValues,
   unblock,
   MxrouteAdapter,
@@ -115,6 +119,7 @@ import {
 } from "./gmail-lanes.js";
 import type { GmailFilterLifecycle, GmailLane, GmailSkipped } from "./gmail-lanes.js";
 import { createGmailWatchers, subjectLine } from "./gmail-watchers.js";
+import { MAIL_NOTICE_EVERY_MS, createThrottle } from "./mail-watchers.js";
 import { SHUTDOWN_CAP_MS, SHUTDOWN_DEADLINE_MS, settleWithin, stopThenClose } from "./deadline.js";
 import {
   createSieveLifecycle,
@@ -126,6 +131,7 @@ import {
 } from "./remove-account.js";
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
 import { relaunchArgs, reopenAfterStart, restartApp } from "./restart.js";
+import type { RestartWhy } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
 import type { MailWatchers } from "./mail-watchers.js";
 import { createOutlookWatchers } from "./outlook-watchers.js";
@@ -171,6 +177,11 @@ import { QuietStore } from "./quiet-file.js";
 import { SettingsStore } from "./settings-file.js";
 import { loadActivationSigner } from "./activation-key.js";
 import { restoreClicked } from "./restore-click.js";
+import { createRuleChecks, screenBlocked } from "./rule-check.js";
+import type { RuleChecks } from "./rule-check.js";
+import { createWatchHealth } from "./watch-health.js";
+import type { WatchHealth } from "./watch-health.js";
+import { crashFields, createCrashStamp, installCrashGuard } from "./crash-guard.js";
 import { STORE_TOAST_ACTIVATOR_CLSID } from "./toast-activator.js";
 import { guardHelpTarget, readLoginItem, storeGates, writeLoginItem } from "./store-gates.js";
 import { ignoredClickHandler } from "./ignored-click.js";
@@ -193,11 +204,9 @@ const settings = new SettingsStore(join(app.getPath("userData"), "settings.json"
 const quiet = new QuietStore(join(app.getPath("userData"), "quiet.json"));
 /** The mailboxes with a spam filter: read per announced mail and per sync round, so no disk read there. */
 const spamFilters = new Map<string, SpamFilter>();
-const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : "unknown error";
 /** A handler threw: the channel and a message the log sanitises, never the payload. */
 function logIpcError(channel: string, error: unknown): void {
-  log("ipc-error", { channel, detail: errorText(error) });
+  log("ipc-error", { channel, ...crashFields(error) });
 }
 /** The domain is enough to diagnose; the full address stays out of a file people attach to bug reports. */
 const domainOf = (address: string): string => address.slice(address.lastIndexOf("@") + 1);
@@ -227,12 +236,16 @@ interface Runtime {
   readonly retireMxrouteKey: (ref: MxrouteKeyRef) => void;
   /** Stops a removed "Other (IMAP)" mailbox. */
   readonly retireClean: (accountId: string) => void;
+  readonly ruleChecks: RuleChecks;
+  readonly health: WatchHealth;
 }
 
 /** Resolves once the store, engine and watchers exist; an activation that launched the app waits for it. */
 const ready = Promise.withResolvers<Runtime>();
 let paused = false;
 let quitting = false;
+/** What asked for the quit, for the log. Windows ends a tray app at shutdown without asking it, so that end has no line at all. */
+let quitBy: "unknown" | "tray" | "restart" | "crash" = "unknown";
 const states = new Map<string, WatcherState | GmailWatcherState>();
 let tray: Tray | null = null;
 let toasts: Toasts | null = null;
@@ -552,6 +565,7 @@ function updateTray(): void {
       {
         label: "Quit Senderban",
         click: () => {
+          quitBy = "tray";
           app.quit();
         },
       },
@@ -689,9 +703,106 @@ async function start(): Promise<Runtime> {
   const mxrouteAdapters = new Map<string, MxrouteAdapter>();
   const skippedAccounts = new Set<string>();
 
+  // Do the rules on the Sieve servers still run? (rule-check.ts)
+  const ruleChecks = createRuleChecks({
+    accounts: () =>
+      paused
+        ? []
+        : accounts
+            .map((a) => a.id)
+            // A refused password is not sent once more a day (ADR 0003): a halted mailbox waits for the person.
+            .filter(
+              (id) => lanes.includes(id) && !heldSieveLanes.has(id) && states.get(id) !== "halted",
+            ),
+    hasWork: (id) => {
+      const state = store.getState(id);
+      return state !== undefined && sieveStateHasWork(state);
+    },
+    holds: (id, entryId) => {
+      const state = store.getState(id);
+      return state !== undefined && sieveStateHolds(state, entryId);
+    },
+    verify: async (id) => {
+      // After the running round: a read-back during its apply would call a write in flight "drifted".
+      await engine.settled(id);
+      return engine.verify(id);
+    },
+    reinstall: async (id) => {
+      await engine.settled(id);
+      // Read and written in one step, so no round of this lane saves in between.
+      const before = store.getState(id);
+      const marked =
+        before !== undefined && lanes.includes(id) && !heldSieveLanes.has(id)
+          ? sieveStateForReinstall(before)
+          : null;
+      if (marked !== null) store.setState(id, marked);
+      const outcome = await engine.sync(id);
+      // A round that saved nothing leaves the mark, which tells the next one that a deleted script is fine to write again. It is not:
+      // nobody asked for this round. Read and written in one step again.
+      const left = store.getState(id);
+      if (
+        before !== undefined &&
+        marked !== null &&
+        left !== undefined &&
+        // A removal that began meanwhile needs the mark.
+        lanes.includes(id) &&
+        !heldSieveLanes.has(id) &&
+        JSON.stringify(left.data) === JSON.stringify(marked.data)
+      ) {
+        store.setState(id, before);
+      }
+      return outcome;
+    },
+    onResult: (id, running) => {
+      // As after a click that was not read back: the list says "not confirmed" until a read-back or a round says otherwise.
+      if (running === unconfirmed.has(id)) {
+        if (running) unconfirmed.delete(id);
+        else unconfirmed.add(id);
+        manage?.notifyChanged();
+      }
+    },
+    labelOf: (id) => labels.get(id) ?? id,
+    tagOf: accountTag,
+    notice,
+    log,
+  });
+  const unreadableNotice = createThrottle(MAIL_NOTICE_EVERY_MS);
+  const hosts = new Map<string, string>();
+  const health: WatchHealth = createWatchHealth({
+    watchers,
+    polls: () => [gmailWatchers, outlookWatchers],
+    hostOf: (id) => hosts.get(id),
+    tagOf: accountTag,
+    log,
+  });
+
   // What a new mail, a burst or a state change means is the same for every kind of IMAP watcher.
-  const announce: Pick<WatcherOptions, "onMessage" | "onOverflow" | "onUnreadable" | "onState"> = {
+  const announce: Pick<
+    WatcherOptions,
+    "onMessage" | "onUnreadableSender" | "onOverflow" | "onUnreadable" | "onState"
+  > = {
+    onUnreadableSender: (accountId, message) => {
+      // As on Gmail: announced, with nothing to click. A block could not match this mail, and silence would hide that.
+      const unsaid = unreadableNotice(accountId);
+      health.announced(accountId);
+      // Neither Block nor Mute can stop these, so toast and log line stop by themselves: one an hour per account, with the count of the
+      // others.
+      if (unsaid === null) return;
+      log("announce", {
+        account: accountTag(accountId),
+        uid: message.uid,
+        sender: "unreadable",
+        more: unsaid,
+      });
+      const more =
+        unsaid === 0 ? "" : ` ${String(unsaid)} more like it came in since the last one.`;
+      notice(
+        "Senderban",
+        `New mail in ${labels.get(accountId) ?? accountId}: the sender could not be read safely, so there is no Block button.${more}${subjectLine(message.subject)}`,
+      );
+    },
     onMessage: (accountId: string, message: IncomingMessage) => {
+      health.announced(accountId);
       // The same rule as the Gmail watcher: an own address is never blocked (blockPending refuses it), so no button.
       if (isOwnMailbox(message.from, own.get())) {
         log("announce", {
@@ -705,6 +816,25 @@ async function start(): Promise<Runtime> {
         );
         return;
       }
+      // Only where a rule on the server should have kept it out. A cleaning lane takes its blocked mail out before this is called.
+      const screened = screenBlocked(
+        {
+          accountId,
+          uid: message.uid,
+          domain: domainOf(message.from),
+          deliveredAt: message.deliveredAt,
+        },
+        {
+          covering: () =>
+            cleanLanes.has(accountId) ? null : coveringEntry(store.list(), message.from, own.get()),
+          leak: (id, entryId) => {
+            ruleChecks.leak(id, entryId);
+          },
+          tagOf: accountTag,
+          log,
+        },
+      );
+      if (screened === "silent") return;
       if (isQuiet(message.from, quiet.entries)) {
         log("announce", { account: accountTag(accountId), uid: message.uid, sender: "quiet" });
         return;
@@ -714,6 +844,11 @@ async function start(): Promise<Runtime> {
         account: accountTag(accountId),
         uid: message.uid,
         domain: domainOf(message.from),
+        // How long ago the server took it: 0-60 is live, hours or days is an old mail that came back to the Inbox.
+        ageS:
+          message.deliveredAt === null
+            ? null
+            : Math.round((Date.now() - message.deliveredAt) / 1000),
       });
       toasts?.show({
         id,
@@ -741,13 +876,14 @@ async function start(): Promise<Runtime> {
         `A mail in ${labels.get(accountId) ?? accountId} was too large to read, so up to ${String(skipped)} new messages were not announced. Check that inbox.`,
       );
     },
-    onState: (accountId, state, detail) => {
+    onState: (accountId, state, detail, refused) => {
       const previous = states.get(accountId);
       states.set(accountId, state);
       updateTray();
       // Its list rows depend on this: nothing moves while the watcher is away.
       if (cleanLanes.has(accountId)) manage?.notifyListSoon();
       log("watcher", { account: accountTag(accountId), state, detail });
+      health.imapState(accountId, state, detail, refused);
       if (state === "halted" && previous !== "halted") {
         notice(
           "Senderban stopped watching",
@@ -831,6 +967,7 @@ async function start(): Promise<Runtime> {
       rejectingAccounts.add(account.id);
     }
 
+    hosts.set(account.id, account.imap.host);
     watchers.set(
       account.id,
       new AccountWatcher({
@@ -899,6 +1036,7 @@ async function start(): Promise<Runtime> {
       },
     });
     const { host, port, secure, user } = account.clean;
+    hosts.set(account.id, host);
     watchers.set(
       account.id,
       new AccountWatcher({
@@ -999,6 +1137,7 @@ async function start(): Promise<Runtime> {
     onState: (laneId, state) => {
       states.set(laneId, state);
       updateTray();
+      health.pollState(laneId, state);
     },
     log,
   });
@@ -1114,6 +1253,7 @@ async function start(): Promise<Runtime> {
     onState: (laneId, state) => {
       states.set(laneId, state);
       updateTray();
+      health.pollState(laneId, state);
     },
     log,
   });
@@ -1192,6 +1332,8 @@ async function start(): Promise<Runtime> {
   for (const watcher of watchers.values()) watcher.start();
   gmailWatchers.start();
   outlookWatchers.start();
+  health.start();
+  ruleChecks.start();
   void recovery
     .then((reports) => {
       for (const report of reports) {
@@ -1204,7 +1346,7 @@ async function start(): Promise<Runtime> {
       }
     })
     .catch((error: unknown) => {
-      log("recover-failed", { detail: errorText(error) });
+      log("recover-failed", crashFields(error));
     })
     // A rule change that never reached a provider (an unblock that failed, a crash after the list
     // changed) is applied now. The plan is computed locally, so only accounts with a difference connect.
@@ -1219,6 +1361,8 @@ async function start(): Promise<Runtime> {
     if (!paused) outlookWatchers.resumeNow();
   });
   return {
+    ruleChecks,
+    health,
     store,
     engine,
     accounts,
@@ -1267,7 +1411,9 @@ async function shutdown(): Promise<void> {
   cancelMicrosoftSignIn();
   const current = await ready.promise.catch(() => null);
   if (current === null) return;
-  log("quit");
+  log("quit", { by: quitBy });
+  current.health.stop();
+  current.ruleChecks.stop();
   toasts?.closeAll();
   manage?.closeAll();
   current.engine.dispose();
@@ -1283,6 +1429,64 @@ async function shutdown(): Promise<void> {
     ms: SHUTDOWN_DEADLINE_MS,
   });
 }
+
+/** The relaunch parts both a restart from the window and one after a crash use. */
+const relaunchDeps = {
+  isQuitting: () => quitting,
+  log: (event: "restart", fields: RestartWhy) => {
+    log(event, { ...fields });
+  },
+  releaseLock: () => {
+    app.releaseSingleInstanceLock();
+  },
+  relaunch: (reopen: boolean) => {
+    app.relaunch({ args: relaunchArgs(process.argv, reopen) });
+  },
+};
+
+installCrashGuard({
+  process,
+  log,
+  uptimeMs: () => process.uptime() * 1000,
+  restart: () => {
+    restartApp(
+      {
+        ...relaunchDeps,
+        // A crash opens no window by itself.
+        isOpen: () => false,
+        quit: () => {
+          quitBy = "crash";
+          app.quit();
+        },
+      },
+      { by: "crash", waitedMs: Math.round(process.uptime() * 1000) },
+    );
+  },
+  ...createCrashStamp(join(app.getPath("userData"), "crash-restart.json")),
+  giveUp: () => {
+    if (quitting) return;
+    quitBy = "crash";
+    // Not a dialog: at sign-in nobody may be there to close it, and until then the process would hold the single-instance lock.
+    // The notification stays in the Action Center after the process is gone.
+    // Too early for a notification (`toasts` is made at the start): the log is what is left.
+    log("give-up", { told: toasts !== null });
+    try {
+      notice(
+        "Senderban stopped",
+        "It ran into a problem twice in a short time, so it was closed. No new mail is watched until you start it again from the Start menu.",
+      );
+    } catch {
+      // The log line is written already; what matters now is the quit.
+    }
+    app.quit();
+  },
+});
+app.on("render-process-gone", (_event, _contents, details) => {
+  log("page-gone", { reason: details.reason, code: details.exitCode });
+});
+app.on("child-process-gone", (_event, details) => {
+  log("child-gone", { type: details.type, reason: details.reason, code: details.exitCode });
+});
 
 const addAccountArg = process.argv.find((a) => a.startsWith("--add-account="));
 
@@ -1374,7 +1578,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onAccountsChanged: refreshOwnOnChange(
         async () => (await ready.promise).own,
         (error) => {
-          log("own-refresh-failed", { detail: errorText(error) });
+          log("own-refresh-failed", crashFields(error));
         },
       ),
     };
@@ -1601,7 +1805,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const current = own.get();
         return store.list().filter((entry) => isOwnEntry(entry, current)).length;
       } catch (error) {
-        log("own-refresh-failed", { detail: errorText(error) });
+        log("own-refresh-failed", crashFields(error));
         return 0;
       }
     };
@@ -1873,7 +2077,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       },
       settings: () => settings.current,
       // Windows keeps the answer (HKCU Run, Electron app.setLoginItemSettings): nothing to keep in sync here. A Store package
-      // starts at sign-in only through a manifest StartupTask, which it does not declare, so the switch is not offered there.
+      // starts at sign-in through its manifest StartupTask, which Windows Settings owns: there the page opens that page instead.
       // Turning it on writes the key enabled again (store-gates.ts reads it back).
       loginItem: () => readLoginItem(STORE, app),
       saveLoginItem: (on) => {
@@ -1894,18 +2098,10 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       restart: (why) => {
         restartApp(
           {
-            isQuitting: () => quitting,
-            log: (event, fields) => {
-              log(event, { ...fields });
-            },
-            releaseLock: () => {
-              app.releaseSingleInstanceLock();
-            },
+            ...relaunchDeps,
             isOpen: () => manage?.isOpen() ?? false,
-            relaunch: (reopen) => {
-              app.relaunch({ args: relaunchArgs(process.argv, reopen) });
-            },
             quit: () => {
+              quitBy = "restart";
               app.quit();
             },
           },
@@ -1994,7 +2190,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       manage?.notifyChanged();
     });
     ready.promise.catch((error: unknown) => {
-      log("start-failed", { detail: errorText(error) });
+      log("start-failed", crashFields(error));
       startFailed = true;
       manage?.notifyChanged();
       notice("Senderban could not start", "See the log for details.");

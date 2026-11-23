@@ -19,9 +19,30 @@ export const MAIL_NOTICE_EVERY_MS = 3_600_000;
 export const NOTICE_SUBJECT_MAX = 80;
 export function subjectLine(subject: string): string {
   if (subject === "") return "";
-  const cut =
-    subject.length > NOTICE_SUBJECT_MAX ? `${subject.slice(0, NOTICE_SUBJECT_MAX)}…` : subject;
+  // The quotes around it are ours alone: one in the subject would end the quotation early.
+  const plain = subject.replace(/[“”„‟]/gu, "'");
+  const cut = plain.length > NOTICE_SUBJECT_MAX ? `${plain.slice(0, NOTICE_SUBJECT_MAX)}…` : plain;
   return `\nSubject of the mail: “${cut}”`;
+}
+
+/**
+ * One per `everyMs` and key. Returns how many were held back since the last one that was let through, or null for one to hold back.
+ * Memory: two numbers per key; the keys are account ids (MAX_ACCOUNTS).
+ */
+export function createThrottle(
+  everyMs: number,
+  now: () => number = Date.now,
+): (key: string) => number | null {
+  const seen = new Map<string, { at: number; held: number }>();
+  return (key) => {
+    const last = seen.get(key);
+    if (last !== undefined && now() - last.at < everyMs) {
+      last.held += 1;
+      return null;
+    }
+    seen.set(key, { at: now(), held: 0 });
+    return last?.held ?? 0;
+  };
 }
 
 /**
@@ -41,6 +62,7 @@ export interface MailWatcher {
   stop(): void;
   resume(): void;
   resumeNow(): void;
+  nudge(): boolean;
 }
 
 export interface MailPollEvent {
@@ -115,6 +137,8 @@ export interface MailWatchers {
   resume(): void;
   /** After system resume. */
   resumeNow(): void;
+  /** The network is back: lanes waiting out a passing failure look soon. Returns how many. */
+  nudge(): number;
   /** One lane, held still for a removal or sign-out (`stop`), or free again (`start`). Unknown lane: nothing. */
   stopOne(laneId: string): void;
   startOne(laneId: string): void;
@@ -302,6 +326,11 @@ export function createMailWatchers<Lane, Gap extends string>(
     },
     resumeNow() {
       for (const watcher of watchers.values()) watcher.resumeNow();
+    },
+    nudge() {
+      let nudged = 0;
+      for (const watcher of watchers.values()) if (watcher.nudge()) nudged += 1;
+      return nudged;
     },
     stopOne(laneId) {
       watchers.get(laneId)?.stop();

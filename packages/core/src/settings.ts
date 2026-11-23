@@ -44,3 +44,9 @@ export const SettingsFileSchema = z.strictObject({
   // A file written before 0.3 has no `checkUpdates`: on. Only the file gets this default, never the IPC save (SettingsSchema).
   settings: SettingsSchema.extend({ checkUpdates: z.boolean().default(true) }),
 });
+
+/** When a crash last started Senderban again (desktop `crash-guard.ts`), kept beside the settings. */
+export const CrashStampSchema = z.strictObject({
+  /** Epoch milliseconds, 1970 to 9999. */
+  at: z.int().min(0).max(253_402_300_799_999),
+});

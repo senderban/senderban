@@ -12,6 +12,7 @@ const msg = (uid: number): IncomingMessage => ({
   from: "a@example.com",
   subject: "s",
   spamScore: null,
+  deliveredAt: null,
 });
 
 function session(messages: IncomingMessage[], uidNext: number): MailboxSession {
@@ -132,7 +133,9 @@ describe("screen", () => {
 describe("onGap", () => {
   it("counts a row with no usable From, or one among the newest hides a burst on a live session", async () => {
     const onGap = vi.fn();
-    const rows = Array.from({ length: FETCH_LIMIT }, (_, i) => (i === 100 ? null : msg(i + 2)));
+    const rows = Array.from({ length: FETCH_LIMIT }, (_, i) =>
+      i === 100 ? { uid: i + 2, from: null, subject: "" } : msg(i + 2),
+    );
     const { instance, cursors } = watcher(
       () =>
         Promise.resolve({

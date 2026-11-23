@@ -180,7 +180,7 @@
               <h3>Mail arrives</h3>
               <p>
                 A notification shows the sender, the subject and, where the server adds one, the
-                spam score. Nothing else of the mail is read.
+                spam score. The text of the mail is never read.
               </p>
             </li>
             <li>
@@ -341,8 +341,9 @@
           <ul>
             <li>
               Uses the From and Subject of a newly arrived message, plus the server's spam score
-              where there is one, on your device. On a plain IMAP mailbox it also reads the sender
-              of the last 30 days of the Inbox when you block someone, and keeps nothing of them.
+              where there is one and, on IMAP accounts from version 0.3.3, the time the server
+              received it, on your device. On a plain IMAP mailbox it also reads the sender of the
+              last 30 days of the Inbox when you block someone, and keeps nothing of them.
             </li>
             <li>
               Never reads message bodies. There is no Senderban server, no account and no tracking.

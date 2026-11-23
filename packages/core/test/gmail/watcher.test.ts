@@ -422,6 +422,8 @@ describe("GmailWatcher: failures", () => {
     t.fake.forcedFor.set("GET", [429]);
     await tick(GMAIL_POLL.baseMs);
     expect(t.states.at(-1)).toEqual(["backoff", "quota"]);
+    // The network coming back says nothing about a quota.
+    expect(t.watcher.nudge()).toBe(false);
     await tick(5 * MINUTE);
     expect(t.messages).toHaveLength(1);
   });
@@ -614,6 +616,27 @@ describe("GmailWatcher: timing, one flight, stop and resume", () => {
     t.watcher.resumeNow();
     await tick(HOUR);
     expect(t.fake.calls).toHaveLength(0);
+  });
+
+  it("nudge() cuts a wait for a passing failure short, and nothing else", async () => {
+    const t = setup({ random: () => 0.5 });
+    expect(t.watcher.nudge()).toBe(false);
+    t.watcher.start();
+    expect(t.watcher.nudge()).toBe(false);
+    await tick(GMAIL_START_SPREAD_MS);
+    expect(t.watcher.current).toBe("watching");
+    expect(t.watcher.nudge()).toBe(false);
+    t.fake.forcedFor.set("GET", [503, 503, 503, 503, 503]);
+    await tick(HOUR / 12);
+    expect(t.watcher.current).toBe("backoff");
+    const before = t.polls.length;
+    expect(t.watcher.nudge()).toBe(true);
+    await tick(GMAIL_START_SPREAD_MS / 2 - 1);
+    expect(t.polls).toHaveLength(before);
+    await tick(1);
+    expect(t.polls).toHaveLength(before + 1);
+    t.watcher.stop();
+    expect(t.watcher.nudge()).toBe(false);
   });
 
   it("a pause keeps a halt: resume() asks nothing, only start() does", async () => {

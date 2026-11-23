@@ -87,7 +87,12 @@ describe("unblock", () => {
   it("a read-back that differs or fails is not confirmed", async () => {
     const drifted = setup({
       verify: (id) =>
-        Promise.resolve({ accountId: id, status: "drifted", detail: "rule still there" }),
+        Promise.resolve({
+          accountId: id,
+          status: "drifted",
+          detail: "rule still there",
+          failed: [],
+        }),
     });
     const result = await unblock(drifted.deps, ID);
     if (result.status !== "unblocked") throw new Error("expected unblocked");

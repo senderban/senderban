@@ -213,6 +213,11 @@ export class GmailWatcher {
     this.#loop.resumeNow();
   }
 
+  /** The network is back: a poll waiting out a passing failure comes soon. */
+  nudge(): boolean {
+    return this.#loop.nudge();
+  }
+
   /** A first run, or a cursor that Google no longer holds: mail already there is not "new"; start from now. */
   async #startFromNow(
     context: PollContext,

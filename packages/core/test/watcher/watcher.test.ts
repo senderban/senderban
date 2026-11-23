@@ -5,8 +5,11 @@ import {
   FatalWatchError,
   SUBJECT_MAX,
   SUBJECT_SCAN_MAX,
+  refusedByServer,
   sanitizeSubject,
   toIncoming,
+  parseDeliveredAt,
+  DELIVERED_AT,
   parseSpamScore,
   SPAM_HEADER_MAX_BYTES,
   SPAM_SCORE,
@@ -15,15 +18,60 @@ import type {
   Cursor,
   CursorStore,
   IncomingMessage,
+  IncomingRow,
   MailboxSession,
   WatcherState,
 } from "../../src/watcher/watcher.js";
+
+describe("refusedByServer", () => {
+  it.each([
+    ["a refused sign-in", { authenticationFailed: true }, true],
+    ["a response code", { serverResponseCode: "LIMIT" }, true],
+    ["a tagged no", { responseStatus: "NO" }, true],
+    ["a server that says goodbye", { responseStatus: "BYE" }, true],
+    ["a dropped connection", { code: "ECONNRESET" }, false],
+    ["an empty code", { serverResponseCode: "", authenticationFailed: false }, false],
+    ["a code that is not text", { serverResponseCode: 1 }, false],
+  ])("%s", (_name, fields, expected) => {
+    expect(refusedByServer(Object.assign(new Error("x"), fields))).toBe(expected);
+  });
+
+  it("takes anything", () => {
+    for (const odd of [null, undefined, "NO", 1]) expect(refusedByServer(odd)).toBe(false);
+  });
+
+  it("is told with the backoff it caused", async () => {
+    const seen: [WatcherState, boolean | undefined][] = [];
+    const errors = [
+      Object.assign(new Error("Command failed"), { serverResponseCode: "LIMIT" }),
+      Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    ];
+    vi.useFakeTimers();
+    const watcher = new AccountWatcher({
+      accountId: "a",
+      connect: () => Promise.reject(errors.shift() ?? new Error("x")),
+      cursors: { get: () => undefined, set: () => undefined },
+      onMessage: () => undefined,
+      onState: (_id, state, _detail, refused) => seen.push([state, refused]),
+      random: () => 0,
+    });
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(600);
+    await watcher.stop();
+    vi.useRealTimers();
+    expect(seen.filter((s) => s[0] === "backoff")).toEqual([
+      ["backoff", true],
+      ["backoff", false],
+    ]);
+  });
+});
 
 const msg = (uid: number, from = "a@example.com"): IncomingMessage => ({
   uid,
   from,
   subject: `m${String(uid)}`,
   spamScore: null,
+  deliveredAt: null,
 });
 
 class FakeSession implements MailboxSession {
@@ -35,12 +83,12 @@ class FakeSession implements MailboxSession {
   private existsListener: (() => void) | null = null;
   private closeListener: ((cause: Error | null) => void) | null = null;
 
-  constructor(public messages: IncomingMessage[]) {
+  constructor(public messages: IncomingRow[]) {
     this.uidNext = Math.max(0, ...messages.map((m) => m.uid)) + 1;
   }
 
   /** IMAP `n:*` returns the last message even when n is past it; the fake does the same. */
-  async fetchSince(uid: number): Promise<IncomingMessage[]> {
+  async fetchSince(uid: number): Promise<IncomingRow[]> {
     this.fetches += 1;
     if (this.gate !== null) await this.gate;
     const found = this.messages.filter((m) => m.uid > uid);
@@ -58,7 +106,7 @@ class FakeSession implements MailboxSession {
     return Promise.resolve();
   }
 
-  deliver(...more: IncomingMessage[]): void {
+  deliver(...more: IncomingRow[]): void {
     // `uidNext` stays: a real session holds the value it read at open.
     this.messages.push(...more);
     this.existsListener?.();
@@ -87,6 +135,7 @@ function setup(sessions: readonly (FakeSession | (() => Promise<FakeSession>))[]
   const states: WatcherState[] = [];
   const overflow: number[] = [];
   const unreadable: number[] = [];
+  const noSender: number[] = [];
   let connects = 0;
   const watcher = new AccountWatcher({
     accountId: "acc",
@@ -100,11 +149,21 @@ function setup(sessions: readonly (FakeSession | (() => Promise<FakeSession>))[]
     onMessage: (_id, m) => seen.push(m),
     onOverflow: (_id, n) => overflow.push(n),
     onUnreadable: (_id, n) => unreadable.push(n),
+    onUnreadableSender: (_id, m) => noSender.push(m.uid),
     onState: (_id, s) => states.push(s),
     backoff: BACKOFF,
     random: () => 1,
   });
-  return { watcher, cursors, seen, states, overflow, unreadable, connects: () => connects };
+  return {
+    watcher,
+    cursors,
+    seen,
+    states,
+    overflow,
+    unreadable,
+    noSender,
+    connects: () => connects,
+  };
 }
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
@@ -124,6 +183,83 @@ describe("sanitizeSubject and a very long subject", () => {
   it("looks at a bounded part only, and keeps what a person reads", () => {
     const start = `Invoice ${"x".repeat(50)}`;
     expect(sanitizeSubject(start + " ".repeat(SUBJECT_SCAN_MAX) + "hidden")).toBe(start);
+  });
+});
+
+const lost = (uid: number): IncomingRow => ({ uid, from: null, subject: "s" });
+
+describe("AccountWatcher and a sender it cannot match", () => {
+  it("tells it once, and never again at a reconnect", async () => {
+    const first = new FakeSession([msg(1)]);
+    const second = new FakeSession([msg(1), lost(2)]);
+    const { watcher, seen, noSender, cursors } = setup([first, second]);
+    watcher.start();
+    await flush();
+    first.deliver(lost(2));
+    await flush();
+    expect(noSender).toEqual([2]);
+    expect(cursors.get("acc")?.lastUid).toBe(2);
+    first.drop();
+    await vi.advanceTimersByTimeAsync(BACKOFF.baseMs);
+    expect(watcher.current).toBe("watching");
+    expect(noSender).toEqual([2]);
+    expect(seen).toEqual([]);
+    await watcher.stop();
+  });
+
+  it("keeps the order and shares the toast limit with readable mail", async () => {
+    const session = new FakeSession([msg(1)]);
+    const { watcher, seen, noSender, overflow, cursors } = setup([session]);
+    watcher.start();
+    await flush();
+    session.deliver(msg(2), lost(3), msg(4), lost(5), lost(6), msg(7), lost(8));
+    await flush();
+    // DEFAULT_MAX_PER_DRAIN = 5: the older two are counted, not shown.
+    expect(overflow).toEqual([2]);
+    expect(seen.map((m) => m.uid)).toEqual([4, 7]);
+    expect(noSender).toEqual([5, 6, 8]);
+    expect(cursors.get("acc")?.lastUid).toBe(8);
+    await watcher.stop();
+  });
+});
+
+describe("AccountWatcher.nudge", () => {
+  it("tries at once instead of waiting out the delay, and keeps the failure count", async () => {
+    const refused = () => Promise.reject(new Error("getaddrinfo ENOTFOUND mail.example.net"));
+    const { watcher, connects } = setup([refused, refused, refused, refused]);
+    watcher.start();
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(connects()).toBe(3);
+    expect(watcher.nudge()).toBe(true);
+    await flush();
+    expect(connects()).toBe(4);
+    // Fourth failure: 8 s, not back to 1 s, and the old timer is gone.
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(connects()).toBe(4);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(connects()).toBe(5);
+    await watcher.stop();
+  });
+
+  it("does nothing unless the watcher waits for a retry", async () => {
+    const { watcher, connects } = setup([
+      new FakeSession([msg(1)]),
+      () => Promise.reject(new FatalWatchError("authentication failed")),
+    ]);
+    expect(watcher.nudge()).toBe(false);
+    watcher.start();
+    expect(watcher.nudge()).toBe(false);
+    await flush();
+    expect(watcher.nudge()).toBe(false);
+    await watcher.stop();
+    expect(watcher.nudge()).toBe(false);
+    watcher.start();
+    await flush();
+    expect(watcher.current).toBe("halted");
+    expect(watcher.nudge()).toBe(false);
+    expect(connects()).toBe(2);
   });
 });
 
@@ -563,6 +699,7 @@ describe("header sanitising", () => {
       from: "bad.guy@example.com",
       subject: "hello",
       spamScore: null,
+      deliveredAt: null,
     });
   });
 
@@ -613,12 +750,32 @@ describe("header sanitising", () => {
 
   it("carries the server's spam score from the fetched header", () => {
     const header = Buffer.from("X-Spam-Score: 1.6 (+)\r\n\r\n");
-    expect(toIncoming(7, "a@example.com", "s", header)?.spamScore).toBe(1.6);
+    expect(toIncoming(7, "a@example.com", "s", header)).toMatchObject({ spamScore: 1.6 });
   });
 
-  it("drops a message whose sender cannot be matched exactly", () => {
-    expect(toIncoming(1, undefined, "x")).toBeNull();
-    expect(toIncoming(1, "not an address", "x")).toBeNull();
-    expect(toIncoming(1, '"quoted local"@example.com', "x")).toBeNull();
+  it.each([
+    undefined,
+    "",
+    "not an address",
+    '"quoted local"@example.com',
+    "MISSING_MAILBOX@MISSING_DOMAIN",
+    "g@SYNTAX_ERROR",
+  ])("keeps a message whose sender cannot be matched exactly, with no sender: %s", (from) => {
+    expect(toIncoming(1, from, "x\u202ey")).toEqual({ uid: 1, from: null, subject: "x y" });
+  });
+
+  it.each([
+    [new Date("2026-01-05T10:00:00Z"), Date.UTC(2026, 0, 5, 10)],
+    [new Date(DELIVERED_AT.min), DELIVERED_AT.min],
+    [new Date(DELIVERED_AT.min - 1), null],
+    [new Date(DELIVERED_AT.max + 1), null],
+    [new Date(Number.NaN), null],
+    ["05-Jan-2026 10:00:00 +0000", null],
+    [undefined, null],
+  ])("reads the delivery time %s", (raw, expected) => {
+    expect(parseDeliveredAt(raw)).toBe(expected);
+    expect(toIncoming(1, "a@example.com", "", undefined, raw)).toMatchObject({
+      deliveredAt: expected,
+    });
   });
 });

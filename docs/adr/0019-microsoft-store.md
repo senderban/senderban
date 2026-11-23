@@ -54,6 +54,14 @@ senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z 
    documented; the likely cause is that the centre is still open at 3 ms and Windows files the toast there without a banner. The id stays busy during
    the wait; a button of the same toast clicked meanwhile runs and cancels it; quitting cancels it.
 
+7. **The Store package starts at sign-in (0.3.3).** `build/appx-extensions.xml` declares a `desktop:StartupTask` with `Enabled="true"`.
+   Microsoft's page on the element: a packaged desktop app can set it "to enable the startup behavior when the app is first launched"
+   (learn.microsoft.com, element-desktop-startuptask, read 2026-11-22). So nothing starts before the person has opened Senderban once, and
+   Windows Settings > Apps > Startup and Task Manager turn it off and on. Without it a Store user had no notifications after a restart of
+   Windows until they opened the app. Electron's login item API does not see a StartupTask and Senderban adds no native module to ask
+   Windows, so Settings says what the package does and opens that Windows page. The installer keeps its switch, off by default. Not
+   measured yet: a sign-in with the installed package.
+
 ## What stays open
 
 - **A second delivery after a restart.** Which ids were answered is not written to disk. Windows can deliver the same click twice (toast and

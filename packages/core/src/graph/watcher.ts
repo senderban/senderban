@@ -193,6 +193,11 @@ export class OutlookWatcher {
     this.#loop.resumeNow();
   }
 
+  /** The network is back: a poll waiting out a passing failure comes soon. */
+  nudge(): boolean {
+    return this.#loop.nudge();
+  }
+
   #gap(gap: OutlookGap): void {
     try {
       this.#options.onGap?.(this.#options.accountId, gap);

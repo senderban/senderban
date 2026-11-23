@@ -128,5 +128,7 @@ describe("main.ts applies every Store gate", () => {
     expect(manage).toContain("els.updatesCard.hidden = watch.storeManaged === true;");
     expect(manage).toContain("els.navSponsor.hidden = watch.storeManaged === true;");
     expect(settingsView).toContain('stEls.startupCard.hidden = typeof on !== "boolean";');
+    // The Store's own Startup card: the one that opens Windows Settings.
+    expect(manage).toContain("els.startupStoreCard.hidden = watch.storeManaged !== true;");
   });
 });

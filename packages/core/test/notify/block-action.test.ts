@@ -3,6 +3,7 @@ import {
   blockPending,
   blockableDomain,
   canRejectSender,
+  coveringEntry,
   isOwnEntry,
   isOwnMailbox,
 } from "../../src/notify/block-action.js";
@@ -450,7 +451,7 @@ describe("blockPending", () => {
 
   it("a written rule whose read-back differs or fails is blocked but not verified", async () => {
     const drifted = setup({
-      check: { accountId: "a", status: "drifted", detail: "include missing" },
+      check: { accountId: "a", status: "drifted", detail: "include missing", failed: [] },
     });
     expect(await blockPending(drifted.deps, ID, "address")).toMatchObject({
       status: "blocked",
@@ -471,6 +472,48 @@ describe("blockPending", () => {
     const result = await blockPending(deps, ID, "address");
     expect(result).toEqual({ status: "refused", detail: "block list is full" });
     expect(sync).not.toHaveBeenCalled();
+  });
+});
+
+describe("coveringEntry", () => {
+  const entry = (match: BlockEntry["match"], value: string, createdAt: string): BlockEntry => ({
+    id: ID,
+    match,
+    value,
+    action: "trash",
+    createdAt,
+  });
+  const OLD = "2026-01-05T10:00:00.000Z";
+  const NEW = "2026-01-06T10:00:00.000Z";
+
+  it("finds the oldest entry that should have taken the mail", () => {
+    const domain = entry("subdomains", "spam.example", OLD);
+    const address = entry("exactAddress", "g@spam.example", NEW);
+    expect(coveringEntry([address, domain], "g@spam.example", NOBODY)).toBe(domain);
+    expect(coveringEntry([domain, address], "g@spam.example", NOBODY)).toBe(domain);
+    expect(coveringEntry([address], "g@spam.example", NOBODY)).toBe(address);
+  });
+
+  it("takes subdomains only where the entry does, and no lookalike", () => {
+    expect(
+      coveringEntry([entry("subdomains", "spam.example", OLD)], "x@a.spam.example", NOBODY),
+    ).not.toBeNull();
+    expect(
+      coveringEntry([entry("exactDomain", "spam.example", OLD)], "x@a.spam.example", NOBODY),
+    ).toBeNull();
+    expect(
+      coveringEntry([entry("subdomains", "spam.example", OLD)], "x@notspam.example", NOBODY),
+    ).toBeNull();
+    expect(
+      coveringEntry([entry("exactAddress", "a@spam.example", OLD)], "b@spam.example", NOBODY),
+    ).toBeNull();
+  });
+
+  it("leaves out an entry over the person's own mail: it is written nowhere", () => {
+    const own = { domains: new Set(["own.example"]), addresses: new Set<string>() };
+    expect(
+      coveringEntry([entry("subdomains", "own.example", OLD)], "x@own.example", own),
+    ).toBeNull();
   });
 });
 

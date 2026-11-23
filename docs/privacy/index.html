@@ -57,7 +57,7 @@
         <h1>Privacy policy</h1>
         <p class="lead">Senderban runs on your device. We never receive your mail data.</p>
         <p class="policy-status">
-          <strong>Effective 11 November 2026.</strong> Senderban is an early-release, open-source
+          <strong>Effective 22 November 2026.</strong> Senderban is an early-release, open-source
           Windows app (<a href="/">senderban.com</a>). This policy describes the code in
           <a href="https://github.com/senderban/senderban">the public repository</a>, so you can
           check every statement against it.
@@ -100,10 +100,12 @@
             </li>
             <li>
               <strong>Sender and subject of new mail.</strong> Only the From address and the Subject
-              of a newly arrived message, read on your device to show the notification, plus the
-              server's X-Spam-Score header on IMAP accounts. An IMAP server's message envelope also
-              carries the recipients; Senderban does not use or keep them. Senderban never reads or
-              downloads message bodies or attachments.
+              of a newly arrived message, read on your device to show the notification, plus, on
+              IMAP accounts, the server's X-Spam-Score header. From version 0.3.3 also, on IMAP
+              accounts, the time the server received the message, to tell new mail from mail moved
+              back to the inbox; the diagnostic log keeps it as an age. An IMAP server's message
+              envelope also carries the recipients; Senderban does not use or keep them. Senderban
+              never reads or downloads message bodies or attachments.
             </li>
             <li>
               <strong>MXroute API key (optional).</strong> Encrypted the same way, on your device
@@ -121,9 +123,10 @@
             </li>
             <li>
               <strong>A diagnostic log.</strong> A local file on your device with events, states,
-              error codes and the domain of a sender (not the full address). It does not contain
-              passwords, tokens or subject lines. Nothing is sent anywhere unless you attach the
-              file to a bug report yourself.
+              error codes and the domain of a sender (not the full address), how old an announced
+              mail was and, after a fault, a short technical error text with addresses and folder
+              names taken out. It does not contain passwords, tokens or subject lines. Nothing is
+              sent anywhere unless you attach the file to a bug report yourself.
             </li>
           </ul>
 

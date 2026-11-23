@@ -3,7 +3,8 @@
  * .task/security-review-release-0-3-0-2026-11-12.md, outside this repo).
  * - The update check: the Store updates the app; asking GitHub would offer a second, different installer.
  * - The sponsor link: a link to a payment page stays out of the Store build until the Store's rules on it are read.
- * - Start at sign-in: a Store package starts at sign-in only through a manifest StartupTask, which it does not declare.
+ * - The start-at-sign-in switch: a Store package starts at sign-in through its manifest StartupTask (build/appx-extensions.xml), on
+ *   after the first launch; Windows Settings > Apps > Startup turns it off and on, and Electron's login item API does not see it.
  */
 export interface StoreGates {
   readonly storeInstall: boolean;

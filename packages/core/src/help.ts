@@ -13,6 +13,7 @@ export const HELP_TARGETS = [
   "releases",
   "website",
   "sponsor",
+  "startup",
   "logs",
 ] as const;
 export type HelpTarget = (typeof HELP_TARGETS)[number];
@@ -24,4 +25,7 @@ export const HELP_LINKS: Readonly<Record<Exclude<HelpTarget, "logs">, string>> =
   releases: "https://github.com/senderban/senderban/releases",
   website: "https://senderban.com/",
   sponsor: "https://github.com/sponsors/AlimKose",
+  // Windows Settings > Apps > Startup (learn.microsoft.com, "Launch Windows Settings", `ms-settings:startupapps`, read 2026-11-22). The
+  // one target that is not a web page: a Store install starts at sign-in through its manifest, and Windows owns that switch.
+  startup: "ms-settings:startupapps",
 };

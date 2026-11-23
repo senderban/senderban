@@ -44,14 +44,28 @@ export interface IncomingMessage {
   readonly subject: string;
   /** The server's own spam score, or null when it sent none or one outside SPAM_SCORE. Display only. */
   readonly spamScore: number | null;
+  /**
+   * When the server took the mail (IMAP INTERNALDATE), or null when it sent none we can use. Unit: epoch milliseconds. A move between
+   * folders keeps it, so it tells a new mail from an old one that came back to the Inbox.
+   */
+  readonly deliveredAt: number | null;
 }
+
+/** A mail whose From is not an address we can match: announced, with nothing to click. */
+export interface UnreadableSender {
+  readonly uid: number;
+  readonly from: null;
+  readonly subject: string;
+}
+
+export type IncomingRow = IncomingMessage | UnreadableSender;
 
 export interface MailboxSession {
   readonly uidValidity: string;
   readonly uidNext: number;
   /** Messages with uid > `uid`, ascending. IMAP `n:*` returns the last message even when n is past it; callers must not trust the range. */
-  /** The newest rows after `uid`, oldest first; `null` is a row with no usable From, which still counts towards FETCH_LIMIT. */
-  fetchSince(uid: number): Promise<(IncomingMessage | null)[]>;
+  /** The newest rows after `uid`, oldest first. A row with no usable From counts towards FETCH_LIMIT too. */
+  fetchSince(uid: number): Promise<IncomingRow[]>;
   onExists(listener: () => void): void;
   /** Called once when the connection is gone, with the cause when there is one. */
   onClose(listener: (cause: Error | null) => void): void;
@@ -81,6 +95,19 @@ export class FatalWatchError extends Error {
   override readonly name = "FatalWatchError";
 }
 
+/**
+ * True for an error that carries an answer of the server: a tagged NO or BAD, an untagged BYE, a response code, or a refused sign-in
+ * (ImapFlow 2.9.1 sets these fields; `lib/commands/login.js`, `lib/imap-flow.js`). A dropped or unreachable connection has none.
+ */
+export function refusedByServer(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  if ("authenticationFailed" in error && error.authenticationFailed === true) return true;
+  return ["responseStatus", "serverResponseCode"].some((key) => {
+    const value: unknown = Reflect.get(error, key);
+    return typeof value === "string" && value !== "";
+  });
+}
+
 export type WatcherState = "stopped" | "connecting" | "watching" | "backoff" | "halted";
 
 export interface WatcherOptions {
@@ -91,6 +118,8 @@ export interface WatcherOptions {
   readonly gate?: Gate;
   readonly cursors: CursorStore;
   readonly onMessage: (accountId: string, message: IncomingMessage) => void;
+  /** New mail whose sender cannot be matched. Absent: such mail is passed over in silence. */
+  readonly onUnreadableSender?: (accountId: string, message: UnreadableSender) => void;
   /**
    * Sees every new mail of a drain before anything is announced, and returns the mail left to announce. Throwing keeps the cursor,
    * so the batch is looked at again on the next connection.
@@ -102,7 +131,13 @@ export interface WatcherOptions {
   readonly onOverflow?: (accountId: string, skipped: number) => void;
   /** A mail too large to read was stepped past, with whatever came in beside it; `skipped` counts UIDs, an upper bound. */
   readonly onUnreadable?: (accountId: string, skipped: number) => void;
-  readonly onState?: (accountId: string, state: WatcherState, detail?: string) => void;
+  /** `refused`: on `backoff`, the server answered and said no (a login limit, a busy mailbox), so another account's success changes nothing. */
+  readonly onState?: (
+    accountId: string,
+    state: WatcherState,
+    detail?: string,
+    refused?: boolean,
+  ) => void;
   readonly maxPerDrain?: number;
   readonly backoff?: { readonly baseMs: number; readonly maxMs: number; readonly stableMs: number };
   /** Injectable for tests; returns [0, 1). */
@@ -143,21 +178,35 @@ export function parseSpamScore(headers: Uint8Array | undefined): number | null {
     : null;
 }
 
-/** Envelope fields -> IncomingMessage, or null when the sender is not an address we can match. */
+/**
+ * Earliest and latest INTERNALDATE taken at its word. Unit: epoch milliseconds. 1982 is the year of RFC 822; the far end is
+ * 9999-12-31, the last year RFC 9051 `date-year` (four digits) can write.
+ */
+export const DELIVERED_AT = { min: Date.UTC(1982, 0, 1), max: Date.UTC(9999, 11, 31) } as const;
+
+/** INTERNALDATE as the library hands it over (a Date, or text it could not read as one), or null. */
+export function parseDeliveredAt(raw: Date | string | undefined): number | null {
+  if (!(raw instanceof Date)) return null;
+  const ms = raw.getTime();
+  return Number.isFinite(ms) && ms >= DELIVERED_AT.min && ms <= DELIVERED_AT.max ? ms : null;
+}
+
+/** Envelope fields -> a row: with `from` null when the sender is not an address we can match. */
 export function toIncoming(
   uid: number,
   fromAddress: string | undefined,
   subject: string | undefined,
   headers?: Uint8Array,
-): IncomingMessage | null {
-  if (fromAddress === undefined) return null;
-  const parsed = parseAddress(fromAddress);
-  if (!parsed.ok) return null;
+  internalDate?: Date | string,
+): IncomingRow {
+  const parsed = fromAddress === undefined ? null : parseAddress(fromAddress);
+  if (parsed?.ok !== true) return { uid, from: null, subject: sanitizeSubject(subject ?? "") };
   return {
     uid,
     from: parsed.value.address,
     subject: sanitizeSubject(subject ?? ""),
     spamScore: parseSpamScore(headers),
+    deliveredAt: parseDeliveredAt(internalDate),
   };
 }
 
@@ -238,9 +287,21 @@ export class AccountWatcher {
     void this.connectOnce();
   }
 
-  private setState(state: WatcherState, detail?: string): void {
+  /**
+   * The network is back (another account just connected): try now instead of waiting out the delay. The failure count stays, so a
+   * server that refuses again goes on with the longer delay. Returns whether a try started.
+   */
+  nudge(): boolean {
+    if (this.state !== "backoff" || this.retryTimer === null) return false;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    void this.connectOnce();
+    return true;
+  }
+
+  private setState(state: WatcherState, detail?: string, refused = false): void {
     this.state = state;
-    this.options.onState?.(this.options.accountId, state, detail);
+    this.options.onState?.(this.options.accountId, state, detail, refused);
   }
 
   private clearTimers(): void {
@@ -372,30 +433,38 @@ export class AccountWatcher {
     const wide = opening && session.uidNext - 1 - cursor.lastUid > FETCH_LIMIT;
 
     const rows = await session.fetchSince(cursor.lastUid);
-    const fresh = rows
-      .filter((m): m is IncomingMessage => m !== null && m.uid > cursor.lastUid)
-      .sort((a, b) => a.uid - b.uid);
+    const arrived = rows.filter((m) => m.uid > cursor.lastUid).sort((a, b) => a.uid - b.uid);
+    const fresh = arrived.filter((m): m is IncomingMessage => m.from !== null);
     // A burst past the limit on a live session shows only here: `uidNext` is frozen at open. Rows count before the unusable ones
     // go, or one bad From among the newest hides mail the limit left out.
     if (wide || rows.length >= FETCH_LIMIT) this.gap("burst");
     // The watcher was stopped or replaced while the fetch ran: its result belongs to nobody.
-    if (epoch !== this.epoch || fresh.length === 0) return;
+    if (epoch !== this.epoch || arrived.length === 0) return;
 
-    const left = this.options.screen === undefined ? fresh : await this.options.screen(fresh);
+    const kept =
+      this.options.screen === undefined || fresh.length === 0
+        ? fresh
+        : await this.options.screen(fresh);
     if (epoch !== this.epoch) return;
 
+    // One limit for both kinds: a burst with unreadable senders is the same toast flood.
+    const left: IncomingRow[] = [...kept, ...arrived.filter((m) => m.from === null)].sort(
+      (a, b) => a.uid - b.uid,
+    );
     const skipped = Math.max(0, left.length - this.maxPerDrain);
     for (const [index, message] of left.entries()) {
       if (index < skipped) continue;
       try {
-        this.options.onMessage(accountId, message);
+        if (message.from === null) this.options.onUnreadableSender?.(accountId, message);
+        else this.options.onMessage(accountId, message);
       } catch {
         // A consumer bug must not wedge the cursor on one message.
       }
     }
     // One write per drain, not one per message (200 upserts were 287 ms on the main thread). A crash inside the loop announces
     // this batch again on the next start: at least once, never lost.
-    const last = fresh[fresh.length - 1];
+    // The cursor also passes mail with an unreadable sender, or that one mail is read and told again at every connect.
+    const last = arrived[arrived.length - 1];
     if (last !== undefined)
       cursors.set(accountId, { uidValidity: session.uidValidity, lastUid: last.uid });
     if (skipped > 0) this.options.onOverflow?.(accountId, skipped);
@@ -428,7 +497,7 @@ export class AccountWatcher {
     const ceiling = Math.min(this.backoff.maxMs, this.backoff.baseMs * 2 ** (this.failures - 1));
     // Equal jitter: half fixed, half random, so 50 accounts do not reconnect in lockstep after a network blip.
     const delay = Math.round(ceiling / 2 + (ceiling / 2) * this.random());
-    this.setState("backoff", message);
+    this.setState("backoff", message, refusedByServer(error));
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       void this.connectOnce();

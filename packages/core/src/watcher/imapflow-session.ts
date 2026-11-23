@@ -1,7 +1,7 @@
 import { ImapFlow } from "imapflow";
 import type { FetchMessageObject } from "imapflow";
 import { UID_MAX } from "../imap-clean/session.js";
-import type { IncomingMessage, MailboxSession } from "./watcher.js";
+import type { IncomingRow, MailboxSession } from "./watcher.js";
 import { FETCH_LIMIT, FatalWatchError, UnreadableMailError, toIncoming } from "./watcher.js";
 
 export { FETCH_LIMIT };
@@ -72,9 +72,15 @@ export function fetchStartUid(lastUid: number, uidNext: number): number {
 /** One row reduced to what is kept, while streaming: the raw envelope of a kept row could hold megabytes of addresses. */
 export async function* reduceRows(
   rows: AsyncIterable<FetchMessageObject>,
-): AsyncGenerator<IncomingMessage | null> {
+): AsyncGenerator<IncomingRow> {
   for await (const row of rows) {
-    yield toIncoming(row.uid, row.envelope?.from?.[0]?.address, row.envelope?.subject, row.headers);
+    yield toIncoming(
+      row.uid,
+      row.envelope?.from?.[0]?.address,
+      row.envelope?.subject,
+      row.headers,
+      row.internalDate,
+    );
   }
 }
 
@@ -236,12 +242,12 @@ export function imapflowConnector(
       return {
         uidValidity: mailbox.uidValidity.toString(),
         uidNext: openUidNext,
-        fetchSince(uid: number): Promise<(IncomingMessage | null)[]> {
+        fetchSince(uid: number): Promise<IncomingRow[]> {
           return keepNewest(
             reduceRows(
               client.fetch(
                 `${String(fetchStartUid(uid, openUidNext))}:*`,
-                { uid: true, envelope: true, headers: ["x-spam-score"] },
+                { uid: true, envelope: true, internalDate: true, headers: ["x-spam-score"] },
                 { uid: true },
               ),
             ),

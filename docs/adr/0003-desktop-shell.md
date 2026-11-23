@@ -40,6 +40,17 @@ not by choosing a page** (see list below). If native buttons do not fire, fallba
 - Header text is hostile input: the sender must parse as an exact address (`parseAddress`), the
   display name is never shown, the subject loses control and bidi characters and is capped at 200.
 - At most 5 toasts per fetch; older new mail in the same gap is counted, not announced.
+- 0.3.3: a mail whose From is not an address we can match is announced with no button, as on Gmail, and the cursor passes it. Before, it
+  was dropped without a word. Measured on Dovecot 2.4.5 (2026-11-22): 11 of 25 From shapes gave no toast, and for 6 of those
+  (a bracket, an `@`, an open quote or an open parenthesis in the name, `<a@b` without its end, a domain with a final dot) the Sieve rule
+  did not match either when the envelope sender was another domain. Whenever the app reads the address, the rule matched
+  (`contract/arrivals.contract.ts`). A rule on the raw header would match lookalikes too, so there is none: such mail is shown.
+- 0.3.3: an account that gets through again nudges the others. One server: any wait after a broken connection. Elsewhere: only a wait caused
+  by no network (name lookup, route, timeout). Never one the server itself answered with no (a login limit, a busy mailbox): its wait is what
+  it asked for, and the ten-refusals halt counts on it. At most once in 30 s and three times in one absence per account, through the login
+  gate, and the failure count stays. Measured before it (2026-11-20): two mailboxes of one server came back 150 s apart after the same outage.
+- 0.3.3: an `imap-heartbeat` line per account (state, time connected, drops, mails found): every hour with something to say, every 6 hours
+  otherwise. The unreadable-From notice comes at most once an hour per account, with the count of the others: nothing can mute it.
 - STARTTLS is required when not implicit TLS (`doSTARTTLS`), and an authentication failure halts the
   watcher instead of retrying (a retry loop with a wrong password risks a server-side lockout).
 - Dedup key per message: `(accountId, uidValidity, uid)`; the last seen UID is persisted so a restart
