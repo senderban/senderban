@@ -42,6 +42,7 @@
         "softwareVersion": "0.3.2",
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
         "downloadUrl": "https://github.com/senderban/senderban/releases/latest",
+        "installUrl": "https://apps.microsoft.com/detail/9P73H1CNW9ZP",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "image": "https://senderban.com/assets/og.png",
         "author": {
@@ -90,19 +91,18 @@
             Senderban moves the mail itself while it runs.
           </p>
           <div class="actions">
-            <a class="button primary" href="https://github.com/senderban/senderban/releases/latest"
-              ><svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M11 3h2v9.6l3.3-3.3 1.4 1.4L12 16.4l-5.7-5.7 1.4-1.4 3.3 3.3V3zM5 19h14v2H5z"
-                />
-              </svg>
-              Download for Windows</a
+            <a class="button primary" href="https://apps.microsoft.com/detail/9P73H1CNW9ZP"
+              >Get it from Microsoft Store</a
             >
-            <a class="button" href="https://github.com/senderban/senderban">View the source</a>
+            <a class="button" href="https://github.com/senderban/senderban/releases/latest"
+              >Download the installer</a
+            >
           </div>
           <p class="fineprint">
-            Installs for your user only, no administrator rights. Early release: start with a
-            mailbox you can afford to experiment on.
+            Version 0.3.2 from the Store does not start with Windows; the installer version can,
+            once you switch it on.
+            <a href="#which">Store or installer?</a> Early release: start with a mailbox you can
+            afford to experiment on.
           </p>
         </div>
 
@@ -355,8 +355,9 @@
               no marker: Unblock removes an address there even if you had listed it yourself.
             </li>
             <li>
-              Once a day it asks GitHub whether a newer version is out, and downloads nothing. Turn
-              it off in Settings; see the <a href="/privacy/">privacy policy</a>.
+              The installer version asks GitHub once a day whether a newer version is out, and
+              downloads nothing; you can turn that off in Settings. The Store version does not ask.
+              See the <a href="/privacy/">privacy policy</a>.
             </li>
             <li>
               Block at server, on MXroute, is off until you switch it on: it refuses mail for every
@@ -382,6 +383,22 @@
       <section id="faq">
         <div class="wrap">
           <h2>Questions</h2>
+          <details>
+            <summary>Microsoft Store or installer: which one?</summary>
+            <p id="which">
+              It is the same app. Microsoft signs the
+              <a href="https://apps.microsoft.com/detail/9P73H1CNW9ZP">Microsoft Store version</a>
+              and the Store updates it. The
+              <a href="https://github.com/senderban/senderban/releases/latest">installer</a> from
+              GitHub is for your user only, needs no administrator rights and is not code-signed. It
+              asks GitHub once a day whether a newer version is out and leaves the download to you.
+            </p>
+            <p>
+              Version 0.3.2 from the Store does not start by itself when you sign in to Windows, so
+              open it from the Start menu after a restart; the installer has a switch for that in
+              Settings, off until you turn it on. Install one of the two, not both.
+            </p>
+          </details>
           <details>
             <summary>Windows warns when I run the installer. Is that expected?</summary>
             <p>

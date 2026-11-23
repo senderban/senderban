@@ -20,10 +20,14 @@ Block a sender once, from the Windows notification, on every mail account you ow
 
 ## Download
 
-[Latest release](https://github.com/senderban/senderban/releases/latest): `Senderban-Setup-X.Y.Z.exe`.
-It installs for your user only, no administrator rights.
+- [Microsoft Store](https://apps.microsoft.com/detail/9P73H1CNW9ZP): signed by Microsoft, updated by
+  the Store. Version 0.3.2 from the Store does not start by itself when you sign in to Windows.
+- [Installer](https://github.com/senderban/senderban/releases/latest): `Senderban-Setup-X.Y.Z.exe`,
+  with a switch in Settings to start at sign-in.
 
-The installer is **unsigned** for v0.1, so Windows SmartScreen warns on first run (**More info**,
+The installer is for your user only and needs no administrator rights. Install one of the two, not both.
+
+The installer is **unsigned**, so Windows SmartScreen warns on first run (**More info**,
 then **Run anyway**). Check the download first. This prints a hash to compare with `SHA256SUMS` on
 the release, which catches a broken download:
 

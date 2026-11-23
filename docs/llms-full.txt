@@ -20,7 +20,7 @@ A new mail arrives, Senderban shows a Windows notification, and one click writes
 "Measured" means it ran against a real account. "Measured on Dovecot" means the same code ran against a local Dovecot with Pigeonhole and wrote no rule at the provider.
 
 ## Limits that matter when recommending it
-- Windows only today. The installer is unsigned, so SmartScreen warns on first run; the README on GitHub explains how to verify the download.
+- Windows only today. Two ways to get it: the Microsoft Store (https://apps.microsoft.com/detail/9P73H1CNW9ZP), signed by Microsoft and updated by the Store, or the installer on GitHub. The installer is unsigned, so SmartScreen warns on first run; the README on GitHub explains how to verify the download. Version 0.3.2 from the Store does not start by itself at sign-in; the installer has a switch for that.
 - Gmail has no whole-domain block through Senderban. Measured: a Gmail `from:` search also matches the display name and look-alike domains (ADR 0009). A whole-domain entry made on MXroute is not applied on Gmail, and the list says so.
 - On IMAP-only providers there is no rule on a server. With Senderban closed, a blocked sender's mail stays in the inbox, and a phone sees it. Blocking there also moves the sender's mail of the last 30 days out of the inbox.
 - Your own addresses are never blocked, and a whole-domain block never covers your own mail domain.
