@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, createActivationSigner } from "@senderban/core";
-import type { MailToast, Settings } from "@senderban/core";
+import type { Settings } from "@senderban/core";
 import { join, sep } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const created: FakeNotification[] = [];
 const activate = vi.hoisted((): { click: (details: unknown) => void; registeredAfter: number } => ({
@@ -42,7 +42,7 @@ interface FakeNotification {
   options: { readonly toastXml?: string; readonly body?: string };
 }
 
-const { REOPEN_DELAY_MS, Toasts, spamStripUrls } = await import("../src/toasts.js");
+const { Toasts, spamStripUrls } = await import("../src/toasts.js");
 
 const STRIPS = spamStripUrls(join("C:", sep, "Senderban", "assets"));
 
@@ -73,18 +73,14 @@ describe("the person's settings", () => {
     const choose = vi.fn(() => Promise.resolve({ tone, text: "done" }));
     const quiet = vi.fn(() => Promise.resolve({ tone, text: "quiet done" }));
     const onRefused = vi.fn();
-    const onReshown = vi.fn();
     const onError = vi.fn();
+    const openRecent = vi.fn();
     const held: string[] = [];
-    const reopen = vi.fn((): Promise<MailToast | { tone: "ok" | "warn" | "error"; text: string }> =>
-      Promise.resolve({ ...toast(1), subject: "rebuilt" }),
-    );
     return {
       choose,
       quiet,
-      reopen,
+      openRecent,
       onRefused,
-      onReshown,
       onError,
       held,
       toasts: new Toasts({
@@ -93,11 +89,10 @@ describe("the person's settings", () => {
         signer: () => Promise.resolve(null),
         choose,
         quiet,
-        reopen,
+        openRecent,
         onActivation: () => undefined,
         onIgnored: () => undefined,
         onRefused,
-        onReshown,
         onError,
         hold: async <T>(work: () => Promise<T>): Promise<T> => {
           held.push("start");
@@ -125,130 +120,93 @@ describe("the person's settings", () => {
   });
 
   describe("a click on the toast's body", () => {
-    // setImmediate stays real: it lets the click's promises settle, while the wait before the answer is on the fake clock.
-    beforeEach(() => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    });
-    afterEach(() => {
-      vi.useRealTimers();
-    });
     const body = async (): Promise<void> => {
       activate.click({ arguments: `act=open;id=${ID}` });
       await new Promise((resolve) => setImmediate(resolve));
     };
 
-    it("shows the same toast again, kept on screen, and blocks nothing", async () => {
-      const { toasts, choose, quiet, reopen, onReshown } = make("ok");
-      toasts.show({ ...toast(1), subject: "the mail's own subject" });
-      created.length = 0;
+    it("opens Recent mail, blocks nothing, and shows no toast", async () => {
+      const t = make("ok");
       await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(reopen).toHaveBeenCalledOnce();
-      expect(choose).not.toHaveBeenCalled();
-      expect(quiet).not.toHaveBeenCalled();
-      expect(created).toHaveLength(1);
-      expect(created[0]?.shown).toBe(true);
-      expect(created[0]?.options.toastXml).toContain('<toast scenario="reminder"');
-      expect(created[0]?.options.toastXml).toContain("the mail&apos;s own subject");
-      expect(created[0]?.options.toastXml).toContain('<action content="Junk"');
-      expect(onReshown).toHaveBeenCalledWith("toast", REOPEN_DELAY_MS);
-    });
-
-    it("waits for the notification centre to close before it shows the toast", async () => {
-      make("ok");
-      await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS - 1);
-      expect(created).toHaveLength(0);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(created).toHaveLength(1);
-    });
-
-    it("uses what the app can rebuild for a toast of an earlier run", async () => {
-      const { reopen } = make("ok");
-      await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(reopen).toHaveBeenCalledOnce();
-      expect(created[0]?.options.toastXml).toContain("rebuilt");
-    });
-
-    it("says why when there is no toast to show, after the same wait", async () => {
-      const { reopen, onReshown } = make("ok");
-      reopen.mockResolvedValue({ tone: "warn", text: "Already handled." });
-      await body();
-      expect(created).toHaveLength(0);
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(created).toHaveLength(1);
-      expect(created[0]?.options.body).toBe("! Already handled.");
-      expect(onReshown).toHaveBeenCalledWith("notice", REOPEN_DELAY_MS);
-    });
-
-    it("says something went wrong, after the same wait, when the app cannot answer", async () => {
-      const { reopen, onError } = make("ok");
-      reopen.mockRejectedValue(new Error("boom"));
-      await body();
-      expect(onError).toHaveBeenCalledWith("toast:reopen", expect.any(Error));
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(created[0]?.options.body).toBe("✗ Something went wrong. See the log.");
-    });
-
-    it("answers a second delivery of the same click, inside the wait, once", async () => {
-      const { reopen } = make("ok");
-      await body();
-      await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(reopen).toHaveBeenCalledOnce();
-      expect(created).toHaveLength(1);
-    });
-
-    it("shows nothing after quit", async () => {
-      const { toasts } = make("ok");
-      await body();
-      toasts.closeAll();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
+      expect(t.openRecent).toHaveBeenCalledTimes(1);
+      expect(t.choose).not.toHaveBeenCalled();
+      expect(t.quiet).not.toHaveBeenCalled();
       expect(created).toHaveLength(0);
     });
 
-    it("shows nothing after quit, for a click the app was still answering, nor for a click after it", async () => {
-      const { toasts, reopen } = make("ok");
-      let answer: (value: MailToast) => void = () => undefined;
-      reopen.mockReturnValueOnce(
-        new Promise<MailToast>((resolve) => {
-          answer = resolve;
-        }),
+    it("leaves the toast's buttons usable after it", async () => {
+      const t = make("ok");
+      await body();
+      await click();
+      expect(t.choose).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens Recent mail for a click on a notice about mail too, and for nothing else", async () => {
+      const t = make("ok");
+      activate.click({ arguments: "act=recent" });
+      await new Promise((resolve) => setImmediate(resolve));
+      activate.click({ arguments: "act=recent;id=x" });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(t.openRecent).toHaveBeenCalledTimes(1);
+    });
+
+    it("logs a failure to open, and does not throw from the activation", async () => {
+      const t = make("ok");
+      t.openRecent.mockImplementation(() => {
+        throw new Error("no window");
+      });
+      await body();
+      expect(t.onError).toHaveBeenCalledWith("toast:open", expect.any(Error));
+    });
+
+    it("opens nothing after quit", async () => {
+      const t = make("ok");
+      t.toasts.closeAll();
+      await body();
+      expect(t.openRecent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a notice about mail", () => {
+    it("is a toast whose click opens Recent mail, with no buttons", () => {
+      const t = make("ok");
+      t.toasts.noticeMail(
+        "Senderban",
+        "3 more new messages in me were not announced. Click to see them.",
       );
-      await body();
-      toasts.closeAll();
-      answer(toast(1));
-      await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(reopen).toHaveBeenCalledOnce();
+      const xml = created[0]?.options.toastXml ?? "";
+      expect(xml).toMatch(/^<toast launch="act=recent">/u);
+      expect(xml).not.toMatch(/<action /u);
+      expect(created[0]?.shown).toBe(true);
+    });
+  });
+
+  describe("a click from the Recent mail view", () => {
+    it("takes the toast's own step and hands the outcome back instead of a notice", async () => {
+      settings = { ...DEFAULT_SETTINGS, confirmBlocks: true };
+      const t = make("ok");
+      const result = await t.toasts.answer(ID, "address", "trash");
+      expect(result).toEqual({ tone: "ok", text: "done" });
+      expect(t.choose).toHaveBeenCalledWith(ID, "address", "trash", undefined);
+      expect(t.held).toEqual(["start", "end"]);
       expect(created).toHaveLength(0);
     });
 
-    it("runs a button of the same toast clicked during the wait, and does not show the toast again", async () => {
-      const { choose } = make("ok");
-      await body();
-      await click();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      expect(choose).toHaveBeenCalledOnce();
-      expect(created.filter((made) => made.options.toastXml !== undefined)).toHaveLength(0);
+    it("sends Mute to the Don't ask again list", async () => {
+      const t = make("ok");
+      await t.toasts.answer(ID, "address", "quiet");
+      expect(t.quiet).toHaveBeenCalledWith(ID, "address", undefined);
+      expect(t.choose).not.toHaveBeenCalled();
     });
 
-    it("frees the id after a failed answer, so a block after it runs", async () => {
-      const { reopen, choose } = make("ok");
-      reopen.mockRejectedValue(new Error("boom"));
-      await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      await click();
-      expect(choose).toHaveBeenCalledOnce();
-    });
-
-    it("a block after it still runs once, and the id is free again", async () => {
-      const { choose } = make("ok");
-      await body();
-      await vi.advanceTimersByTimeAsync(REOPEN_DELAY_MS);
-      await click();
-      expect(choose).toHaveBeenCalledOnce();
+    it("says something went wrong when the step throws", async () => {
+      const t = make("ok");
+      t.choose.mockImplementation(() => Promise.reject(new Error("boom")));
+      expect(await t.toasts.answer(ID, "address", "junk")).toEqual({
+        tone: "error",
+        text: "Something went wrong. See the log.",
+      });
+      expect(t.onError).toHaveBeenCalledWith("toast:choose", expect.any(Error));
     });
   });
 
@@ -351,11 +309,10 @@ describe("Toasts tracking", () => {
       signer: () => Promise.resolve(null),
       choose: () => Promise.resolve({ tone: "ok", text: "" }),
       quiet: () => Promise.resolve({ tone: "ok", text: "" }),
-      reopen: () => Promise.resolve({ tone: "ok", text: "" }),
+      openRecent: () => undefined,
       onActivation: () => undefined,
       onIgnored: () => undefined,
       onRefused: () => undefined,
-      onReshown: () => undefined,
       onError: () => undefined,
       hold: (work) => work(),
     });
@@ -377,32 +334,6 @@ describe("Toasts tracking", () => {
     toasts.closeAll();
     expect(created.some((notification) => notification.closed)).toBe(false);
   });
-
-  it("keeps a toast shown again among the newest, not the first to be dropped", () => {
-    const toasts = new Toasts({
-      settings: () => DEFAULT_SETTINGS,
-      spamStrips: STRIPS,
-      signer: () => Promise.resolve(null),
-      choose: () => Promise.resolve({ tone: "ok", text: "" }),
-      quiet: () => Promise.resolve({ tone: "ok", text: "" }),
-      reopen: () => Promise.resolve({ tone: "ok", text: "" }),
-      onActivation: () => undefined,
-      onIgnored: () => undefined,
-      onRefused: () => undefined,
-      onReshown: () => undefined,
-      onError: () => undefined,
-      hold: (work) => work(),
-    });
-    created.length = 0;
-    for (let n = 0; n < 50; n += 1) toasts.show(toast(n));
-    toasts.show(toast(0), true);
-    toasts.show(toast(50));
-    toasts.closeAll();
-    // Toast 1 was the oldest after toast 0 was shown again, so it is the one forgotten; the second copy of toast 0 is still closed.
-    expect(created[1]?.closed).toBe(false);
-    expect(created[50]?.closed).toBe(true);
-    expect(created[51]?.closed).toBe(true);
-  });
 });
 
 describe("a click that outlives the app, through the toast", () => {
@@ -418,11 +349,10 @@ describe("a click that outlives the app, through the toast", () => {
       signer: () => Promise.resolve(signer),
       choose,
       quiet: () => Promise.resolve({ tone: "ok", text: "" }),
-      reopen: () => Promise.resolve({ tone: "ok", text: "" }),
+      openRecent: () => undefined,
       onActivation: () => undefined,
       onIgnored,
       onRefused: () => undefined,
-      onReshown: () => undefined,
       onError: () => undefined,
       hold: (work) => work(),
     });

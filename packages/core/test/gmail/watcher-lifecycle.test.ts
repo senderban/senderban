@@ -53,6 +53,7 @@ const meta = (id: string, from = "a@x.example"): MessageMetadata => ({
     { name: "Subject", value: "s" },
   ],
   headersComplete: true,
+  receivedMs: null,
 });
 
 /** A watcher over a scripted client: every call is recorded, and the test decides what it answers. */

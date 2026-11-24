@@ -3,6 +3,8 @@ import {
   REOPEN_CHOICE,
   SPAM_LEVELS,
   buildMailToastXml,
+  buildNoticeToastXml,
+  isRecentLaunch,
   parseActivation,
 } from "@senderban/core";
 import type {
@@ -22,18 +24,8 @@ import { pathToFileURL } from "node:url";
 
 // Scale budget: the watcher announces at most 5 messages per drain per account (DEFAULT_MAX_PER_DRAIN), so
 // toasts are a burst, not a rate. Windows queues and stacks them. Here only the Notification objects whose
-// click we still wait for, and the toasts behind them, are kept, at most MAX_TRACKED each, oldest dropped. The only timers are those of
-// a click on a toast's body (REOPEN_DELAY_MS): one per id at most (`#busy` holds the id until it fires), cleared at quit.
+// click we still wait for are kept, at most MAX_TRACKED, oldest dropped. No timers run in this module.
 const MAX_TRACKED = 50;
-
-/**
- * How long the answer to a click on a toast's body waits before it is shown. Unit: milliseconds.
- * Measured 2026-11-12 on the installed 0.3.0: after a click on a toast in the notification centre, the toast shown again 3 ms later
- * was in the centre (wpndatabase.db) and never appeared on screen. With this wait it appeared on screen after each of 7 clicks
- * (measured 2026-11-12, dev build on Electron 45.3.0, shown 1003-1019 ms after the click). Why the 3 ms one does not is not documented;
- * the likely cause is that the centre is still open then and the toast is filed there without a banner.
- */
-export const REOPEN_DELAY_MS = 1_000;
 
 /** What a finished block says to the person; shown as a second toast. */
 export interface ToastResult {
@@ -61,19 +53,17 @@ export interface ToastHandlers {
     scope: BlockScope,
     restore: ActivationRestore | undefined,
   ) => Promise<ToastResult>;
-  /** A click on a toast's body: the toast to show again, or why there is none. */
-  readonly reopen: (
-    id: string,
-    restore: ActivationRestore | undefined,
-  ) => Promise<MailToast | ToastResult>;
+  /**
+   * A click on a toast's body, or on a notice about mail: opens the Recent mail view, where the same mail has the same buttons.
+   * Microsoft's toast guidance: the body opens the app at what the toast is about. (0.3.2 showed the toast again instead.)
+   */
+  readonly openRecent: () => void;
   /** Windows delivered an activation (any click on a toast of ours): the log line that tells "not delivered" from "ignored". */
   readonly onActivation: () => void;
   /** A click was not one of our buttons or was malformed; `reason` is a fixed string, never the input. */
   readonly onIgnored: (reason: IgnoredReason) => void;
   /** Windows refused a toast: a mail was announced and never shown. A fixed log line, not Windows' text. */
   readonly onRefused: () => void;
-  /** The answer to a click on a toast's body was shown, after `waitedMs`: the toast again, or a notice of why there is none. */
-  readonly onReshown: (shown: "toast" | "notice", waitedMs: number) => void;
   /** A handler threw: the log gets the channel and a sanitised message, the person a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
   /** Runs a click as a step of the window, so a restart after an add waits for it as it waits for the window's own steps. */
@@ -121,14 +111,8 @@ export class Toasts {
   readonly #handlers: ToastHandlers;
   readonly #live = new Map<string, Notification>();
   readonly #busy = new Set<string>();
-  /** The answers to a click on a toast's body still waiting for the notification centre to close, by id. No named cap: an entry lives
-   * REOPEN_DELAY_MS and is one per id, so the size is the body clicks of the last second, a person's clicking speed, not accounts. */
-  readonly #waiting = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Set at quit: no new click is answered and no waiting answer is shown. A block already running at quit still shows its result,
-   * until the process exits. */
+  /** Set at quit: no new click is answered. A block already running at quit still shows its result, until the process exits. */
   #closed = false;
-  /** What each toast said, so one shown again has its subject; a toast of an earlier run does not. */
-  readonly #announced = new Map<string, MailToast>();
   /** Null until the key is read (a few milliseconds from start): a toast shown before that carries no sender, as one with no key does. */
   #signer: ActivationSigner | null = null;
 
@@ -147,24 +131,18 @@ export class Toasts {
     });
   }
 
-  /** A mail announcement with buttons. `untilAnswered`: the person asked for it, so it stays whatever the Settings say. */
-  show(toast: MailToast, untilAnswered = false): void {
+  /** A mail announcement with buttons. */
+  show(toast: MailToast): void {
     const notification = new Notification({
       toastXml: buildMailToastXml(toast, {
         ...this.#handlers.settings(),
-        ...(untilAnswered ? { toastDuration: "until-closed" as const } : {}),
         buttonStyle: BUTTON_STYLE,
         spamStrips: this.#handlers.spamStrips,
         ...optionalSigner(this.#signer),
       }),
     });
-    // Deleted first: `Map.set` keeps the place of a key it holds, and a toast shown again is the newest, not the first to be dropped.
-    this.#live.delete(toast.id);
-    this.#announced.delete(toast.id);
     this.#live.set(toast.id, notification);
-    this.#announced.set(toast.id, toast);
     dropOldest(this.#live);
-    dropOldest(this.#announced);
     notification.on("close", () => {
       if (this.#live.get(toast.id) === notification) this.#live.delete(toast.id);
     });
@@ -180,20 +158,48 @@ export class Toasts {
     new Notification({ title, body }).show();
   }
 
+  /** A notice about mail ("3 more new messages … were not announced"): no buttons, and a click opens Recent mail. */
+  noticeMail(title: string, body: string): void {
+    new Notification({ toastXml: buildNoticeToastXml(title, body) }).show();
+  }
+
+  /**
+   * The same step as a button of a toast, for a click that did not come from one (a row of the Recent mail view): the block or the
+   * quiet runs as a step of the window, and the outcome comes back instead of a notice.
+   */
+  async answer(
+    id: string,
+    scope: BlockScope,
+    action: BlockAction | typeof QUIET_CHOICE,
+  ): Promise<ToastResult> {
+    try {
+      return await this.#handlers.hold(() =>
+        action === QUIET_CHOICE
+          ? this.#handlers.quiet(id, scope, undefined)
+          : this.#handlers.choose(id, scope, action, undefined),
+      );
+    } catch (error) {
+      this.#handlers.onError("toast:choose", error);
+      return { tone: "error", text: "Something went wrong. See the log." };
+    }
+  }
+
   /** Removes the toasts that are still on screen; called at quit. */
   closeAll(): void {
     this.#closed = true;
     for (const notification of this.#live.values()) notification.close();
     this.#live.clear();
-    for (const timer of this.#waiting.values()) clearTimeout(timer);
-    this.#waiting.clear();
     this.#busy.clear();
   }
 
   async #activated(details: unknown): Promise<void> {
-    const clicked = Date.now();
     const signer = await this.#handlers.signer();
     if (this.#closed) return;
+    // A notice about mail: a fixed string, no id, nothing to block.
+    if (isRecentLaunch(details)) {
+      this.#open();
+      return;
+    }
     const parsed = parseActivation(
       details,
       this.#handlers.settings().defaultAction,
@@ -209,23 +215,15 @@ export class Toasts {
       return;
     }
     const { id, scope, action, restore } = parsed.activation;
-    // A button of a toast whose body was just clicked (the copy still in the notification centre): the block answers the person,
-    // so the toast waiting to be shown again is no longer needed.
-    const waiting = this.#waiting.get(id);
-    if (waiting !== undefined && action !== REOPEN_CHOICE) {
-      clearTimeout(waiting);
-      this.#waiting.delete(id);
-      this.#busy.delete(id);
+    // The body of a mail toast: the Recent mail view shows that mail with the same buttons. The toast's id stays unspent.
+    if (action === REOPEN_CHOICE) {
+      this.#open();
+      return;
     }
     // Windows can deliver the same click twice (toast and Action Center); the pending id is single-use anyway.
     if (this.#busy.has(id)) return;
     this.#busy.add(id);
-    if (action === REOPEN_CHOICE) {
-      await this.#reopen(id, restore, clicked);
-      return;
-    }
     this.#live.delete(id);
-    this.#announced.delete(id);
     let result: ToastResult;
     try {
       result = await this.#handlers.hold(() =>
@@ -245,41 +243,16 @@ export class Toasts {
     }
   }
 
-  async #reopen(
-    id: string,
-    restore: ActivationRestore | undefined,
-    clicked: number,
-  ): Promise<void> {
-    let answer: MailToast | ToastResult;
+  #open(): void {
     try {
-      answer = await this.#handlers.hold(() => this.#handlers.reopen(id, restore));
+      this.#handlers.openRecent();
     } catch (error) {
-      this.#handlers.onError("toast:reopen", error);
-      answer = { tone: "error", text: "Something went wrong. See the log." };
-    }
-    if (this.#closed) return;
-    // Shown after the wait, not now: the click may come from the notification centre, which is still open (REOPEN_DELAY_MS).
-    // The id stays busy until then, so a second delivery of the same click is not answered twice.
-    const timer = setTimeout(() => {
-      this.#waiting.delete(id);
-      this.#busy.delete(id);
+      // Called from an activation that nobody awaits: a throw here would be an unhandled rejection.
       try {
-        if ("tone" in answer) {
-          this.notice("Senderban", `${MARK[answer.tone]}${answer.text}`);
-          this.#handlers.onReshown("notice", Date.now() - clicked);
-          return;
-        }
-        this.show(this.#announced.get(id) ?? answer, true);
-        this.#handlers.onReshown("toast", Date.now() - clicked);
-      } catch (error) {
-        // A timer callback: a throw here, the handler's included, would be an uncaught exception in the main process.
-        try {
-          this.#handlers.onError("toast:reopen", error);
-        } catch {
-          // The handler only logs; nothing to undo.
-        }
+        this.#handlers.onError("toast:open", error);
+      } catch {
+        // The handler only logs; nothing to undo.
       }
-    }, REOPEN_DELAY_MS);
-    this.#waiting.set(id, timer);
+    }
   }
 }

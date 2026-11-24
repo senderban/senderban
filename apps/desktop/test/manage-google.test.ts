@@ -64,6 +64,7 @@ let googleState: ReturnType<typeof vi.fn>;
 let googleSaveClient: ReturnType<typeof vi.fn>;
 let googleSignIn: ReturnType<typeof vi.fn>;
 let googleCancel: ReturnType<typeof vi.fn>;
+let recentClosed: ReturnType<typeof vi.fn>;
 let googleRemove: ReturnType<typeof vi.fn>;
 let restart: ReturnType<typeof vi.fn>;
 let noRestart: ReturnType<typeof vi.fn>;
@@ -83,6 +84,7 @@ beforeEach(() => {
   googleSaveClient = vi.fn(() => Promise.resolve("saved"));
   googleSignIn = vi.fn(() => Promise.resolve({ reply: "signed-in" }));
   googleCancel = vi.fn();
+  recentClosed = vi.fn();
   googleRemove = vi.fn(() => Promise.resolve("removed"));
   restart = vi.fn();
   noRestart = vi.fn();
@@ -103,6 +105,7 @@ beforeEach(() => {
     noRestart,
     status,
     onError,
+    recentClosed,
   } as never);
   window.show();
 });
@@ -343,9 +346,10 @@ describe("manage:google-state, -remove and -cancel", () => {
     expect(reply.secretPattern).toBe("[!-~]+");
   });
 
-  it("stops a waiting sign-in when its window closes", () => {
+  it("stops a waiting sign-in, and lets the Recent keys go, when its window closes", () => {
     windowEvents.get("closed")?.();
     expect(googleCancel).toHaveBeenCalledTimes(1);
+    expect(recentClosed).toHaveBeenCalledTimes(1);
   });
 
   it("restarts only for the trusted page, with nothing taken from the page", async () => {

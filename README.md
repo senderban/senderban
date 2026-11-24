@@ -83,8 +83,9 @@ It is not an email client. It does not send, sync, search or download message bo
 ## What it reads and writes
 
 - **Reads:** only the `From` and `Subject` of a newly arrived message, plus the server's
-  `X-Spam-Score` header on IMAP accounts, on your device, to build the notification. No message
-  body. Nothing is sent to a Senderban server (there is none). An **Other (IMAP)** mailbox is the
+  `X-Spam-Score` header on IMAP accounts, on your device, to build the notification. When you open
+  **Recent mail**, the same fields and the time received of the 10 newest messages in each inbox,
+  kept in memory only. No message body. Nothing is sent to a Senderban server (there is none). An **Other (IMAP)** mailbox is the
   exception to "newly arrived": to clear past mail, Senderban reads the sender of older messages in
   that inbox, up to 30 days back and 50,000 messages, on your device. It keeps only what it moves.
 - **Writes:** rules on your mail provider, tagged as Senderban's own, and it leaves rules you created

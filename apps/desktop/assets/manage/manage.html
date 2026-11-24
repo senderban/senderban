@@ -25,6 +25,13 @@
             </svg>
             <span>Home</span>
           </button>
+          <button type="button" id="nav-recent" class="nav">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+              <path d="M1.75 9h3.5l1 1.75h3.5l1-1.75h3.5" />
+            </svg>
+            <span>Recent mail</span>
+          </button>
           <button type="button" id="nav-blocked" class="nav">
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <circle cx="8" cy="8" r="5.75" />
@@ -513,6 +520,22 @@
           <p id="help-status" class="status" role="status" hidden></p>
         </section>
 
+        <section id="view-recent" class="view" hidden>
+          <div class="row">
+            <p class="muted grow">
+              The newest mail of each mailbox, read when you open this page and kept in memory for
+              up to 3 minutes. Block or mute a sender here as you would from a notification.
+            </p>
+            <button type="button" id="recent-refresh" class="small">Refresh</button>
+          </div>
+          <div class="list-section">
+            <ul id="recent-list" class="list" aria-label="Recent mail"></ul>
+            <p id="recent-empty" class="muted" hidden></p>
+            <p id="recent-problems" class="meta" data-tone="warn" hidden></p>
+            <p id="recent-status" class="status" role="status" hidden></p>
+          </div>
+        </section>
+
         <section id="view-quiet" class="view" hidden>
           <p class="muted">
             No notification for these senders. Their mail is left alone, and nothing is written to
@@ -750,8 +773,9 @@
               For Outlook.com, Hotmail, Live, MSN and Microsoft 365. Senderban opens Microsoft's
               sign-in page in your browser and never sees your password. It asks to change mailbox
               rules, to find your Junk folder, to read the sender and subject of new mail for the
-              notification, and to read your address. It never reads the body of a mail. A work or
-              school account may need your organization's approval first.
+              notification and of recent mail for the Recent mail page, and to read your address. It
+              never reads the body of a mail. A work or school account may need your organization's
+              approval first.
             </p>
             <p id="microsoft-unavailable" class="status" data-tone="warn" hidden>
               Microsoft sign-in is not set up in this version of Senderban yet, so this button is
@@ -774,6 +798,7 @@
     <script src="settings.js"></script>
     <script src="spam-filter.js"></script>
     <script src="quiet.js"></script>
+    <script src="recent.js"></script>
     <script src="help.js"></script>
   </body>
 </html>

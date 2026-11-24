@@ -1,8 +1,16 @@
 import { ImapFlow } from "imapflow";
 import type { FetchMessageObject } from "imapflow";
 import { UID_MAX } from "../imap-clean/session.js";
-import type { IncomingRow, MailboxSession } from "./watcher.js";
-import { FETCH_LIMIT, FatalWatchError, UnreadableMailError, toIncoming } from "./watcher.js";
+import type { IncomingRow, MailboxSession, RecentRow } from "./watcher.js";
+import {
+  FETCH_LIMIT,
+  FatalWatchError,
+  RECENT_MAX,
+  RecentTooLargeError,
+  UnreadableMailError,
+  parseDeliveredAt,
+  toIncoming,
+} from "./watcher.js";
 
 export { FETCH_LIMIT };
 
@@ -15,8 +23,9 @@ export const GREETING_TIMEOUT_MS = 15_000;
 /** Past this the socket is closed without waiting for LOGOUT: imapflow's own inactivity timer would take 5 minutes. */
 export const LOGOUT_TIMEOUT_MS = 5_000;
 /**
- * Quiet time before a writable session goes back to IDLE. Unit: milliseconds. imapflow waits 15 s, and new mail shows up only in IDLE,
- * so a blocked mail that arrives right after a move would sit in the Inbox that long. A session that only watches keeps the default.
+ * Quiet time before a session goes back to IDLE after a command. Unit: milliseconds. imapflow waits 15 s, and new mail shows up only
+ * in IDLE: a blocked mail that arrives right after a move would sit in the Inbox that long, and new mail after a Recent mail read
+ * would be announced that late. The cost is one more IDLE per drain.
  */
 export const CLEAN_IDLE_DELAY_MS = 1_000;
 /**
@@ -84,6 +93,33 @@ export async function* reduceRows(
   }
 }
 
+/**
+ * Rows a Recent mail read may stream before it stops. Unit: rows per row asked for. A sequence range names exactly the rows asked
+ * for; a server that sends more is cut off here.
+ */
+export const RECENT_SCAN_FACTOR = 5;
+
+/** The same reduction for the Recent mail view: the delivery time, no spam score. */
+export async function* reduceRecent(
+  rows: AsyncIterable<FetchMessageObject>,
+): AsyncGenerator<RecentRow> {
+  for await (const row of rows) {
+    const incoming = toIncoming(
+      row.uid,
+      row.envelope?.from?.[0]?.address,
+      row.envelope?.subject,
+      undefined,
+      row.internalDate,
+    );
+    yield {
+      uid: incoming.uid,
+      from: incoming.from,
+      subject: incoming.subject,
+      deliveredAt: parseDeliveredAt(row.internalDate),
+    };
+  }
+}
+
 /** Streams `rows`, keeps the newest `keep`, and stops reading after `scanMax` rows. Memory is O(keep). */
 export async function keepNewest<T>(
   rows: AsyncIterable<T>,
@@ -121,10 +157,11 @@ export interface ImapConnection {
 /** Handed to the opener of a session. */
 export interface OpenHooks {
   /**
-   * `old` is set while old mail is read: a size limit hit then is about that mail, not about new mail the watcher should step over.
-   * `oversized` says one was hit: the read itself only sees the connection close.
+   * `old` counts the reads of old mail running (the cleaning lane, the Recent mail view): a size limit hit then is about that mail,
+   * not about new mail the watcher should step over. A count, not a flag: the two reads share the client, and the first to end
+   * must not unmark the other. `oversized` says one was hit: the read itself only sees the connection close.
    */
-  readonly reading: { old: boolean; oversized: boolean };
+  readonly reading: { old: number; oversized: boolean };
 }
 
 /** RFC 5530 s3: temporary refusals; AUTHENTICATIONFAILED (and no code) stay permanent. */
@@ -189,7 +226,7 @@ export function imapflowConnector(
       doSTARTTLS: config.secure ? undefined : true,
       auth: { user: config.user, pass },
       ...(config.tls === undefined ? {} : { tls: config.tls }),
-      ...(config.writable === true ? { autoIdleDelay: CLEAN_IDLE_DELAY_MS } : {}),
+      autoIdleDelay: CLEAN_IDLE_DELAY_MS,
       logger: false,
       maxIdleTime: IDLE_RESTART_MS,
       connectionTimeout: CONNECT_TIMEOUT_MS,
@@ -203,11 +240,11 @@ export function imapflowConnector(
     let existsListener: (() => void) | null = null;
     let closeListener: ((cause: Error | null) => void) | null = null;
     let lastError: Error | null = null;
-    const hooks: OpenHooks = { reading: { old: false, oversized: false } };
+    const hooks: OpenHooks = { reading: { old: 0, oversized: false } };
     // Only a session that opened reports these two ways, so a limit hit here came from a mail.
     const fromMail = (error: Error): Error => {
       if (!isOversized(error)) return error;
-      if (!hooks.reading.old) return new UnreadableMailError("a mail is too large to read");
+      if (hooks.reading.old === 0) return new UnreadableMailError("a mail is too large to read");
       hooks.reading.oversized = true;
       return error;
     };
@@ -256,6 +293,50 @@ export function imapflowConnector(
           ).catch((error: unknown) => {
             throw error instanceof Error ? fromMail(error) : error;
           });
+        },
+        async recent(count: number, signal?: AbortSignal): Promise<RecentRow[]> {
+          if (!Number.isInteger(count) || count < 1 || count > RECENT_MAX) {
+            throw new RangeError("the Recent mail count is out of range");
+          }
+          signal?.throwIfAborted();
+          // Live, not the value from the open: the library keeps it current from EXISTS and EXPUNGE.
+          // No mailbox open: the connection is closing. Not an empty Inbox, which the page would say.
+          if (client.mailbox === false) throw new Error("the Inbox is not open");
+          const exists = client.mailbox.exists;
+          if (!Number.isSafeInteger(exists) || exists < 1) return [];
+          // The newest by position, not by UID: deleted mail leaves UID gaps, positions have none (RFC 9051, "Message Sequence Number Message Attribute").
+          // A limit hit here is about old mail: the watcher must not step over new mail for it (see `OpenHooks`).
+          hooks.reading.old += 1;
+          // The caller gave up on it: a FETCH left queued would hold the watcher's next one, so the connection goes (the watcher reconnects).
+          const onAbort = (): void => {
+            client.close();
+          };
+          signal?.addEventListener("abort", onAbort, { once: true });
+          try {
+            const rows = await keepNewest(
+              reduceRecent(
+                client.fetch(`${String(Math.max(1, exists - count + 1))}:*`, {
+                  uid: true,
+                  envelope: true,
+                  internalDate: true,
+                }),
+              ),
+              count,
+              count * RECENT_SCAN_FACTOR,
+            );
+            return rows.sort((a, b) => b.uid - a.uid);
+          } catch (error) {
+            // The stream only sees the connection close; what closed it arrives as an event on the same turn or the next (`fromMail`).
+            // The flag is the connection's own, and a limit ends the connection: no reset.
+            await new Promise((resolve) => setImmediate(resolve));
+            if (isOversized(error) || hooks.reading.oversized) {
+              throw new RecentTooLargeError("a mail among the newest is too large to read");
+            }
+            throw error;
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+            hooks.reading.old -= 1;
+          }
         },
         onExists(listener) {
           existsListener = listener;

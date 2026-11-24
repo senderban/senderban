@@ -16,7 +16,7 @@ const stubClient = (over: Stub = {}): ImapFlow =>
     ...over,
   }) as unknown as ImapFlow;
 
-const hooks = () => ({ reading: { old: false, oversized: false } });
+const hooks = () => ({ reading: { old: 0, oversized: false } });
 
 async function* rows(items: readonly Stub[]) {
   await Promise.resolve();
@@ -137,15 +137,15 @@ describe("readFrom", () => {
 
   it("marks the read, so a size limit is about old mail and not about the watcher's", async () => {
     const shared = hooks();
-    const seen: boolean[] = [];
+    const seen: number[] = [];
     const fetch = vi.fn(async function* () {
       seen.push(shared.reading.old);
       await Promise.resolve();
       yield { uid: 1, envelope: { from: [{ address: "a@x.example" }] } };
     });
     await cleanMailboxOf(stubClient({ fetch }), shared).readFrom([1]);
-    expect(seen).toEqual([true]);
-    expect(shared.reading.old).toBe(false);
+    expect(seen).toEqual([1]);
+    expect(shared.reading.old).toBe(0);
   });
 
   it("keeps to what was asked for, whatever else the server sends", async () => {
@@ -212,7 +212,7 @@ describe("readFrom", () => {
     });
     const box = cleanMailboxOf(stubClient({ fetch }), shared);
     await expect(box.readFrom([1])).rejects.toBeInstanceOf(UnreadableMailError);
-    expect(shared.reading.old).toBe(false);
+    expect(shared.reading.old).toBe(0);
   });
 });
 

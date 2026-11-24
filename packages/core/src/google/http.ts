@@ -22,7 +22,8 @@ export interface GoogleCall {
     | "filter-create"
     | "filter-delete"
     | "history-list"
-    | "message-get";
+    | "message-get"
+    | "message-list";
   readonly status: number | null;
   readonly ms: number;
 }

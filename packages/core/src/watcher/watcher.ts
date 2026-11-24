@@ -60,9 +60,46 @@ export interface UnreadableSender {
 
 export type IncomingRow = IncomingMessage | UnreadableSender;
 
+/**
+ * Mails of one account the Recent mail view shows, at most (Ali, 2026-11-23: ten per account, all accounts in one list). Unit:
+ * messages.
+ */
+export const RECENT_MAX = 10;
+
+/**
+ * After a Recent read ran into a mail too large to read (the connection closed on it), the read is not tried again until the cursor
+ * moved this many UIDs, or RECENT_TOO_LARGE_MS has passed. Unit: UIDs. Ten new mails that stay push the large one out of the newest
+ * ten; mail the cleaning lane moved also uses UIDs, so the gate can open early: then one more try, one reconnect, and it closes
+ * again. Each try costs a reconnect, a new login.
+ */
+export const RECENT_TOO_LARGE_MAILS = RECENT_MAX;
+/** The other way out of the wait above. Unit: milliseconds. Two tries an hour at most for a mail that never ages out. */
+export const RECENT_TOO_LARGE_MS = 30 * 60_000;
+
+/** A mail among the newest is too large to read: the Recent mail view says so instead of "could not be read". */
+export class RecentTooLargeError extends Error {
+  override readonly name = "RecentTooLargeError";
+}
+
+/** One of the newest mails of the Inbox, for the Recent mail view. Read when the view opens, kept in memory only. */
+export interface RecentRow {
+  readonly uid: number;
+  /** As `IncomingMessage.from`, or null when the sender cannot be matched: shown with nothing to click. */
+  readonly from: string | null;
+  readonly subject: string;
+  /** IMAP INTERNALDATE, as `IncomingMessage.deliveredAt`. Unit: epoch milliseconds. */
+  readonly deliveredAt: number | null;
+}
+
 export interface MailboxSession {
   readonly uidValidity: string;
   readonly uidNext: number;
+  /**
+   * The newest `count` mails of the Inbox, newest first, on this connection (no second login). Absent on a session that cannot.
+   * `signal` aborting closes the connection: a FETCH that hangs would otherwise hold every later command of it. Throws
+   * RecentTooLargeError when a size limit ended the connection.
+   */
+  recent?(count: number, signal?: AbortSignal): Promise<RecentRow[]>;
   /** Messages with uid > `uid`, ascending. IMAP `n:*` returns the last message even when n is past it; callers must not trust the range. */
   /** The newest rows after `uid`, oldest first. A row with no usable From counts towards FETCH_LIMIT too. */
   fetchSince(uid: number): Promise<IncomingRow[]>;
@@ -142,6 +179,8 @@ export interface WatcherOptions {
   readonly backoff?: { readonly baseMs: number; readonly maxMs: number; readonly stableMs: number };
   /** Injectable for tests; returns [0, 1). */
   readonly random?: () => number;
+  /** Injectable for tests. Unit: epoch milliseconds. */
+  readonly now?: () => number;
 }
 
 // \p{Cc} = C0 controls, DEL and C1 controls; the rest are the invisible bidi marks and overrides.
@@ -241,6 +280,10 @@ export class AccountWatcher {
   private skipUnreadable = false;
   /** The connection whose first look at the mailbox is still to come. */
   private opening: MailboxSession | null = null;
+  /** The Recent read running: a second asker joins it, so at most one FETCH of it is queued on the connection. */
+  private recentRead: Promise<RecentRow[]> | null = null;
+  /** A Recent read hit a mail too large to read: the cursor and the time then (RECENT_TOO_LARGE_MAILS, RECENT_TOO_LARGE_MS). */
+  private recentTooLarge: { readonly lastUid: number; readonly at: number } | null = null;
 
   constructor(private readonly options: WatcherOptions) {
     this.backoff = options.backoff ?? DEFAULT_BACKOFF;
@@ -297,6 +340,37 @@ export class AccountWatcher {
     this.retryTimer = null;
     void this.connectOnce();
     return true;
+  }
+
+  /**
+   * The newest `count` mails of the Inbox, read on the open connection, or null when there is none to read on (not watching).
+   * Never connects: the Recent mail view must not log in once more per account, and a halted account must stay alone (ADR 0003).
+   * A failure is the caller's: the connection's own close, if the read ended it, reaches `fail` as for any command.
+   */
+  async recent(count: number, signal?: AbortSignal): Promise<RecentRow[] | null> {
+    const session = this.session;
+    if (this.state !== "watching" || session?.recent === undefined) return null;
+    const now = this.options.now ?? Date.now;
+    const lastUid = (): number => this.options.cursors.get(this.options.accountId)?.lastUid ?? 0;
+    const tooLarge = this.recentTooLarge;
+    if (tooLarge !== null) {
+      const moved = lastUid() - tooLarge.lastUid >= RECENT_TOO_LARGE_MAILS;
+      if (!moved && now() - tooLarge.at < RECENT_TOO_LARGE_MS) {
+        throw new RecentTooLargeError("a mail among the newest is too large to read");
+      }
+      this.recentTooLarge = null;
+    }
+    this.recentRead ??= session
+      .recent(count, signal)
+      .catch((error: unknown) => {
+        if (error instanceof RecentTooLargeError)
+          this.recentTooLarge = { lastUid: lastUid(), at: now() };
+        throw error;
+      })
+      .finally(() => {
+        this.recentRead = null;
+      });
+    return this.recentRead;
   }
 
   private setState(state: WatcherState, detail?: string, refused = false): void {

@@ -112,6 +112,10 @@ export interface MailWatchersDeps {
   readonly showMail: (toast: MailToast) => void;
   /** A toast without buttons. */
   readonly notice: (title: string, body: string) => void;
+  /** A toast without buttons about mail (not announced, no Block button): a click opens Recent mail. Absent: `notice`. */
+  readonly noticeMail?: (title: string, body: string) => void;
+  /** A mail was announced with buttons: the Recent mail view's "Not notified" is the absence of this. */
+  readonly onAnnounced?: (laneId: string, sender: string) => void;
   /** Lane id -> the name the person knows the account by (`me@gmail.com (Gmail)`). */
   readonly labelOf: (laneId: string) => string;
   /**
@@ -164,14 +168,21 @@ export function createMailWatchers<Lane, Gap extends string>(
   const watchers = new Map<string, MailWatcher>();
   const noticed = new Map<string, Map<NoticeKind<Gap>, number>>();
 
-  /** Tells the person at most once an hour per (account, kind). */
-  const tell = (laneId: string, kind: NoticeKind<Gap>, title: string, body: string): void => {
+  const noticeMail = deps.noticeMail ?? deps.notice;
+  /** Tells the person at most once an hour per (account, kind). `aboutMail`: mail went unannounced, and a click opens Recent mail. */
+  const tell = (
+    laneId: string,
+    kind: NoticeKind<Gap>,
+    title: string,
+    body: string,
+    aboutMail = false,
+  ): void => {
     const kinds = noticed.get(laneId) ?? new Map<NoticeKind<Gap>, number>();
     noticed.set(laneId, kinds);
     const last = kinds.get(kind);
     if (last !== undefined && now() - last < MAIL_NOTICE_EVERY_MS) return;
     kinds.set(kind, now());
-    deps.notice(title, body);
+    (aboutMail ? noticeMail : deps.notice)(title, body);
   };
 
   const states = new Map<string, PollState>();
@@ -189,7 +200,7 @@ export function createMailWatchers<Lane, Gap extends string>(
           if (message.from === null) {
             // The sender could not be read safely (a second From, an odd header): announced, with nothing to click.
             deps.log(`${prefix}-announce`, { account: tag, sender: "unreadable" });
-            deps.notice(
+            noticeMail(
               "Senderban",
               `New mail in ${label()}: the sender could not be read safely, so there is no Block button.${subjectLine(message.subject)}`,
             );
@@ -197,7 +208,7 @@ export function createMailWatchers<Lane, Gap extends string>(
           }
           if (deps.isOwn?.(message.from) === true) {
             deps.log(`${prefix}-announce`, { account: tag, sender: "own-address" });
-            deps.notice(
+            noticeMail(
               "Senderban",
               `New mail in ${label()} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
             );
@@ -208,6 +219,7 @@ export function createMailWatchers<Lane, Gap extends string>(
             return;
           }
           const id = deps.pending.add({ accountId: laneId, sender: message.from });
+          deps.onAnnounced?.(laneId, message.from);
           deps.log(`${prefix}-announce`, {
             account: tag,
             domain: message.from.slice(message.from.lastIndexOf("@") + 1),
@@ -228,12 +240,13 @@ export function createMailWatchers<Lane, Gap extends string>(
             laneId,
             "overflow",
             "Senderban",
-            `${String(skipped)} more new messages in ${label()} were not announced.`,
+            `${String(skipped)} more new messages in ${label()} were not announced. Click to see them.`,
+            true,
           );
         },
         onGap: (_id, gap) => {
           deps.log(`${prefix}-gap`, { account: tag, gap });
-          tell(laneId, gap, "Senderban", `${label()}: ${provider.gapText[gap]}`);
+          tell(laneId, gap, "Senderban", `${label()}: ${provider.gapText[gap]}`, true);
         },
         onState: (_id, state, detail) => {
           const previous = states.get(laneId);

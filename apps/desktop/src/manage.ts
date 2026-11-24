@@ -22,6 +22,8 @@ import {
   isVouchedServer,
   SettingsSchema,
   LoginItemSchema,
+  RecentActSchema,
+  RecentRequestSchema,
   WatchPausedSchema,
   HelpTargetSchema,
   formServer,
@@ -39,6 +41,7 @@ import type {
   MxrouteInput,
   MxrouteKeyRef,
   QuietRow,
+  RecentAct,
   Settings,
   SpamFilter,
 } from "@senderban/core";
@@ -58,6 +61,7 @@ import type {
 } from "./microsoft-accounts.js";
 import type { MxroutePage, MxrouteSaveResult } from "./mxroute-settings.js";
 import type { AccountRemoveResult } from "./remove-account.js";
+import type { RecentView } from "./recent-mail.js";
 import type { NoRestart, RestartWhy } from "./restart.js";
 
 const PAGE = "manage/manage.html";
@@ -228,8 +232,20 @@ export interface ManageHandlers {
   readonly saveLoginItem: (on: boolean) => void;
   /** Opens one fixed Help address in the browser, or the log folder. The input has already passed the core schema. */
   readonly openHelp: (target: HelpTarget) => Promise<void>;
+  /** The Recent mail rows (recent-mail.ts): a provider is read only when what is held of it is older than its time. */
+  readonly recent: (refresh: boolean) => Promise<RecentView>;
+  /** A row's button: blocks or mutes the sender behind `key`, through the same steps as the toast's button. */
+  readonly recentAct: (key: string, act: RecentAct) => Promise<RecentActReply>;
+  /** The window closed: the Recent rows' click keys are let go. */
+  readonly recentClosed: () => void;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
   readonly onError: (channel: string, error: unknown) => void;
+}
+
+/** What a row's button says back: the toast's own words. */
+export interface RecentActReply {
+  readonly tone: "ok" | "warn" | "error";
+  readonly text: string;
 }
 
 /**
@@ -257,6 +273,14 @@ export class ManageWindow {
   #restartWaiting = false;
   /** This start is a restart asked for from the window: its first page load says so once. */
   #reopened = false;
+  /** A view the next page load opens on (a click on a notification about mail), once. */
+  #openView: "recent" | null = null;
+  /**
+   * A Recent row click is running: any other one meanwhile does nothing. Each click can start a sync round on every account, and a
+   * reload hands out fresh keys, so a per-key check alone would let a page run them side by side (security review 2026-11-24 FLAG-1).
+   * The page sends its clicks one after another.
+   */
+  #recentActing = false;
   /** Steps in flight that change the list, an account or Google access: a restart waits for them (main side, not only the page). */
   #steps = 0;
   /** One pause at a time: a Pause waits for every IMAP logout, and a second click must not race it. */
@@ -270,6 +294,8 @@ export class ManageWindow {
     this.#handlers = handlers;
     ipcMain.handle("manage:init", (event) => this.#init(event));
     ipcMain.handle("manage:unblock", (event, id: unknown) => this.#unblock(event, id));
+    ipcMain.handle("manage:recent", (event, value: unknown) => this.#recent(event, value));
+    ipcMain.handle("manage:recent-act", (event, value: unknown) => this.#recentAct(event, value));
     ipcMain.handle("manage:mxroute-list", (event) => this.#mxrouteList(event));
     ipcMain.handle("manage:mxroute-save", (event, value: unknown) =>
       this.#mxrouteSave(event, value),
@@ -336,6 +362,19 @@ export class ManageWindow {
     this.show();
   }
 
+  /** Opens the window on Recent mail: a click on a notification about mail. An open window is told to switch. */
+  showRecent(): void {
+    const open = this.isOpen();
+    this.#openView = "recent";
+    this.show();
+    // Only to a page that has loaded: one still loading has no listener yet, and `init` hands it `#openView` (a second click
+    // then must not cancel the first).
+    if (open && this.#win !== null && !this.#win.webContents.isLoading()) {
+      this.#openView = null;
+      this.#win.webContents.send("manage:show-view", "recent");
+    }
+  }
+
   /** Opens the window, or brings the open one to the front. */
   show(): void {
     const existing = this.#win;
@@ -378,6 +417,9 @@ export class ManageWindow {
     });
     win.on("closed", () => {
       if (this.#win === win) this.#win = null;
+      // A Recent mail click whose window closed before it loaded: the next open, from the tray, is not that click.
+      this.#openView = null;
+      this.#handlers.recentClosed();
       if (this.#statusTimer !== null) clearTimeout(this.#statusTimer);
       this.#statusTimer = null;
       if (this.#listTimer !== null) clearTimeout(this.#listTimer);
@@ -441,10 +483,40 @@ export class ManageWindow {
       // Cleared only once the list was read: a load that failed says it on the next one.
       const restarted = this.#reopened;
       this.#reopened = false;
-      return { entries, restarted };
+      const view = this.#openView;
+      this.#openView = null;
+      return { entries, restarted, view };
     } catch (error) {
       this.#handlers.onError("manage:init", error);
       return null;
+    }
+  }
+
+  async #recent(event: IpcMainInvokeEvent, value: unknown): Promise<RecentView | null> {
+    if (!this.#trusted(event)) return null;
+    const parsed = RecentRequestSchema.safeParse(value);
+    if (!parsed.success) return null;
+    try {
+      return await this.#handlers.recent(parsed.data.refresh);
+    } catch (error) {
+      this.#handlers.onError("manage:recent", error);
+      return null;
+    }
+  }
+
+  async #recentAct(event: IpcMainInvokeEvent, value: unknown): Promise<RecentActReply | null> {
+    if (!this.#trusted(event)) return null;
+    const parsed = RecentActSchema.safeParse(value);
+    if (!parsed.success || this.#recentActing) return null;
+    const { key, act } = parsed.data;
+    this.#recentActing = true;
+    try {
+      return await this.#step(() => this.#handlers.recentAct(key, act));
+    } catch (error) {
+      this.#handlers.onError("manage:recent-act", error);
+      return { tone: "error", text: "Something went wrong. See the log." };
+    } finally {
+      this.#recentActing = false;
     }
   }
 

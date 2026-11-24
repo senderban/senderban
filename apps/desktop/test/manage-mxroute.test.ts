@@ -98,6 +98,7 @@ beforeEach(() => {
     restart: () => undefined,
     noRestart: () => undefined,
     onError,
+    recentClosed: () => undefined,
   } as never).show();
 });
 

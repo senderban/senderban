@@ -22,8 +22,8 @@ export const TOAST_TEXT_MAX = 200;
  */
 export const ACTIVATION_ARGUMENTS_MAX = 430;
 /**
- * Unit: UTF-16 units of subject kept in the click on a toast's body, so a toast shown again after a restart still has its subject. Two toast
- * lines hold about this much; a longer one is cut and ends in "…". The subject is already in Windows' own notification list.
+ * Unit: UTF-16 units of subject that the body's click of a 0.3.2 or 0.3.3 toast kept (to show the toast again). No longer written: a
+ * body click opens Recent mail, which reads the mail itself. Still checked, so such a toast in Windows' list still opens the window.
  */
 export const SUBJECT_ARG_MAX = 60;
 /** Unit: characters of base64url: at most 3 UTF-8 bytes per UTF-16 unit (a pair takes 4 for 2), so 180 bytes, so 240 characters. */
@@ -160,6 +160,34 @@ function escapeMarkup(text: string): string {
 export function escapeXml(text: string): string {
   return escapeMarkup(text.slice(0, TOAST_TEXT_MAX));
 }
+
+/**
+ * What a click on a notice about mail sends (`launch`): open the Recent mail view. A fixed string with no id, so it names nothing and
+ * cannot be made to: the view reads the mail itself.
+ */
+export const RECENT_LAUNCH = "act=recent";
+/** A notice's body. Unit: UTF-16 units. Our longest is about 260 with a subject line; Windows cuts what it cannot show. */
+export const NOTICE_TEXT_MAX = 600;
+
+/**
+ * A notice without buttons whose click opens the Recent mail view: "3 more new messages were not announced" is answered by the list.
+ * Microsoft's toast guidance: a click on the body opens the app at the content the toast is about.
+ */
+export function buildNoticeToastXml(title: string, body: string): string {
+  return (
+    `<toast launch="${RECENT_LAUNCH}"><visual><binding template="ToastGeneric">` +
+    `<text>${escapeXml(title)}</text>` +
+    `<text>${escapeMarkup(body.slice(0, NOTICE_TEXT_MAX))}</text>` +
+    `</binding></visual></toast>`
+  );
+}
+
+/** True for a click on a notice built by `buildNoticeToastXml`. The envelope comes from Windows, so it is checked like any other. */
+export function isRecentLaunch(details: unknown): boolean {
+  const envelope = RecentEnvelope.safeParse(details);
+  return envelope.success && envelope.data.arguments === RECENT_LAUNCH;
+}
+const RecentEnvelope = z.looseObject({ arguments: z.string().max(RECENT_LAUNCH.length) });
 
 /**
  * Unit: SpamAssassin points. The line under the sender is a colour dot plus the word: at or above SPAM_HIGH the
@@ -338,24 +366,10 @@ function args(
   if (accountId === undefined || issuedAt === undefined || signer === undefined) return base;
   // A value the click parser would refuse is left off, so a long id never makes a toast whose buttons do nothing.
   if (!ACCOUNT_ARG.test(accountId) || !Number.isSafeInteger(issuedAt) || issuedAt < 0) return base;
-  const subject = act === "open" ? subjectArg(toast.subject) : undefined;
-  const mac = signer.sign(act, toast.id, accountId, toast.sender, issuedAt, subject);
+  const mac = signer.sign(act, toast.id, accountId, toast.sender, issuedAt);
   const tail = `;acct=${accountId};from=${toast.sender};t=${String(issuedAt)};mac=${mac}`;
   if (`${base}${tail}`.length > ACTIVATION_ARGUMENTS_MAX) return base;
-  const subj =
-    subject === undefined ? "" : `;subj=${Buffer.from(subject, "utf8").toString("base64url")}`;
-  return escapeMarkup(`${base}${tail}${subj}`);
-}
-
-/** The subject as the body's click keeps it: our marks out, cut to SUBJECT_ARG_MAX without splitting a surrogate pair; none if empty. */
-function subjectArg(subject: string): string | undefined {
-  const cleaned = subject.replace(OUR_MARKS, "").trim();
-  if (cleaned === "") return undefined;
-  if (cleaned.length <= SUBJECT_ARG_MAX) return Buffer.from(cleaned, "utf8").toString("utf8");
-  let cut = cleaned.slice(0, SUBJECT_ARG_MAX - 1);
-  if (/[\uD800-\uDBFF]$/u.test(cut)) cut = cut.slice(0, -1);
-  // A lone surrogate becomes U+FFFD on the way to UTF-8, so the signed text is the one the click gives back.
-  return Buffer.from(`${cut}…`, "utf8").toString("utf8");
+  return escapeMarkup(`${base}${tail}`);
 }
 
 /** What a toast needs from the Settings page, and whether this Windows draws styled buttons. */
@@ -433,18 +447,17 @@ export interface ActivationRestore {
   readonly accountId: string;
   readonly sender: string;
   readonly issuedAt: number;
-  /** The subject the body's click kept (SUBJECT_ARG_MAX, signed with the rest); absent on a button and on a toast before 0.3.2. */
-  readonly subject?: string;
 }
 
-/** A click on the toast's body: it asks for the buttons, so it blocks nothing. */
+/** A click on the toast's body: it opens Recent mail, so it blocks nothing. */
 export const REOPEN_CHOICE = "reopen";
 
 export interface Activation {
   readonly id: string;
   readonly scope: BlockScope;
   /**
-   * `QUIET_CHOICE` puts the sender on the "Don't ask again" list; `REOPEN_CHOICE` shows the toast again. Neither does anything to mail.
+   * `QUIET_CHOICE` puts the sender on the "Don't ask again" list; `REOPEN_CHOICE` (the body's click) opens Recent mail. Neither does
+   * anything to mail.
    */
   readonly action: BlockAction | typeof QUIET_CHOICE | typeof REOPEN_CHOICE;
   /**
@@ -482,10 +495,9 @@ function restoreOf(
   if (subj !== undefined && act !== "open") return "bad";
   const subject = subj === undefined ? undefined : subjectOf(subj);
   if (subject === null) return "bad";
+  // Checked, not handed on: nothing reads it since a body click opens Recent mail.
   if (!signer.verify(act, id, accountId, from, issuedAt, mac, subject)) return "bad";
-  return subject === undefined
-    ? { accountId, sender: from, issuedAt }
-    : { accountId, sender: from, issuedAt, subject };
+  return { accountId, sender: from, issuedAt };
 }
 
 /** What sanitizeSubject (watcher.ts) takes out of a subject. */

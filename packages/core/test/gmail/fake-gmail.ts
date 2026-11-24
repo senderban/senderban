@@ -19,13 +19,15 @@ export interface FakeFilter {
 }
 
 export const UNITS = { list: 1, create: 5, delete: 5 } as const;
-/** Quota units Google charges for reading mail (read 2026-10-26, not measured): `getProfile` 1, `history.list` 2, `messages.get` 20. */
-export const MAIL_UNITS = { profile: 1, history: 2, message: 20 } as const;
+/** Quota units Google charges for reading mail (read 2026-10-26 and 2026-11-23, not measured): `getProfile` 1, `history.list` 2, `messages.get` 20, `messages.list` 5. */
+export const MAIL_UNITS = { profile: 1, history: 2, message: 20, inbox: 5 } as const;
 
 export interface FakeMessage {
   readonly id: string;
   labelIds: string[];
   headers: { name: string; value: string }[];
+  /** `internalDate`, epoch milliseconds. */
+  receivedMs: number;
 }
 /** The measured wall: accepted at 14,003 characters, a 500 at 28,003; the fake puts its limit between. */
 const QUERY_WALL = 20_000;
@@ -83,7 +85,7 @@ export class FakeGmail {
       ...(input.extraHeaders ?? []),
     ];
     const labelIds = input.labels ?? ["INBOX", "UNREAD"];
-    this.mail.set(id, { id, labelIds, headers });
+    this.mail.set(id, { id, labelIds, headers, receivedMs: Date.UTC(2026, 10, 23) + this.#next });
     this.historyId += 1;
     this.history.push({ id: this.historyId, added: [id], inbox: labelIds.includes("INBOX") });
     return id;
@@ -193,6 +195,38 @@ export class FakeGmail {
       };
       return new Response(JSON.stringify(body), { status: 200 });
     }
+    if (method === "GET" && path === `${userBase}/messages`) {
+      this.mailUnits += MAIL_UNITS.inbox;
+      // Google's rule: `q` cannot be used with the gmail.metadata scope, which is all this app holds.
+      if (parsedUrl.searchParams.has("q")) {
+        return error(403, "forbidden", "Metadata scope does not support 'q' parameter");
+      }
+      const label = parsedUrl.searchParams.get("labelIds");
+      const size = Number(parsedUrl.searchParams.get("maxResults") ?? "100");
+      // Newest first, as Google lists them; spam and trash left out unless asked for.
+      const ids = [...this.mail.values()]
+        .filter(
+          (m) => (label === null || m.labelIds.includes(label)) && !m.labelIds.includes("SPAM"),
+        )
+        .sort((a, b) => b.receivedMs - a.receivedMs)
+        .slice(0, size)
+        .map((m) => ({ id: m.id, threadId: m.id }));
+      const full = {
+        ...(ids.length === 0 ? {} : { messages: ids }),
+        resultSizeEstimate: ids.length,
+      };
+      const fields = parsedUrl.searchParams.get("fields");
+      return new Response(
+        JSON.stringify(
+          fields === "messages(id)"
+            ? ids.length === 0
+              ? {}
+              : { messages: ids.map(({ id }) => ({ id })) }
+            : full,
+        ),
+        { status: 200 },
+      );
+    }
     if (method === "GET" && path.startsWith(`${userBase}/messages/`)) {
       this.mailUnits += MAIL_UNITS.message;
       const id = decodeURIComponent(path.slice(`${userBase}/messages/`.length));
@@ -205,6 +239,7 @@ export class FakeGmail {
         id,
         threadId: id,
         labelIds: message.labelIds,
+        internalDate: String(message.receivedMs),
         historyId: String(this.historyId),
         // What Google adds when the answer is not cut with `fields` (read from the docs, not yet seen live): a body fragment.
         snippet: "SECRET BODY FRAGMENT",

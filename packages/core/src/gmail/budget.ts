@@ -2,7 +2,7 @@ import { AdapterError } from "../adapter.js";
 import type { AdapterErrorCode } from "../adapter.js";
 import { FilterExistsError } from "./client.js";
 import type { GmailFilterClient } from "./client.js";
-import type { GmailMailClient } from "./mail-client.js";
+import type { GmailInboxClient, GmailMailClient } from "./mail-client.js";
 import { Rolling } from "../rolling.js";
 import { MAX_ACCOUNTS } from "../sync/engine.js";
 
@@ -12,7 +12,7 @@ import { MAX_ACCOUNTS } from "../sync/engine.js";
  */
 export const GMAIL_UNITS = { list: 1, create: 5, delete: 5 } as const;
 /** The same for reading new mail (`getProfile`, `history.list`, `messages.get`; read 2026-10-26, the counting fake charges the same). Unit: quota units. */
-export const GMAIL_MAIL_UNITS = { profile: 1, history: 2, message: 20 } as const;
+export const GMAIL_MAIL_UNITS = { profile: 1, history: 2, message: 20, inbox: 5 } as const;
 
 /**
  * Units one account may spend on filter calls in a minute. Unit: quota units. A usual round is one `list` and 10 rewrites
@@ -59,6 +59,16 @@ export const GMAIL_READ_UNITS_PER_ACCOUNT_DAY = 6_000;
  */
 export const GMAIL_READ_UNITS_PER_DAY_ALL = 150_000;
 
+/**
+ * Units one account may spend on the Recent mail view in 24 hours (`messages.list` 5 and `messages.get` 20 each). Unit: quota units.
+ * A first look is 5 + 10 x 20 = 205; inside 3 minutes of the last read (RECENT_TTL_MS) the view asks only for ids it has not seen,
+ * so a look then is 5 to 45. Past that the headers are dropped (privacy page) and a look is 205 again. 2,050 is ten such looks a day. A line of its own: looking at the view must not take the reading of new
+ * mail (the read lane) away. PROVISIONAL: how often people open the view is not measured.
+ */
+export const GMAIL_RECENT_UNITS_PER_ACCOUNT_DAY = 2_050;
+/** Units all Gmail accounts together may spend on the Recent mail view in 24 hours. Unit: quota units. Five first looks a day on each of 50 accounts (MAX_ACCOUNTS) is 51,250; this is the brake for a bug that runs on every account. PROVISIONAL. */
+export const GMAIL_RECENT_UNITS_PER_DAY_ALL = 50_000;
+
 export type GmailLimit =
   | "minute"
   | "account-day"
@@ -66,12 +76,14 @@ export type GmailLimit =
   | "poll-account-day"
   | "poll-all-accounts-day"
   | "read-account-day"
-  | "read-all-accounts-day";
+  | "read-all-accounts-day"
+  | "recent-account-day"
+  | "recent-all-accounts-day";
 /**
  * Which lane a call is paid on: the minute line is shared, the 24-hour lines are not. `poll` is `profile` and `history.list`,
- * `read` is `messages.get`.
+ * `read` is `messages.get` for new mail, `recent` the Recent mail view's `messages.list` and `messages.get`.
  */
-export type GmailLane = "filters" | "poll" | "read";
+export type GmailLane = "filters" | "poll" | "read" | "recent";
 export type GmailOp = keyof typeof GMAIL_UNITS | keyof typeof GMAIL_MAIL_UNITS;
 
 /** Our own limit was reached, before any request left. A `QUOTA_EXCEEDED`, so the adapter and the engine treat it as a rate limit. */
@@ -97,6 +109,8 @@ export interface GmailLimits {
   readonly pollAllAccountsDay: number;
   readonly readPerAccountDay: number;
   readonly readAllAccountsDay: number;
+  readonly recentPerAccountDay: number;
+  readonly recentAllAccountsDay: number;
 }
 export const GMAIL_LIMITS: GmailLimits = {
   perMinute: GMAIL_UNITS_PER_MINUTE,
@@ -106,6 +120,8 @@ export const GMAIL_LIMITS: GmailLimits = {
   pollAllAccountsDay: GMAIL_POLL_UNITS_PER_DAY_ALL,
   readPerAccountDay: GMAIL_READ_UNITS_PER_ACCOUNT_DAY,
   readAllAccountsDay: GMAIL_READ_UNITS_PER_DAY_ALL,
+  recentPerAccountDay: GMAIL_RECENT_UNITS_PER_ACCOUNT_DAY,
+  recentAllAccountsDay: GMAIL_RECENT_UNITS_PER_DAY_ALL,
 };
 
 /** What the log may learn about a call: fixed words and numbers, never an address, a filter id, a token or a Google message. */
@@ -137,6 +153,7 @@ interface AccountWindows {
   readonly day: Rolling;
   readonly pollDay: Rolling;
   readonly readDay: Rolling;
+  readonly recentDay: Rolling;
 }
 
 function checkLimits(limits: GmailLimits): void {
@@ -148,6 +165,8 @@ function checkLimits(limits: GmailLimits): void {
     limits.pollAllAccountsDay,
     limits.readPerAccountDay,
     limits.readAllAccountsDay,
+    limits.recentPerAccountDay,
+    limits.recentAllAccountsDay,
   ]) {
     if (!Number.isInteger(value) || value < 1)
       throw new RangeError("a Gmail limit must be a whole number of units, 1 or more");
@@ -175,6 +194,7 @@ export class GmailBudgets {
   readonly #all: Rolling;
   readonly #allPoll: Rolling;
   readonly #allRead: Rolling;
+  readonly #allRecent: Rolling;
 
   constructor(options: { readonly limits?: GmailLimits; readonly now?: () => number } = {}) {
     this.#limits = options.limits ?? GMAIL_LIMITS;
@@ -183,6 +203,7 @@ export class GmailBudgets {
     this.#all = new Rolling(HOUR_MS, 24, this.#now);
     this.#allPoll = new Rolling(HOUR_MS, 24, this.#now);
     this.#allRead = new Rolling(HOUR_MS, 24, this.#now);
+    this.#allRecent = new Rolling(HOUR_MS, 24, this.#now);
   }
 
   #windows(account: string): AccountWindows {
@@ -196,6 +217,7 @@ export class GmailBudgets {
       day: new Rolling(HOUR_MS, 24, this.#now),
       pollDay: new Rolling(HOUR_MS, 24, this.#now),
       readDay: new Rolling(HOUR_MS, 24, this.#now),
+      recentDay: new Rolling(HOUR_MS, 24, this.#now),
     };
     this.#accounts.set(account, created);
     return created;
@@ -231,11 +253,17 @@ export class GmailBudgets {
               ["poll-account-day", windows.pollDay, this.#limits.pollPerAccountDay],
               ["poll-all-accounts-day", this.#allPoll, this.#limits.pollAllAccountsDay],
             ]
-          : [
-              ["minute", windows.minute, this.#limits.perMinute],
-              ["read-account-day", windows.readDay, this.#limits.readPerAccountDay],
-              ["read-all-accounts-day", this.#allRead, this.#limits.readAllAccountsDay],
-            ];
+          : lane === "read"
+            ? [
+                ["minute", windows.minute, this.#limits.perMinute],
+                ["read-account-day", windows.readDay, this.#limits.readPerAccountDay],
+                ["read-all-accounts-day", this.#allRead, this.#limits.readAllAccountsDay],
+              ]
+            : [
+                ["minute", windows.minute, this.#limits.perMinute],
+                ["recent-account-day", windows.recentDay, this.#limits.recentPerAccountDay],
+                ["recent-all-accounts-day", this.#allRecent, this.#limits.recentAllAccountsDay],
+              ];
     for (const [limit, window, cap] of checks) {
       const used = window.used();
       if (used + units > cap) throw new GmailBudgetError(limit, used, cap);
@@ -259,6 +287,15 @@ export class GmailBudgets {
     return {
       accountDay: this.#limits.pollPerAccountDay - windows.pollDay.used(),
       allAccountsDay: this.#limits.pollAllAccountsDay - this.#allPoll.used(),
+    };
+  }
+
+  /** Units left on the Recent mail lane's two 24-hour lines, for the log and for tests. */
+  remainingRecent(account: string): { accountDay: number; allAccountsDay: number } {
+    const windows = this.#windows(account);
+    return {
+      accountDay: this.#limits.recentPerAccountDay - windows.recentDay.used(),
+      allAccountsDay: this.#limits.recentAllAccountsDay - this.#allRecent.used(),
     };
   }
 
@@ -409,4 +446,33 @@ export class GmailBudgets {
         ),
     };
   }
+
+  /**
+   * The Recent mail view's reader: the Inbox list and a message's headers, both paid on the `recent` lane's own 24-hour lines (the
+   * minute line stays the account's one). The same account `key` as the watcher's client.
+   */
+  wrapRecent(client: GmailMailClient & GmailInboxClient, options: WrapOptions): GmailRecentReader {
+    const run = this.#guard(options);
+    return {
+      inbox: (max, signal) =>
+        run(
+          "inbox",
+          GMAIL_MAIL_UNITS.inbox,
+          "recent",
+          () => client.inbox(max, signal),
+          () => "ok",
+        ),
+      message: (id, signal) =>
+        run(
+          "message",
+          GMAIL_MAIL_UNITS.message,
+          "recent",
+          () => client.message(id, signal),
+          (value) => (value === "gone" ? "gone" : "ok"),
+        ),
+    };
+  }
 }
+
+/** What the Recent mail view may ask of a Gmail account: the Inbox's newest ids, and one message's headers. */
+export type GmailRecentReader = GmailInboxClient & Pick<GmailMailClient, "message">;

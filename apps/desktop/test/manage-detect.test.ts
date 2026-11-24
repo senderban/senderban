@@ -62,6 +62,7 @@ beforeEach(() => {
   new ManageWindow("assets", {
     accountDetect,
     onError,
+    recentClosed: () => undefined,
     googleCancel: () => undefined,
   } as unknown as Handlers).show();
 });

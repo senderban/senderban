@@ -94,7 +94,7 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
       const rows: CleanRow[] = [];
       let scanned = 0;
       // A limit hit here is about old mail: it must not make the watcher skip new mail (see `OpenHooks`).
-      hooks.reading.old = true;
+      hooks.reading.old += 1;
       hooks.reading.oversized = false;
       try {
         const stream = client.fetch(uidSet(uids), { uid: true, envelope: true }, { uid: true });
@@ -112,7 +112,7 @@ export function cleanMailboxOf(client: ImapFlow, hooks: OpenHooks): CleanMailbox
         }
         throw refused(error, "server refused to read the messages");
       } finally {
-        hooks.reading.old = false;
+        hooks.reading.old -= 1;
       }
       // UIDs the search just found. An empty answer is a refusal the library does not raise, or mail gone meanwhile: either way, not "no match".
       if (scanned === 0)
