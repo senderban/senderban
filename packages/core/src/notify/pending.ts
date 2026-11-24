@@ -142,12 +142,12 @@ export class PendingBlocks {
     return { status: "ok", block: slot.block };
   }
 
-  /** What `consume` would answer, without spending the id: a toast shown again still has its one click. */
-  peek(id: string): ConsumeResult {
-    this.#expire();
-    const slot = this.#slots.get(id);
-    if (slot === undefined) return { status: "unknown" };
-    return slot.spent ? { status: "duplicate" } : { status: "ok", block: slot.block };
+  /**
+   * Forgets one id now. For an id minted for a single click (the Recent mail view): spent, it would hold a slot for the TTL and push
+   * a live toast's button out at the cap.
+   */
+  release(id: string): void {
+    this.#slots.delete(id);
   }
 
   /** Forgets every announcement of one account (it was removed): a click on one of its toasts answers `unknown`. */

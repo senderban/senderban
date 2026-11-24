@@ -5,6 +5,7 @@ import type { Mock } from "vitest";
 type Handler = (event: unknown, payload?: unknown) => unknown;
 const handlers = new Map<string, Handler>();
 const sent = vi.hoisted(() => [] as string[]);
+const loading = vi.hoisted(() => ({ now: false }));
 
 // Just enough of Electron for ManageWindow to build one window and register its IPC handlers.
 vi.mock("electron", () => {
@@ -17,6 +18,7 @@ vi.mock("electron", () => {
       send: (channel: string) => {
         sent.push(channel);
       },
+      isLoading: () => loading.now,
     };
     isDestroyed = () => false;
     isMinimized = () => false;
@@ -64,11 +66,15 @@ let quietRemove: Mock<(value: string) => Promise<void>>;
 let saveSpamFilter: Mock<(accountId: string, filter: unknown) => Promise<string>>;
 let openHelp: Mock<(target: string) => Promise<void>>;
 let saveLoginItem: Mock<(on: boolean) => void>;
+let recent: Mock<(refresh: boolean) => Promise<unknown>>;
+let recentAct: Mock<(key: string, act: string) => Promise<unknown>>;
+let recentClosed: Mock<() => void>;
 let page: InstanceType<typeof ManageWindow>;
 
 beforeEach(() => {
   handlers.clear();
   sent.length = 0;
+  loading.now = false;
   status = vi.fn(() =>
     Promise.resolve({ version: "1.2.3", paused: false, behind: [], accounts: [] as unknown[] }),
   );
@@ -78,6 +84,9 @@ beforeEach(() => {
   saveSpamFilter = vi.fn(() => Promise.resolve("saved"));
   openHelp = vi.fn(() => Promise.resolve());
   saveLoginItem = vi.fn();
+  recent = vi.fn(() => Promise.resolve({ starting: false, rows: [], problems: [] }));
+  recentClosed = vi.fn();
+  recentAct = vi.fn(() => Promise.resolve({ tone: "ok", text: "Done." }));
   list = vi.fn(() => []);
   unblock = vi.fn(() => Promise.resolve({ tone: "ok", text: "Unblocked." }));
   onError = vi.fn();
@@ -98,6 +107,9 @@ beforeEach(() => {
     mxrouteSave: () => Promise.resolve("saved"),
     mxrouteRemove: () => Promise.resolve("saved"),
     mxrouteEnable: () => Promise.resolve("saved"),
+    recent,
+    recentAct,
+    recentClosed,
     onError,
   } as never);
   page.show();
@@ -397,13 +409,25 @@ describe("manage:pause", () => {
 
 describe("manage:init", () => {
   it("answers the trusted page with the entries and nothing else", async () => {
-    expect(await call("manage:init", trusted)).toEqual({ entries: [], restarted: false });
+    expect(await call("manage:init", trusted)).toEqual({
+      entries: [],
+      restarted: false,
+      view: null,
+    });
   });
 
   it("says once, on the first load after a restart asked for from the window, that Senderban restarted", async () => {
     page.showAfterRestart();
-    expect(await call("manage:init", trusted)).toEqual({ entries: [], restarted: true });
-    expect(await call("manage:init", trusted)).toEqual({ entries: [], restarted: false });
+    expect(await call("manage:init", trusted)).toEqual({
+      entries: [],
+      restarted: true,
+      view: null,
+    });
+    expect(await call("manage:init", trusted)).toEqual({
+      entries: [],
+      restarted: false,
+      view: null,
+    });
   });
 
   it("answers null to another frame, another window or no frame, without reading the list", async () => {
@@ -473,5 +497,109 @@ describe("manage:unblock", () => {
     expect(await call("manage:unblock", trusted, ID)).toBeNull();
     expect(onError).toHaveBeenCalledWith("manage:unblock", expect.any(Error));
     expect(await call("manage:unblock", trusted, ID)).not.toBeNull();
+  });
+});
+
+describe("manage:recent", () => {
+  it("answers the trusted page with the view, and passes Refresh on", async () => {
+    expect(await call("manage:recent", trusted, { refresh: true })).toEqual({
+      starting: false,
+      rows: [],
+      problems: [],
+    });
+    expect(recent).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it("answers null to another frame, another window or no frame, without reading a mailbox", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:recent", event, { refresh: false })).toBeNull();
+    }
+    expect(recent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["nothing", undefined],
+    ["a bare boolean", true],
+    ["a string for refresh", { refresh: "yes" }],
+    ["an extra key", { refresh: false, account: "a" }],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:recent", trusted, payload)).toBeNull();
+    expect(recent).not.toHaveBeenCalled();
+  });
+
+  it("answers null and logs the channel when the read throws", async () => {
+    recent.mockRejectedValueOnce(new Error("start failed"));
+    expect(await call("manage:recent", trusted, { refresh: false })).toBeNull();
+    expect(onError).toHaveBeenCalledWith("manage:recent", expect.any(Error));
+  });
+});
+
+describe("manage:recent-act", () => {
+  it("ignores an untrusted sender: nothing is blocked", async () => {
+    for (const event of [otherFrame, otherWindow, noFrame]) {
+      expect(await call("manage:recent-act", event, { key: ID, act: "block" })).toBeNull();
+    }
+    expect(recentAct).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an address for a key", { key: "spam@example.com", act: "block" }],
+    ["a domain block", { key: ID, act: "domain" }],
+    ["an extra key", { key: ID, act: "block", sender: "spam@example.com" }],
+    ["no act", { key: ID }],
+    ["a bare key", ID],
+  ])("refuses %s", async (_name, payload) => {
+    expect(await call("manage:recent-act", trusted, payload)).toBeNull();
+    expect(recentAct).not.toHaveBeenCalled();
+  });
+
+  it("passes a valid click on, and ignores the same key again while it runs", async () => {
+    const gate = Promise.withResolvers<{ tone: string; text: string }>();
+    recentAct.mockReturnValueOnce(gate.promise);
+    const first = call("manage:recent-act", trusted, { key: ID, act: "mute" });
+    expect(await call("manage:recent-act", trusted, { key: ID, act: "block" })).toBeNull();
+    gate.resolve({ tone: "ok", text: "Muted." });
+    expect(await first).toEqual({ tone: "ok", text: "Muted." });
+    expect(recentAct).toHaveBeenCalledExactlyOnceWith(ID, "mute");
+  });
+
+  it("ignores a click on another row while one runs, and takes the next once it ended", async () => {
+    const other = "6f1d2c3b-4a5e-4f60-8b71-9c8d7e6f5a4b";
+    const gate = Promise.withResolvers<{ tone: string; text: string }>();
+    recentAct.mockReturnValueOnce(gate.promise);
+    const first = call("manage:recent-act", trusted, { key: ID, act: "block" });
+    expect(await call("manage:recent-act", trusted, { key: other, act: "block" })).toBeNull();
+    gate.resolve({ tone: "ok", text: "Blocked." });
+    await first;
+    recentAct.mockResolvedValueOnce({ tone: "ok", text: "Blocked." });
+    expect(await call("manage:recent-act", trusted, { key: other, act: "block" })).not.toBeNull();
+    expect(recentAct.mock.calls).toEqual([
+      [ID, "block"],
+      [other, "block"],
+    ]);
+  });
+
+  it("answers a failing click with an error line, logs the channel and takes the next click", async () => {
+    recentAct.mockRejectedValueOnce(new Error("sync broke"));
+    expect(await call("manage:recent-act", trusted, { key: ID, act: "block" })).toEqual({
+      tone: "error",
+      text: "Something went wrong. See the log.",
+    });
+    expect(onError).toHaveBeenCalledWith("manage:recent-act", expect.any(Error));
+    expect(await call("manage:recent-act", trusted, { key: ID, act: "block" })).not.toBeNull();
+  });
+});
+
+describe("showRecent", () => {
+  it("tells a loaded page to switch, and leaves a loading page's view to init so a second click keeps the first", async () => {
+    loading.now = true;
+    page.showRecent();
+    page.showRecent();
+    expect(sent).not.toContain("manage:show-view");
+    expect(await call("manage:init", trusted)).toMatchObject({ view: "recent" });
+    loading.now = false;
+    page.showRecent();
+    expect(sent).toContain("manage:show-view");
+    expect(await call("manage:init", trusted)).toMatchObject({ view: null });
   });
 });

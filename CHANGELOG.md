@@ -4,6 +4,18 @@ All notable changes are listed here, newest first. Versions follow Semantic Vers
 
 ## [Unreleased]
 
+### Added
+
+- **Recent mail**: a page with the 10 newest messages of each mailbox, newest first, with Block and Mute beside each
+  sender, with the notification's own words (Junk or Trash, and Mute). It is read when you open the page and kept only
+  in memory, for up to 3 minutes; nothing is read for it until you open it. A sender Senderban did not notify you about (more mail at once than a notification
+  burst shows, for example) is marked "Not notified". Also in the tray menu.
+
+### Changed
+
+- A click on a notification now opens Recent mail, where the same mail has the same buttons. Before, a click on the
+  notification's body showed the notification again. A notice that new messages were not announced opens it too.
+
 ## [0.3.3] - 2026-11-23
 
 ### Added

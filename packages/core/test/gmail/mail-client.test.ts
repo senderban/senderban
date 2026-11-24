@@ -201,6 +201,7 @@ describe("Gmail mail client", () => {
         { name: "Subject", value: "hi" },
       ],
       headersComplete: true,
+      receivedMs: fake.mail.get(id)?.receivedMs,
     });
     const url = new URL(fake.calls[0]?.url ?? "");
     expect(url.searchParams.get("format")).toBe("metadata");

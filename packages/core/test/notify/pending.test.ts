@@ -8,22 +8,24 @@ const ids = (): (() => string) => {
 };
 
 describe("PendingBlocks", () => {
-  it("peek answers as consume would and leaves the id its one click", () => {
-    const pending = new PendingBlocks();
-    const id = pending.add(block);
-    expect(pending.peek(id)).toEqual({ status: "ok", block });
-    expect(pending.peek(id)).toEqual({ status: "ok", block });
-    expect(pending.consume(id)).toEqual({ status: "ok", block });
-    expect(pending.peek(id)).toEqual({ status: "duplicate" });
-    expect(pending.peek("0f8fad5b-d9cb-469f-a165-70867728950e")).toEqual({ status: "unknown" });
-  });
-
   it("hands a block out once; the second activation of the same click is a duplicate", () => {
     const pending = new PendingBlocks({ newId: ids() });
     const id = pending.add(block);
     expect(pending.consume(id)).toEqual({ status: "ok", block });
     expect(pending.consume(id)).toEqual({ status: "duplicate" });
     expect(pending.consume(id)).toEqual({ status: "duplicate" });
+  });
+
+  it("release frees an id's slot at once, so a one-click id does not push a live toast out at the cap", () => {
+    const pending = new PendingBlocks({ newId: ids(), max: 2 });
+    const toast = pending.add(block);
+    const once = pending.add(block);
+    expect(pending.consume(once)).toEqual({ status: "ok", block });
+    pending.release(once);
+    expect(pending.size).toBe(1);
+    pending.add(block);
+    expect(pending.consume(toast)).toEqual({ status: "ok", block });
+    expect(pending.consume(once)).toEqual({ status: "unknown" });
   });
 
   it("drops every announcement of one account and leaves the others", () => {
@@ -150,7 +152,6 @@ describe("PendingBlocks.restore", () => {
     // Issued 23 h 59 min before this table was made: one minute of its TTL is left.
     expect(pending.restore(ID, block, now - 24 * HOUR + 60_000)).toBe(true);
     now += 2 * 60_000;
-    expect(pending.peek(ID)).toEqual({ status: "unknown" });
     expect(pending.consume(ID)).toEqual({ status: "unknown" });
     expect(pending.size).toBe(1);
   });
@@ -162,7 +163,6 @@ describe("PendingBlocks.restore", () => {
     expect(pending.consume(ID)).toEqual({ status: "ok", block });
     pending.add(block);
     pending.add(block);
-    expect(pending.peek(ID)).toEqual({ status: "unknown" });
     expect(pending.restore(ID, block, 9 * HOUR)).toBe(false);
     expect(pending.consume(ID)).toEqual({ status: "unknown" });
     // Past the TTL of the announcement the spent mark is gone with it, and the toast is too old to restore anyway.
@@ -190,10 +190,10 @@ describe("PendingBlocks.restore", () => {
     expect(pending.spentSize).toBe(1);
     // Exactly at the end of the TTL the mark stays: restore refuses this age on its own, the mark covers the rounding of the tail.
     now = 11 * HOUR;
-    pending.peek(ID);
+    pending.consume(ID);
     expect(pending.spentSize).toBe(1);
     now = 11 * HOUR + 2 * 60_000;
-    pending.peek(ID);
+    pending.consume(ID);
     expect(pending.spentSize).toBe(0);
   });
 

@@ -7,6 +7,7 @@ import {
   MAX_CONCURRENT_OUTLOOK_POLLS,
   MAX_CONCURRENT_LOGINS,
   PendingBlocks,
+  QUIET_CHOICE,
   SieveAdapter,
   SyncEngine,
   blockPending,
@@ -130,6 +131,15 @@ import {
   removeImapAccount,
 } from "./remove-account.js";
 import type { SieveLane, SieveRulesLifecycle } from "./remove-account.js";
+import {
+  Announcements,
+  RecentMailService,
+  gmailRecentSource,
+  imapRecentSource,
+  microsoftRecentSource,
+  recentMarks,
+} from "./recent-mail.js";
+import type { RecentSource } from "./recent-mail.js";
 import { relaunchArgs, reopenAfterStart, restartApp } from "./restart.js";
 import type { RestartWhy } from "./restart.js";
 import type { GmailWatchers } from "./gmail-watchers.js";
@@ -261,6 +271,57 @@ function notice(title: string, body: string): void {
   toasts?.notice(title, body);
 }
 
+/** A toast without buttons about mail that was not announced, or not with a Block button: a click opens Recent mail. */
+function noticeMail(title: string, body: string): void {
+  toasts?.noticeMail(title, body);
+}
+
+/** Who was announced when: what the Recent mail view's "Not notified" is worked out from. In memory only. */
+const announced = new Announcements();
+/** Every account the Recent mail view can read, set once at start; a removed one is filtered out at each look. */
+let recentPool: readonly RecentSource[] = [];
+const recentMail = new RecentMailService({
+  sources: () =>
+    recentPool.filter((source) =>
+      source.provider === "imap"
+        ? runtime?.watchers.has(source.accountId) === true
+        : source.provider === "gmail"
+          ? gmailLanes.has(source.accountId)
+          : microsoftLanes.has(source.accountId),
+    ),
+  label: (accountId) => runtime?.labels.get(accountId) ?? accountId,
+  // Once per look: one read of the block list, then each row costs its domain's labels (coverLookup).
+  marks: () => {
+    if (runtime === null) return () => null;
+    const running = new Set(runtime.lanes);
+    // As the Blocked senders window has it (laneViewOf `failed`, `gmailBehind`, `rulesBehind`): such an account's rules are not
+    // known to be in place. A Gmail or Outlook lane counts only once a round left nothing to send (`gmailSettled`).
+    const failing = (id: string): boolean =>
+      unsynced.has(id) ||
+      unconfirmed.has(id) ||
+      (cleanLanes.has(id) && states.get(id) !== "watching") ||
+      ((gmailLanes.has(id) || microsoftLanes.has(id)) && !gmailSettled.has(id));
+    return recentMarks({
+      list: runtime.store.list(),
+      own: runtime.own.get(),
+      quiet: (sender) => isQuiet(sender, quiet.entries),
+      provider: (id) =>
+        gmailLanes.has(id) ? "gmail" : microsoftLanes.has(id) ? "microsoft" : "imap",
+      applied: (id) => running.has(id) && !failing(id),
+    });
+  },
+  announced,
+  // As the toast has it: `blockPending` holds a Gmail account to Trash whatever the click says.
+  blockAct: (id) => (gmailLanes.has(id) ? "trash" : settings.current.defaultAction),
+  tag: accountTag,
+  log,
+  // As the list has it: a start that failed is an error, not an empty Inbox. `runtime` is set (and the window told) once start ends.
+  starting: () => {
+    if (startFailed) throw new Error("start failed");
+    return runtime === null;
+  },
+});
+
 /** Accounts whose last sync failed and whose person was told; cleared by the next sync that did not fail. */
 const unsynced = new Set<string>();
 /**
@@ -331,9 +392,6 @@ function imapOffer(
     rejectsAtServer: rejectingAccounts.has(accountId) && canRejectSender(sender, own),
   };
 }
-
-/** A click carries no mail text, so a toast of an earlier run comes back without its subject. */
-const SUBJECT_NOT_KEPT = "(subject not kept after a restart)";
 
 /** Gmail accounts that have no lane this session (signed out, expired, no client): a block or an Unblock does not reach them. */
 let gmailSkipped: GmailSkipped[] = [];
@@ -549,6 +607,12 @@ function updateTray(): void {
     Menu.buildFromTemplate([
       ...(lines.length === 0 ? [{ label: "No accounts configured", enabled: false }] : lines),
       { type: "separator" },
+      {
+        label: "Recent mail…",
+        click: () => {
+          manage?.showRecent();
+        },
+      },
       {
         label: "Blocked senders…",
         click: () => {
@@ -796,7 +860,7 @@ async function start(): Promise<Runtime> {
       });
       const more =
         unsaid === 0 ? "" : ` ${String(unsaid)} more like it came in since the last one.`;
-      notice(
+      noticeMail(
         "Senderban",
         `New mail in ${labels.get(accountId) ?? accountId}: the sender could not be read safely, so there is no Block button.${more}${subjectLine(message.subject)}`,
       );
@@ -810,7 +874,7 @@ async function start(): Promise<Runtime> {
           uid: message.uid,
           sender: "own-address",
         });
-        notice(
+        noticeMail(
           "Senderban",
           `New mail in ${labels.get(accountId) ?? accountId} claims to come from your own address, so there is no Block button.${subjectLine(message.subject)}`,
         );
@@ -840,6 +904,7 @@ async function start(): Promise<Runtime> {
         return;
       }
       const id = pending.add({ accountId, sender: message.from });
+      announced.record(accountId, message.from, Date.now());
       log("announce", {
         account: accountTag(accountId),
         uid: message.uid,
@@ -864,14 +929,14 @@ async function start(): Promise<Runtime> {
     },
     onOverflow: (accountId, skipped) => {
       log("overflow", { account: accountTag(accountId), skipped });
-      notice(
+      noticeMail(
         "Senderban",
-        `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced.`,
+        `${String(skipped)} more new messages in ${labels.get(accountId) ?? accountId} were not announced. Click to see them.`,
       );
     },
     onUnreadable: (accountId, skipped) => {
       log("unreadable-mail", { account: accountTag(accountId), skipped });
-      notice(
+      noticeMail(
         "Senderban",
         `A mail in ${labels.get(accountId) ?? accountId} was too large to read, so up to ${String(skipped)} new messages were not announced. Check that inbox.`,
       );
@@ -1133,6 +1198,10 @@ async function start(): Promise<Runtime> {
       toasts?.show(toast);
     },
     notice,
+    noticeMail,
+    onAnnounced: (laneId, sender) => {
+      announced.record(laneId, sender, Date.now());
+    },
     labelOf: (laneId) => labels.get(laneId) ?? laneId,
     onState: (laneId, state) => {
       states.set(laneId, state);
@@ -1169,6 +1238,8 @@ async function start(): Promise<Runtime> {
         gmailLaneByAccount.delete(accountId);
         // Its watcher is dropped and its cursor deleted (a new sign-in starts from "now", not from a stale position).
         gmailWatchers.forget(lane.laneId);
+        // What the Recent page read of it, and who was announced on it: sender addresses kept for nothing now.
+        recentMail.forget(lane.laneId);
         // A toast of this account that is still on screen answers "expired" now, not "read back from the provider".
         pending.dropAccount(lane.laneId);
         states.delete(lane.laneId);
@@ -1249,6 +1320,10 @@ async function start(): Promise<Runtime> {
       toasts?.show(toast);
     },
     notice,
+    noticeMail,
+    onAnnounced: (laneId, sender) => {
+      announced.record(laneId, sender, Date.now());
+    },
     labelOf: (laneId) => labels.get(laneId) ?? laneId,
     onState: (laneId, state) => {
       states.set(laneId, state);
@@ -1257,6 +1332,15 @@ async function start(): Promise<Runtime> {
     },
     log,
   });
+  recentPool = [
+    ...[...watchers].map(([id, watcher]) => imapRecentSource(id, watcher, () => paused)),
+    ...[...gmailLaneByAccount.values()].map((lane) =>
+      gmailRecentSource(lane.laneId, lane.recent, () => paused),
+    ),
+    ...[...microsoftLaneByAccount.values()].map((lane) =>
+      microsoftRecentSource(lane.laneId, lane.recent, () => paused),
+    ),
+  ];
   const microsoft = createMicrosoftLifecycle({
     lanes: microsoftLaneByAccount,
     store,
@@ -1280,6 +1364,7 @@ async function start(): Promise<Runtime> {
         microsoftLaneByAccount.delete(accountId);
         graphBudgets.forget(lane.laneId);
         outlookWatchers.forget(lane.laneId);
+        recentMail.forget(lane.laneId);
         pending.dropAccount(lane.laneId);
         states.delete(lane.laneId);
         updateTray();
@@ -1656,8 +1741,9 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       onRefused: () => {
         log("toast-refused");
       },
-      onReshown: (shown, waitedMs) => {
-        log("toast-reshown", { shown, ms: waitedMs });
+      openRecent: () => {
+        log("toast-open", { window: manage === null ? "none" : "recent" });
+        manage?.showRecent();
       },
       hold: (work) => (manage === null ? work() : manage.hold(work)),
       quiet: async (id, scope, restore) => {
@@ -1690,30 +1776,6 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         return { tone: "ok", text: `${target.value}: you will not be asked again.` };
       },
       onError: logIpcError,
-      reopen: async (id, restore) => {
-        const { pending, lanes, labels, own, gmailWatchers, outlookWatchers } = await ready.promise;
-        const restored = restoreClicked(pending, lanes, id, restore);
-        const seen = pending.peek(id);
-        log("toast-reopen", { result: seen.status, restore: restored });
-        if (seen.status === "duplicate") return { tone: "warn", text: "Already handled." };
-        if (seen.status !== "ok") {
-          return { tone: "warn", text: "This message has expired, so nothing changed." };
-        }
-        const { accountId, sender } = seen.block;
-        return {
-          id,
-          accountId,
-          issuedAt: restore?.issuedAt ?? Math.floor(Date.now() / 1000),
-          sender,
-          // The body's click keeps the subject (0.3.2); a button, or a toast from before, does not.
-          subject: restore?.subject ?? SUBJECT_NOT_KEPT,
-          account: labels.get(accountId) ?? accountId,
-          spamScore: null,
-          ...(gmailWatchers.toastOffer(accountId, sender) ??
-            outlookWatchers.toastOffer(accountId, sender) ??
-            imapOffer(accountId, sender, own.get())),
-        };
-      },
       choose: async (id, scope, action, restore) => {
         const { store, engine, lanes, pending, labels, own } = await ready.promise;
         const restored = restoreClicked(pending, lanes, id, restore);
@@ -1810,6 +1872,32 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       }
     };
     manage = new ManageWindow(assets, {
+      recent: (refresh) => recentMail.view(refresh),
+      recentClosed: () => {
+        recentMail.release();
+      },
+      recentAct: async (key, act) => {
+        const target = recentMail.take(key);
+        if (target === null) {
+          log("recent-click", { act, result: "stale" });
+          return { tone: "warn", text: "This list is out of date. Refresh it and try again." };
+        }
+        log("recent-click", { act, domain: domainOf(target.sender) });
+        if (toasts === null) return { tone: "error", text: "Something went wrong. See the log." };
+        const { pending } = await ready.promise;
+        // A pending id of its own, as an announced mail has: the click then takes the toast's own steps and gates (blockPending).
+        // Released after: spent, it would hold a slot for a day and push a live toast's button out at the cap.
+        const id = pending.add(target);
+        try {
+          return await toasts.answer(
+            id,
+            "address",
+            act === "mute" ? QUIET_CHOICE : settings.current.defaultAction,
+          );
+        } finally {
+          pending.release(id);
+        }
+      },
       // `gmailLanes` is the lanes that run this session: with none, a row says nothing about Gmail.
       list: () => {
         const own = runtime?.own.get();
@@ -1981,6 +2069,7 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
         const started = Date.now();
         const onRemoved = async (): Promise<void> => {
           spamFilters.delete(accountId);
+          recentMail.forget(accountId);
           await googleDeps.onAccountsChanged?.();
           manage?.notifyChanged();
         };

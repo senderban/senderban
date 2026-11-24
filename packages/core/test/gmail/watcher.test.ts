@@ -438,6 +438,8 @@ describe("GmailWatcher: failures", () => {
         pollAllAccountsDay: 200_000,
         readPerAccountDay: 6_000,
         readAllAccountsDay: 150_000,
+        recentPerAccountDay: 2_050,
+        recentAllAccountsDay: 50_000,
       },
     });
     const t = setup({ budgets });
@@ -771,6 +773,8 @@ describe("GmailWatcher: bounded memory", () => {
         pollAllAccountsDay: 10_000_000,
         readPerAccountDay: 10_000_000,
         readAllAccountsDay: 10_000_000,
+        recentPerAccountDay: 10_000_000,
+        recentAllAccountsDay: 10_000_000,
       },
     });
     const t = setup({ maxPerDrain: 25, budgets });

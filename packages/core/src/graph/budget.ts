@@ -1,7 +1,7 @@
 import { AdapterError } from "../adapter.js";
 import { Rolling } from "../rolling.js";
 import { MAX_ACCOUNTS } from "../sync/engine.js";
-import type { GraphMailClient, GraphRuleClient } from "./client.js";
+import type { GraphMailClient, GraphRecentClient, GraphRuleClient } from "./client.js";
 
 /**
  * Requests one account may make in a minute. Unit: requests. An `uninstall` of the most rules a lane holds (GRAPH_MAX_RULES = 200)
@@ -29,9 +29,23 @@ export const GRAPH_POLL_REQUESTS_PER_ACCOUNT_DAY = 3_000;
 /** The same for all Microsoft accounts together. Unit: requests. 50 accounts (MAX_ACCOUNTS) at 3,000 are 150,000. */
 export const GRAPH_POLL_REQUESTS_PER_DAY_ALL = 200_000;
 
+/**
+ * Requests one account may make for the Recent mail view in 24 hours. Unit: requests. A look is one request; the view keeps what it
+ * read for minutes, so 300 is a look every five minutes for a whole day. A line of its own, so looking cannot take the poll's. PROVISIONAL.
+ */
+export const GRAPH_RECENT_REQUESTS_PER_ACCOUNT_DAY = 300;
+/** Requests all accounts together may make for the Recent mail view in 24 hours. Unit: requests. 50 accounts (MAX_ACCOUNTS) at 300 are 15,000. */
+export const GRAPH_RECENT_REQUESTS_PER_DAY_ALL = 15_000;
+
 export type GraphLimit =
-  "minute" | "account-day" | "all-accounts-day" | "poll-account-day" | "poll-all-accounts-day";
-export type GraphOp = "junk" | "list" | "create" | "update" | "delete" | "delta";
+  | "minute"
+  | "account-day"
+  | "all-accounts-day"
+  | "poll-account-day"
+  | "poll-all-accounts-day"
+  | "recent-account-day"
+  | "recent-all-accounts-day";
+export type GraphOp = "junk" | "list" | "create" | "update" | "delete" | "delta" | "recent";
 
 /** Our own limit was reached, before any request left. A `QUOTA_EXCEEDED`, so the adapter treats it as a rate limit. */
 export class GraphBudgetError extends AdapterError {
@@ -66,6 +80,10 @@ export const GRAPH_POLL_LIMITS: GraphPollLimits = {
   perAccountDay: GRAPH_POLL_REQUESTS_PER_ACCOUNT_DAY,
   allAccountsDay: GRAPH_POLL_REQUESTS_PER_DAY_ALL,
 };
+export const GRAPH_RECENT_LIMITS: GraphPollLimits = {
+  perAccountDay: GRAPH_RECENT_REQUESTS_PER_ACCOUNT_DAY,
+  allAccountsDay: GRAPH_RECENT_REQUESTS_PER_DAY_ALL,
+};
 
 /** What the log may learn about a refusal: fixed words and numbers, never an address, a rule id or a token. */
 export interface GraphBudgetEvent {
@@ -83,6 +101,7 @@ interface AccountWindows {
   readonly minute: Rolling;
   readonly day: Rolling;
   readonly pollDay: Rolling;
+  readonly recentDay: Rolling;
 }
 
 export interface GraphWrapOptions {
@@ -103,11 +122,14 @@ export class GraphBudgets {
   readonly #accounts = new Map<string, AccountWindows>();
   readonly #all: Rolling;
   readonly #pollAll: Rolling;
+  readonly #recentLimits: GraphPollLimits;
+  readonly #recentAll: Rolling;
 
   constructor(
     options: {
       readonly limits?: GraphLimits;
       readonly pollLimits?: GraphPollLimits;
+      readonly recentLimits?: GraphPollLimits;
       readonly now?: () => number;
     } = {},
   ) {
@@ -116,6 +138,12 @@ export class GraphBudgets {
     this.#now = options.now ?? Date.now;
     this.#all = new Rolling(HOUR_MS, 24, this.#now);
     this.#pollAll = new Rolling(HOUR_MS, 24, this.#now);
+    this.#recentLimits = options.recentLimits ?? GRAPH_RECENT_LIMITS;
+    this.#recentAll = new Rolling(HOUR_MS, 24, this.#now);
+    for (const value of [this.#recentLimits.perAccountDay, this.#recentLimits.allAccountsDay]) {
+      if (!Number.isInteger(value) || value < 1)
+        throw new RangeError("a Microsoft limit must be a whole number of requests, 1 or more");
+    }
   }
 
   #windows(account: string): AccountWindows {
@@ -128,6 +156,7 @@ export class GraphBudgets {
       minute: new Rolling(1_000, 60, this.#now),
       day: new Rolling(HOUR_MS, 24, this.#now),
       pollDay: new Rolling(HOUR_MS, 24, this.#now),
+      recentDay: new Rolling(HOUR_MS, 24, this.#now),
     };
     this.#accounts.set(account, created);
     return created;
@@ -164,6 +193,41 @@ export class GraphBudgets {
       ["poll-account-day", windows.pollDay, this.#pollLimits.perAccountDay],
       ["poll-all-accounts-day", this.#pollAll, this.#pollLimits.allAccountsDay],
     ]);
+  }
+
+  /** One request of the Recent mail view: on the shared minute, and on the view's own day lines. */
+  chargeRecent(account: string): void {
+    const windows = this.#windows(account);
+    this.#take([
+      ["minute", windows.minute, this.#limits.perMinute],
+      ["recent-account-day", windows.recentDay, this.#recentLimits.perAccountDay],
+      ["recent-all-accounts-day", this.#recentAll, this.#recentLimits.allAccountsDay],
+    ]);
+  }
+
+  /** Requests left on the Recent mail lines, for the log and for tests. */
+  remainingRecent(account: string): { accountDay: number; allAccountsDay: number } {
+    const windows = this.#windows(account);
+    return {
+      accountDay: this.#recentLimits.perAccountDay - windows.recentDay.used(),
+      allAccountsDay: this.#recentLimits.allAccountsDay - this.#recentAll.used(),
+    };
+  }
+
+  /** The Recent mail reader with this budget in front of it. */
+  wrapRecent(client: GraphRecentClient, options: GraphWrapOptions): GraphRecentClient {
+    return {
+      recent: async (max, signal) => {
+        this.#paid(
+          () => {
+            this.chargeRecent(options.key);
+          },
+          "recent",
+          options,
+        );
+        return client.recent(max, signal);
+      },
+    };
   }
 
   #paid(charge: () => void, op: GraphOp, options: GraphWrapOptions): void {

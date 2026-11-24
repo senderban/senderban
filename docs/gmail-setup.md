@@ -19,7 +19,8 @@ Open **Google Auth Platform** in the same project.
 1. **Branding:** give the app a name and your e-mail address.
 2. **Audience:** choose **External**, then add your own Gmail address under **Test users**.
 3. **Data Access:** add exactly these two scopes:
-   - `https://www.googleapis.com/auth/gmail.metadata`: the sender and subject for the notification.
+   - `https://www.googleapis.com/auth/gmail.metadata`: the sender and subject for the notification and the
+     Recent mail page.
    - `https://www.googleapis.com/auth/gmail.settings.basic`: the filters that block a sender.
 
 ## 3. Make the client

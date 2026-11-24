@@ -45,6 +45,7 @@ const els = {
   homeRecent: $("home-recent"),
   homeRecentEmpty: $("home-recent-empty"),
   homeAll: $("home-all"),
+  navRecent: $("nav-recent"),
   navBlocked: $("nav-blocked"),
   navAccounts: $("nav-accounts"),
   navQuiet: $("nav-quiet"),
@@ -116,6 +117,7 @@ const STATE_LABEL = {
 
 const VIEW_TITLE = {
   home: "Home",
+  recent: "Recent mail",
   blocked: "Blocked senders",
   accounts: "Accounts",
   add: "Add mailbox",
@@ -705,6 +707,7 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   els.title.textContent = VIEW_TITLE[name];
   els.goAdd.hidden = name !== "accounts";
   els.navHome.toggleAttribute("aria-current", false);
+  els.navRecent.toggleAttribute("aria-current", false);
   els.navBlocked.toggleAttribute("aria-current", false);
   els.navAccounts.toggleAttribute("aria-current", false);
   els.navQuiet.toggleAttribute("aria-current", false);
@@ -713,6 +716,7 @@ function showView(name, { keepNotice = false, focusTitle = false } = {}) {
   const current =
     {
       home: els.navHome,
+      recent: els.navRecent,
       blocked: els.navBlocked,
       quiet: els.navQuiet,
       settings: els.navSettings,
@@ -837,6 +841,8 @@ async function refresh() {
         showView("accounts");
         setNotice("ok", "Senderban restarted.");
       }
+      // Opened by a click on a notification about mail: once, on this load.
+      if (init.view === "recent") showView("recent", { focusTitle: true });
     } while (refreshAgain);
   } finally {
     refreshing = false;
@@ -892,6 +898,9 @@ els.navSponsor.addEventListener("click", () => {
       setNotice("error", "Could not open the Sponsors page. See the log.");
     },
   );
+});
+els.navRecent.addEventListener("click", () => {
+  showView("recent");
 });
 els.navBlocked.addEventListener("click", () => {
   showView("blocked");
@@ -971,6 +980,10 @@ api.onChanged(() => {
 });
 api.onStatus(() => {
   void refreshStatus();
+});
+// A click on a notification while the window is open.
+api.onShowView((name) => {
+  if (name === "recent") showView("recent", { focusTitle: true });
 });
 showView("home");
 void refresh();

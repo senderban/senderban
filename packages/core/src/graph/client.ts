@@ -4,7 +4,7 @@ import { parseAddress } from "../address.js";
 import { createBearerCaller } from "../oauth/bearer.js";
 import type { BearerCall, BearerRequest } from "../oauth/bearer.js";
 import { OVERSIZE } from "../oauth/http.js";
-import { sanitizeSubject } from "../watcher/watcher.js";
+import { RECENT_MAX, sanitizeSubject } from "../watcher/watcher.js";
 
 /** Microsoft Graph v1.0, `mailFolder` and `messageRule` (read 2026-10-31, https://learn.microsoft.com/en-us/graph/api/resources/messagerule). Fixed host. */
 export const GRAPH_RULES_URL = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules";
@@ -19,6 +19,11 @@ export const GRAPH_INBOX_DELTA_URL =
   "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta";
 
 /** One request to Graph: connect, answer and body. Unit: milliseconds. */
+/**
+ * The Inbox's newest messages, for the Recent mail view: `List messages` (read 2026-11-23, https://learn.microsoft.com/en-us/graph/api/user-list-messages):
+ * `Mail.ReadBasic` is the least it takes, which reads mail "except body, previewBody, attachments and any extended properties".
+ */
+export const GRAPH_INBOX_URL = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages";
 export const GRAPH_TIMEOUT_MS = 15_000;
 /** Bytes read from a single rule or folder answer. Unit: bytes. A rule of 100 addresses is about 10 KiB of JSON; PROVISIONAL. */
 export const GRAPH_BODY_MAX_BYTES = 262_144;
@@ -123,6 +128,9 @@ const DeltaAnswer = z.looseObject({
   "@odata.nextLink": z.string().max(GRAPH_DELTA_LINK_MAX_CHARS).optional(),
   "@odata.deltaLink": z.string().max(GRAPH_DELTA_LINK_MAX_CHARS).optional(),
 });
+const RecentAnswer = z.looseObject({
+  value: z.array(z.unknown()).max(GRAPH_DELTA_PAGE_SIZE * 4),
+});
 const DeltaEntry = z.looseObject({
   id: z.string().regex(GRAPH_ID),
   "@removed": z.unknown().optional(),
@@ -173,6 +181,19 @@ export class DeltaTooLargeError extends AdapterError {
 export interface GraphMailClient {
   /** One page of mail that came in. `from` a link is the next page or round; `from` a time starts a round with no mail from before it. */
   delta(from: GraphDeltaFrom, signal?: AbortSignal): Promise<GraphDeltaPage>;
+}
+
+/** The newest Inbox mail, for the Recent mail view: one request. */
+export interface GraphRecentPage {
+  /** Newest first, as asked for. */
+  readonly mail: readonly GraphMail[];
+  /** Entries that could not be read. */
+  readonly unreadable: number;
+}
+
+export interface GraphRecentClient {
+  /** The newest `max` Inbox messages (1 to RECENT_MAX): sender, subject and time, no body. */
+  recent(max: number, signal?: AbortSignal): Promise<GraphRecentPage>;
 }
 
 export interface GraphRuleList {
@@ -237,7 +258,13 @@ export interface GraphRuleClient {
 export type GraphClient = GraphRuleClient & GraphMailClient;
 
 export type GraphCall = BearerCall<
-  "junk" | "rule-list" | "rule-create" | "rule-update" | "rule-delete" | "mail-delta"
+  | "junk"
+  | "rule-list"
+  | "rule-create"
+  | "rule-update"
+  | "rule-delete"
+  | "mail-delta"
+  | "mail-recent"
 >;
 
 export interface GraphClientOptions {
@@ -343,6 +370,11 @@ function deltaStartUrl(sinceMs: number): string {
   return `${GRAPH_INBOX_DELTA_URL}?changeType=created&$select=${DELTA_SELECT}&$filter=receivedDateTime+ge+${since}`;
 }
 
+/** The Recent mail request. Written by hand like `deltaStartUrl`: the same three fields, newest first. */
+function recentUrl(max: number): string {
+  return `${GRAPH_INBOX_URL}?$top=${String(max)}&$select=${DELTA_SELECT}&$orderby=receivedDateTime+desc`;
+}
+
 function readDeltaEntry(entry: unknown): GraphMail | "skip" | "unreadable" {
   const parsed = DeltaEntry.safeParse(entry);
   if (!parsed.success) return "unreadable";
@@ -362,7 +394,7 @@ function readDeltaEntry(entry: unknown): GraphMail | "skip" | "unreadable" {
   };
 }
 
-export function createGraphClient(options: GraphClientOptions): GraphClient {
+export function createGraphClient(options: GraphClientOptions): GraphClient & GraphRecentClient {
   const now = options.now ?? Date.now;
   const call = createBearerCaller<GraphCall["op"]>({
     who: "Microsoft",
@@ -585,6 +617,48 @@ export function createGraphClient(options: GraphClientOptions): GraphClient {
         else if (one !== "skip") mail.push(one);
       }
       return { mail, unreadable, link, more: next !== undefined };
+    },
+
+    async recent(max, signal) {
+      if (!Number.isInteger(max) || max < 1 || max > RECENT_MAX) {
+        throw new RangeError("the Recent mail count is out of range");
+      }
+      let answer: { status: number; json: unknown };
+      try {
+        answer = await send(
+          "mail-recent",
+          "mail recent",
+          { method: "GET", url: recentUrl(max) },
+          GRAPH_BODY_MAX_BYTES,
+          signal,
+        );
+      } catch (error) {
+        // Ten messages without bodies are a few KiB: past the cap is the answer's own doing, so asking again is no use.
+        if (
+          error instanceof AdapterError &&
+          error.code === "TRANSIENT" &&
+          error.message.includes(OVERSIZE)
+        ) {
+          throw new AdapterError(
+            "REJECTED",
+            "the Microsoft Inbox answer is larger than Senderban reads",
+          );
+        }
+        throw error;
+      }
+      const { status, json } = answer;
+      if (status !== 200) throw failure(status, json, "mail recent");
+      const parsed = RecentAnswer.safeParse(json);
+      if (!parsed.success) throw malformed("mail recent");
+      const mail: GraphMail[] = [];
+      let unreadable = 0;
+      for (const entry of parsed.data.value) {
+        const one = readDeltaEntry(entry);
+        if (one === "unreadable") unreadable += 1;
+        else if (one !== "skip") mail.push(one);
+      }
+      // Only what was asked for, newest first whatever order the answer came in.
+      return { mail: mail.sort((a, b) => b.receivedMs - a.receivedMs).slice(0, max), unreadable };
     },
   };
 }

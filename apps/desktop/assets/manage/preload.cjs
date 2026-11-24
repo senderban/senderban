@@ -4,6 +4,10 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("senderban", {
   init: () => ipcRenderer.invoke("manage:init"),
   unblock: (id) => ipcRenderer.invoke("manage:unblock", id),
+  /** The Recent mail rows; `refresh` is the Refresh button. */
+  recent: (refresh) => ipcRenderer.invoke("manage:recent", { refresh }),
+  /** A row's Block or Mute: the row's key and the word, nothing else. */
+  recentAct: (key, act) => ipcRenderer.invoke("manage:recent-act", { key, act }),
   mxrouteList: () => ipcRenderer.invoke("manage:mxroute-list"),
   mxrouteSave: (input) => ipcRenderer.invoke("manage:mxroute-save", input),
   mxrouteRemove: (key) => ipcRenderer.invoke("manage:mxroute-remove", key),
@@ -36,6 +40,12 @@ contextBridge.exposeInMainWorld("senderban", {
   onChanged: (callback) => {
     ipcRenderer.on("manage:changed", () => {
       callback();
+    });
+  },
+  /** Main asks the page to show a view (a click on a notification about mail). One fixed word. */
+  onShowView: (callback) => {
+    ipcRenderer.on("manage:show-view", (_event, view) => {
+      if (view === "recent") callback(view);
     });
   },
   /** A watcher changed state: ask for the status again. */

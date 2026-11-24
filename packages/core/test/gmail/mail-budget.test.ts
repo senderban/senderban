@@ -51,7 +51,7 @@ async function refusal(promise: Promise<unknown>): Promise<GmailBudgetError | nu
 
 describe("the poll and read lanes' named limits", () => {
   it("charge what Google charges, and the fake counts the same", () => {
-    expect(GMAIL_MAIL_UNITS).toEqual({ profile: 1, history: 2, message: 20 });
+    expect(GMAIL_MAIL_UNITS).toEqual({ profile: 1, history: 2, message: 20, inbox: 5 });
     expect(GMAIL_MAIL_UNITS).toEqual(MAIL_UNITS);
   });
 

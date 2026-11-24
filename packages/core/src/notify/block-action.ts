@@ -157,6 +157,33 @@ export function coveringEntry(list: Blocklist, sender: string, own: OwnMail): Bl
   return oldest;
 }
 
+/**
+ * `coveringEntry(list, sender, own) !== null` for many senders against one list: built once in one pass, then each sender costs
+ * its domain's labels, not the list. The Recent mail view marks up to 10 rows of each of 50 accounts against a list that can hold
+ * 10,000 entries: 5 M checks on the main thread the other way.
+ */
+export function coverLookup(list: Blocklist, own: OwnMail): (sender: string) => boolean {
+  const addresses = new Set<string>();
+  const domains = new Set<string>();
+  const roots = new Set<string>();
+  for (const entry of list) {
+    if (isOwnEntry(entry, own)) continue;
+    if (entry.match === "exactAddress") addresses.add(entry.value);
+    else if (entry.match === "exactDomain") domains.add(entry.value);
+    else roots.add(entry.value);
+  }
+  return (sender) => {
+    if (addresses.has(sender)) return true;
+    const domain = sender.slice(sender.lastIndexOf("@") + 1);
+    if (domains.has(domain) || roots.has(domain)) return true;
+    // A `subdomains` entry covers every parent of the sender's domain that it names.
+    for (let dot = domain.indexOf("."); dot >= 0; dot = domain.indexOf(".", dot + 1)) {
+      if (roots.has(domain.slice(dot + 1))) return true;
+    }
+    return false;
+  };
+}
+
 function describeSync(outcome: SyncOutcome): string | null {
   switch (outcome.status) {
     case "unchanged":

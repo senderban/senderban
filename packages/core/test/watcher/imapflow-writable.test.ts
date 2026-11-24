@@ -46,10 +46,10 @@ beforeEach(() => {
 });
 
 describe("a session that only watches", () => {
-  it("opens the Inbox read-only, with the library's own IDLE delay", async () => {
+  it("opens the Inbox read-only and goes back to IDLE quickly after a Recent mail read too", async () => {
     await imapflowConnector(config)();
     expect(seen.opens).toEqual([{ path: "INBOX", readOnly: true }]);
-    expect(seen.options[0]).not.toHaveProperty("autoIdleDelay");
+    expect(seen.options[0]).toMatchObject({ autoIdleDelay: CLEAN_IDLE_DELAY_MS });
   });
 });
 

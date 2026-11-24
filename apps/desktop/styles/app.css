@@ -134,11 +134,17 @@
       background-color var(--dur-fast) var(--ease),
       border-color var(--dur-fast) var(--ease);
   }
-  button:hover:not(:disabled) {
+  button:hover:not(:disabled, [aria-disabled="true"]) {
     border-color: var(--fg);
   }
   button:disabled {
     opacity: 0.5;
+    cursor: default;
+  }
+  /* aria-disabled: a click is running, and the button keeps the keyboard focus (recent.js). The text dims, not the whole button:
+     opacity would fade the focus ring too (2.38:1 light, measured 2026-11-24). */
+  button[aria-disabled="true"] {
+    color: var(--muted);
     cursor: default;
   }
   input:not([type="checkbox"]),

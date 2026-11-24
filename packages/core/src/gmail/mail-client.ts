@@ -5,8 +5,12 @@ import type { GoogleCallerOptions } from "../google/call.js";
 import { GOOGLE_BODY_MAX_BYTES, OVERSIZE, apiFailure, googleErrorReason } from "../google/http.js";
 import { FROM_UNPARSABLE, parseFromHeaders } from "./from-header.js";
 import type { FromResult, RawHeader } from "./from-header.js";
+import { DELIVERED_AT, RECENT_MAX } from "../watcher/watcher.js";
 
-/** Gmail API, `users.*` for reading new mail (read 2026-10-26: `history.list` 2 units, `messages.get` 20, `getProfile` 1; all accept `gmail.metadata`). Fixed host. */
+/**
+ * Gmail API, `users.*` for reading new mail (read 2026-10-26: `history.list` 2 units, `messages.get` 20, `getProfile` 1; all accept
+ * `gmail.metadata`; read again 2026-11-23 with `messages.list` 5, whose `q` the `gmail.metadata` scope may not use). Fixed host.
+ */
 export const GMAIL_USER_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /**
@@ -54,7 +58,14 @@ export interface HistoryPage {
  * for. Seen live (G6, 2026-10-27, ADR 0009 "Measured live"): Google accepts it (200, 375 bytes against 512 without it) and, with the
  * `gmail.metadata` scope, sends no `snippet` either way; the cut stays so that a wider scope later cannot bring body text in.
  */
-export const MESSAGE_FIELDS = "id,labelIds,payload/headers";
+export const MESSAGE_FIELDS = "id,labelIds,internalDate,payload/headers";
+
+/** `internalDate`: epoch milliseconds as a decimal string. Unit: digits, 1 to 16 (year 9999 has 15). */
+const INTERNAL_DATE = /^[0-9]{1,16}$/u;
+/** Messages one Inbox list answer may hold before it is not trusted. Unit: messages. We ask for at most RECENT_MAX (10). */
+const INBOX_LIST_MAX = 100;
+/** Fields the `messages.list` answer is cut to: the ids only (Google adds `threadId` and `resultSizeEstimate` without it). */
+export const INBOX_FIELDS = "messages(id)";
 
 export interface MessageMetadata {
   readonly id: string;
@@ -66,6 +77,8 @@ export interface MessageMetadata {
    * unreadable second `From` would make a single one look like the whole truth.
    */
   readonly headersComplete: boolean;
+  /** When Gmail received it (`internalDate`), or null when the answer had none we can use. Unit: epoch milliseconds. */
+  readonly receivedMs: number | null;
 }
 
 /** The `startHistoryId` is too old for Google to answer (404): mail in the gap was not announced. A fixed class, so the watcher can tell it from every other refusal. */
@@ -118,6 +131,12 @@ export class MalformedAnswerError extends AdapterError {
   }
 }
 
+/** The Inbox's newest message ids, for the Recent mail view: `messages.list`, 5 units. Never `q` (the `gmail.metadata` scope may not). */
+export interface GmailInboxClient {
+  /** Ids of the newest `max` Inbox messages (spam and trash left out), in Google's order. 1 to RECENT_MAX. */
+  inbox(max: number, signal?: AbortSignal): Promise<readonly string[]>;
+}
+
 export interface GmailMailClient {
   /** The mailbox's current `historyId`: the starting cursor of a first run and of a gap. 1 unit. */
   profile(signal?: AbortSignal): Promise<{ readonly historyId: string }>;
@@ -152,16 +171,26 @@ const AddedMessage = z.looseObject({
 const MessageAnswer = z.looseObject({
   id: z.string().regex(MESSAGE_ID),
   labelIds: Labels.optional(),
+  // Read apart (below): an odd time must cost the time only, never the message, or the watcher would give up on its announcement.
+  internalDate: z.unknown().optional(),
   // Not bounded by the schema on purpose: more headers than MESSAGE_HEADERS_MAX must read as "headers not complete" (the sender is
   // then refused), not as a failed parse that the watcher would retry for ever. The 64 KiB body cap bounds the array itself.
   payload: z.looseObject({ headers: z.array(z.unknown()).optional() }).optional(),
 });
+// Entries are read one by one: one odd id costs itself.
+const InboxAnswer = z.looseObject({
+  messages: z.array(z.unknown()).max(INBOX_LIST_MAX).optional(),
+});
+const InboxEntry = z.looseObject({ id: z.string().regex(MESSAGE_ID) });
+
 const HeaderEntry = z.looseObject({
   name: z.string().min(1).max(HEADER_NAME_MAX_CHARS),
   value: z.string().max(HEADER_VALUE_MAX_CHARS),
 });
 
-export function createGmailMailClient(options: GoogleCallerOptions): GmailMailClient {
+export function createGmailMailClient(
+  options: GoogleCallerOptions,
+): GmailMailClient & GmailInboxClient {
   const call = createGoogleCaller(options);
   const malformed = (what: string): AdapterError => new MalformedAnswerError(what);
 
@@ -300,7 +329,45 @@ export function createGmailMailClient(options: GoogleCallerOptions): GmailMailCl
         if (one.success) headers.push({ name: one.data.name, value: one.data.value });
         else headersComplete = false;
       }
-      return { id, labelIds: parsed.data.labelIds ?? [], headers, headersComplete };
+      const raw = parsed.data.internalDate;
+      const received =
+        typeof raw === "string" && INTERNAL_DATE.test(raw) ? Number(raw) : Number.NaN;
+      return {
+        id,
+        labelIds: parsed.data.labelIds ?? [],
+        headers,
+        headersComplete,
+        receivedMs: received >= DELIVERED_AT.min && received <= DELIVERED_AT.max ? received : null,
+      };
+    },
+
+    async inbox(max, signal) {
+      if (!Number.isInteger(max) || max < 1 || max > RECENT_MAX) {
+        throw new RangeError("the Recent mail count is out of range");
+      }
+      const query = new URLSearchParams({
+        labelIds: "INBOX",
+        maxResults: String(max),
+        fields: INBOX_FIELDS,
+        prettyPrint: "false",
+      });
+      const { status, json } = await call(
+        "message-list",
+        "message list",
+        { method: "GET", url: `${GMAIL_USER_URL}/messages?${query.toString()}` },
+        GOOGLE_BODY_MAX_BYTES,
+        signal,
+      );
+      if (status !== 200) throw apiFailure(status, googleErrorReason(json), "message list");
+      const parsed = InboxAnswer.safeParse(json);
+      if (!parsed.success) throw malformed("message list");
+      const ids: string[] = [];
+      for (const entry of parsed.data.messages ?? []) {
+        const one = InboxEntry.safeParse(entry);
+        if (one.success && !ids.includes(one.data.id)) ids.push(one.data.id);
+      }
+      // Only what was asked for: a server decides what it sends, not what is read next.
+      return ids.slice(0, max);
     },
   };
 }

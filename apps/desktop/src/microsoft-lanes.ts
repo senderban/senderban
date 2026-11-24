@@ -20,6 +20,7 @@ import type {
   GraphBudgets,
   GraphCall,
   GraphMailClient,
+  GraphRecentClient,
   MicrosoftOAuthClient,
   OpaqueState,
   OwnMail,
@@ -36,6 +37,8 @@ export interface MicrosoftLane {
   readonly adapter: GraphAdapter;
   /** The budgeted client the new-mail watcher reads with. */
   readonly mail: GraphMailClient;
+  /** The Recent mail view's reader: the same client, paid on the account's own `recent` line. */
+  readonly recent: GraphRecentClient;
 }
 
 export interface MicrosoftLaneDeps {
@@ -153,6 +156,7 @@ export function buildMicrosoftLanes(deps: MicrosoftLaneDeps): {
       accountId: account.id,
       email,
       mail: deps.budgets.wrapMail(client, budget),
+      recent: deps.budgets.wrapRecent(client, budget),
       adapter: new GraphAdapter({
         accountId: laneId,
         client: budgeted,

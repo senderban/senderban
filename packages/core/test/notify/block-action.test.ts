@@ -3,6 +3,7 @@ import {
   blockPending,
   blockableDomain,
   canRejectSender,
+  coverLookup,
   coveringEntry,
   isOwnEntry,
   isOwnMailbox,
@@ -555,6 +556,45 @@ describe("sourceOf", () => {
       const result = await blockPending({ ...t.deps, sourceOf: () => name }, ID, "address", "junk");
       expect(result.status).toBe("blocked");
       expect(t.add.mock.calls[0]?.[0]).not.toHaveProperty("source");
+    }
+  });
+});
+
+describe("coverLookup", () => {
+  const entry = (match: BlockEntry["match"], value: string): BlockEntry => ({
+    id: ID,
+    match,
+    value,
+    action: "trash",
+    createdAt: "2026-01-05T10:00:00.000Z",
+  });
+  const own = { domains: new Set(["own.example"]), addresses: new Set(["me@gmail.com"]) };
+  const list = [
+    entry("exactAddress", "g@spam.example"),
+    entry("exactDomain", "flat.example"),
+    entry("subdomains", "deep.example"),
+    entry("subdomains", "own.example"),
+    entry("exactAddress", "me@gmail.com"),
+    entry("subdomains", "co.uk.example"),
+  ];
+
+  it("answers what coveringEntry answers, for every kind of entry and sender", () => {
+    const covered = coverLookup(list, own);
+    for (const sender of [
+      "g@spam.example",
+      "h@spam.example",
+      "x@flat.example",
+      "x@a.flat.example",
+      "x@deep.example",
+      "x@a.b.deep.example",
+      "x@notdeep.example",
+      "x@own.example",
+      "me@gmail.com",
+      "x@shop.co.uk.example",
+      "x@uk.example",
+      "x@example",
+    ]) {
+      expect(covered(sender), sender).toBe(coveringEntry(list, sender, own) !== null);
     }
   });
 });

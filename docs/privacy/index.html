@@ -108,6 +108,16 @@
               never reads or downloads message bodies or attachments.
             </li>
             <li>
+              <strong>Sender and subject of recent mail.</strong> From version 0.4.0, when you open
+              the Recent mail page, the same fields (From, Subject and the time the message was
+              received) of the 10 newest messages in each inbox, read on your device to list them.
+              They are kept in memory for up to 3 minutes, and on the page while it is open; the
+              sender addresses of the rows the page shows, which a click on a row needs, stay in
+              memory until the page reads again or closes. They are never written to disk, never to
+              the log beyond the sender's domain of a click, and go nowhere else. Nothing is read
+              for this page until you open it.
+            </li>
+            <li>
               <strong>MXroute API key (optional).</strong> Encrypted the same way, on your device
               only, and sent only to the MXroute API.
             </li>
@@ -143,8 +153,9 @@
           <ul>
             <li>
               <strong>View your email message metadata (gmail.metadata).</strong> To learn that new
-              mail arrived and to show its sender and subject in the notification. This permission
-              does not give access to message bodies.
+              mail arrived and to show its sender and subject in the notification, and, when you
+              open the Recent mail page, to list the sender, subject and time of your 10 newest
+              Inbox messages. This permission does not give access to message bodies.
             </li>
             <li>
               <strong>Manage your basic mail settings (gmail.settings.basic).</strong> To create and
@@ -197,8 +208,9 @@
             <li>
               <strong>Mail.ReadBasic.</strong> To find your Junk folder, and to read the sender,
               subject and time of new mail in your Inbox so the notification can offer to block the
-              sender. They are read on your device and shown there; they are not stored and go
-              nowhere else. This permission does not reach the body of a mail or its attachments.
+              sender, and of your 10 newest Inbox messages when you open the Recent mail page. They
+              are read on your device and shown there; they are not stored and go nowhere else. This
+              permission does not reach the body of a mail or its attachments.
             </li>
             <li><strong>User.Read.</strong> To learn your mail address.</li>
           </ul>

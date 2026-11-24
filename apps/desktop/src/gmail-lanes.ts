@@ -16,6 +16,7 @@ import type {
   GmailBudgets,
   GmailLogEvent,
   GmailMailClient,
+  GmailRecentReader,
   GoogleCall,
   OAuthClient,
   OpaqueState,
@@ -95,6 +96,8 @@ export interface GmailLane {
   readonly adapter: GmailAdapter;
   /** Reads the account's new mail (the watcher's client): budgeted, one token source with the filter client. */
   readonly mail: GmailMailClient;
+  /** The Recent mail view's reader: the same client, paid on the account's own `recent` line. */
+  readonly recent: GmailRecentReader;
 }
 
 export interface GmailLaneDeps {
@@ -196,12 +199,22 @@ export function buildGmailLanes(deps: GmailLaneDeps): GmailLanes {
       },
     };
     const budgeted = deps.budgets.wrap(client, wrapOptions);
+    const mailClient = createGmailMailClient(clientOptions);
+    // The Recent mail view: a first look is a list and ten gets, eleven lines of 200 per account. Only a failed request is written;
+    // the look itself has one `recent-read` line (recent-mail.ts). The same token source.
+    const recentClient = createGmailMailClient({
+      ...clientOptions,
+      onCall: (call: GoogleCall) => {
+        if (call.status !== 200) deps.log("gmail-http", { account: tag, ...call });
+      },
+    });
     lanes.push({
       laneId,
       accountId: account.id,
       email: account.gmail.email,
       // Reading new mail, paid on the account's own poll and read lines (the same counters object as the filter lane).
-      mail: deps.budgets.wrapMail(createGmailMailClient(clientOptions), wrapOptions),
+      mail: deps.budgets.wrapMail(mailClient, wrapOptions),
+      recent: deps.budgets.wrapRecent(recentClient, wrapOptions),
       adapter: new GmailAdapter({
         accountId: laneId,
         client: budgeted,

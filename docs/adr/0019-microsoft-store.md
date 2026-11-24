@@ -42,7 +42,11 @@ senderban/senderban/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z 
    started and inside the 24 hour TTL, for an account the person still has (`lanes`, which the removal paths splice; the engine keeps a
    lane until the restart, so it is not asked). `blockPending` then applies the rules it always applied: not the person's own address, no
    free-mail domain, `reject` only where the server can refuse, Gmail only Trash.
-6. **A click on the body opens the buttons again.** The toast has `launch="act=open;…"`. The click blocks nothing; it shows the toast again,
+6. **A click on the body opens Recent mail (0.4.0).** The toast has `launch="act=open;…"`. The click blocks nothing; it opens the window
+   on Recent mail, where the same mail has the same buttons (017; the Microsoft toast guidance: a body click opens the app on the
+   related content). The launch no longer carries the subject. A `subj` of a 0.3.2 or 0.3.3 toast still in Windows' list is checked
+   with the signature and not used. Until 0.3.3 the body click did what follows, kept here as the record of those versions.
+   The click showed the toast again,
    kept on screen until answered, from what the app can rebuild (the sender, the lane, the offer of the provider). Since 0.3.2 the body's click also carries the
    subject (`;subj=`, base64url of UTF-8, cut to 60 UTF-16 units, inside the signature), so a toast of an earlier run comes back with
    it; a body click of a toast from before 0.3.2 shows "(subject not kept after a restart)". A `subj` on a button is refused. The subject
