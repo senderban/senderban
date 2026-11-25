@@ -239,8 +239,11 @@ export const DOMAIN_CHOICE_MAX = 20;
  * domain after `@` is never the part Windows cuts. */
 export const LOCAL_PART_MAX = 24;
 
-/** A long domain keeps its end, with a mark of its own: the end is what tells `paypal.com.attacker.test` from PayPal. */
-function domainTail(domain: string, max: number): string {
+/**
+ * A long domain keeps its end, with a mark of its own: the end is what tells `paypal.com.attacker.test` from PayPal. Also the Recent
+ * mail row's "Whole domain" choice (recent-mail.ts), with the toast's DOMAIN_CHOICE_MAX.
+ */
+export function domainTail(domain: string, max: number): string {
   if (domain.length <= max) return domain;
   const tail = domain.slice(-max);
   // From a label's start where two labels stay, so the line never reads a bare `…test` or a suffix like `…co.uk`.

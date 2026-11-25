@@ -40,6 +40,7 @@ import type {
   MxrouteEnableInput,
   MxrouteInput,
   MxrouteKeyRef,
+  BlockScope,
   QuietRow,
   RecentAct,
   Settings,
@@ -234,8 +235,8 @@ export interface ManageHandlers {
   readonly openHelp: (target: HelpTarget) => Promise<void>;
   /** The Recent mail rows (recent-mail.ts): a provider is read only when what is held of it is older than its time. */
   readonly recent: (refresh: boolean) => Promise<RecentView>;
-  /** A row's button: blocks or mutes the sender behind `key`, through the same steps as the toast's button. */
-  readonly recentAct: (key: string, act: RecentAct) => Promise<RecentActReply>;
+  /** A row's button: blocks or mutes the sender (or its domain) behind `key`, through the same steps as the toast's button. */
+  readonly recentAct: (key: string, act: RecentAct, scope: BlockScope) => Promise<RecentActReply>;
   /** The window closed: the Recent rows' click keys are let go. */
   readonly recentClosed: () => void;
   /** A handler threw: the log gets the channel and a sanitised message, the page a generic failure. */
@@ -508,10 +509,10 @@ export class ManageWindow {
     if (!this.#trusted(event)) return null;
     const parsed = RecentActSchema.safeParse(value);
     if (!parsed.success || this.#recentActing) return null;
-    const { key, act } = parsed.data;
+    const { key, act, scope } = parsed.data;
     this.#recentActing = true;
     try {
-      return await this.#step(() => this.#handlers.recentAct(key, act));
+      return await this.#step(() => this.#handlers.recentAct(key, act, scope));
     } catch (error) {
       this.#handlers.onError("manage:recent-act", error);
       return { tone: "error", text: "Something went wrong. See the log." };

@@ -7,7 +7,6 @@ import {
   MAX_CONCURRENT_OUTLOOK_POLLS,
   MAX_CONCURRENT_LOGINS,
   PendingBlocks,
-  QUIET_CHOICE,
   SieveAdapter,
   SyncEngine,
   blockPending,
@@ -137,7 +136,10 @@ import {
   gmailRecentSource,
   imapRecentSource,
   microsoftRecentSource,
+  offered,
+  recentAction,
   recentMarks,
+  rowOffer,
 } from "./recent-mail.js";
 import type { RecentSource } from "./recent-mail.js";
 import { relaunchArgs, reopenAfterStart, restartApp } from "./restart.js";
@@ -311,8 +313,18 @@ const recentMail = new RecentMailService({
     });
   },
   announced,
-  // As the toast has it: `blockPending` holds a Gmail account to Trash whatever the click says.
-  blockAct: (id) => (gmailLanes.has(id) ? "trash" : settings.current.defaultAction),
+  // What the toast of the same mail offers (buildMailToastXml and each provider's `toast`): Gmail Trash alone and no domain, Outlook
+  // Junk and Trash and a domain its rules take, IMAP Junk and Trash, "Block" where the server refuses and the switch is on.
+  // `blockPending` still holds a Gmail account to Trash whatever the click says; recentAct takes only what the row offered.
+  offer: (id, sender) => {
+    const own = runtime?.own.get();
+    if (own === undefined) return { acts: [], domain: null };
+    const provider = gmailLanes.has(id) ? "gmail" : microsoftLanes.has(id) ? "microsoft" : "imap";
+    // The toast's rule without imapOffer's domain (rowOffer works that out once); the switch first, as it is the cheap check.
+    const refuses =
+      provider === "imap" && settings.current.preferServerBlock && rejectsAtServer(id, sender, own);
+    return rowOffer(provider, sender, own, refuses);
+  },
   tag: accountTag,
   log,
   // As the list has it: a start that failed is an error, not an empty Inbox. `runtime` is set (and the window told) once start ends.
@@ -380,6 +392,16 @@ const gmailToastLanes = new Set<string>();
 const heldGmailLanes = createHeldLanes();
 const heldSieveLanes = createHeldLanes();
 
+/** Whether the server of this IMAP account refuses `sender`: one rule for the toast (imapOffer) and the Recent row (`offer`). */
+function rejectsAtServer(
+  accountId: string,
+  sender: string,
+  own: ReturnType<OwnMailSet["get"]>,
+): boolean {
+  // A wildcard address is never written to the blacklist (it would refuse a whole provider).
+  return rejectingAccounts.has(accountId) && canRejectSender(sender, own);
+}
+
 /** What the toast of a mail from `sender` offers on an IMAP account. */
 function imapOffer(
   accountId: string,
@@ -388,8 +410,7 @@ function imapOffer(
 ): Pick<MailToast, "domain" | "rejectsAtServer"> {
   return {
     domain: blockableDomain(sender, own),
-    // A wildcard address is never written to the blacklist (it would refuse a whole provider).
-    rejectsAtServer: rejectingAccounts.has(accountId) && canRejectSender(sender, own),
+    rejectsAtServer: rejectsAtServer(accountId, sender, own),
   };
 }
 
@@ -1876,23 +1897,28 @@ if (addAccountArg !== undefined && !app.requestSingleInstanceLock()) {
       recentClosed: () => {
         recentMail.release();
       },
-      recentAct: async (key, act) => {
+      recentAct: async (key, act, scope) => {
         const target = recentMail.take(key);
         if (target === null) {
-          log("recent-click", { act, result: "stale" });
+          log("recent-click", { act, scope, result: "stale" });
           return { tone: "warn", text: "This list is out of date. Refresh it and try again." };
         }
-        log("recent-click", { act, domain: domainOf(target.sender) });
+        // Only what the row showed, as a toast button carries only its own act: the page is not trusted to ask for more.
+        if (!offered(target, act, scope)) {
+          log("recent-click", { act, scope, result: "not-offered" });
+          return { tone: "warn", text: "This list is out of date. Refresh it and try again." };
+        }
+        log("recent-click", { act, scope, domain: domainOf(target.sender) });
         if (toasts === null) return { tone: "error", text: "Something went wrong. See the log." };
         const { pending } = await ready.promise;
         // A pending id of its own, as an announced mail has: the click then takes the toast's own steps and gates (blockPending).
         // Released after: spent, it would hold a slot for a day and push a live toast's button out at the cap.
-        const id = pending.add(target);
+        const id = pending.add({ accountId: target.accountId, sender: target.sender });
         try {
           return await toasts.answer(
             id,
-            "address",
-            act === "mute" ? QUIET_CHOICE : settings.current.defaultAction,
+            scope,
+            recentAction(act, scope, settings.current.defaultAction),
           );
         } finally {
           pending.release(id);
