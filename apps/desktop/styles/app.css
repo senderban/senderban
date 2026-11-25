@@ -355,6 +355,79 @@
     padding: 0 10px;
     font-size: var(--text-xs);
   }
+  /* A row's "Block" (recent.js): it keeps no copy of later mail, the toast's one red button. The word carries it, not only the colour. */
+  button.critical:not([aria-disabled="true"]) {
+    border-color: var(--error);
+    color: var(--error);
+  }
+  button.critical:hover:not([aria-disabled="true"]) {
+    border-color: var(--fg);
+  }
+  /* The Recent page's choices: a row's "Only this sender / Whole domain" and the mailbox choice in the head, the height of the small
+     buttons beside them (24 px, SC 2.5.8). One width everywhere; it may shrink in a narrow window. The domain in a row's choice is
+     already cut from its start; a long mailbox name is cut at its end, whole on hover. */
+  select.small {
+    /* "Whole domain " + a domain cut to DOMAIN_CHOICE_MAX (20) and its mark, at 12 px, with the arrow: 15rem shows it whole. */
+    width: 15rem;
+    min-width: 0;
+    flex: 0 1 15rem;
+    min-height: 24px;
+    padding: 0 6px;
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+  }
+  /* A Recent row's choice and buttons: always their own line. The choice starts where the address starts, on every row; the
+     buttons sit at the right in their columns, and go below the choice in a narrow window (640 px) instead of pushing the list
+     sideways. */
+  .rc-actions {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+  /* The Recent page's head: the words keep a readable width (16rem); in a narrow window the mailbox choice and Refresh go below
+     them, still at the right, instead of squeezing the words into a column. */
+  .recent-head {
+    flex-wrap: wrap;
+  }
+  .recent-head > p {
+    flex: 1 1 16rem;
+  }
+  .recent-tools {
+    margin-inline-start: auto;
+  }
+  /* The mailbox choice is as wide as its longest name (Chromium sizes a select to its widest option), up to the row choice's 15rem:
+     "All mailboxes" alone must not take the words' room. */
+  .recent-tools select.small {
+    width: auto;
+    flex: 0 1 auto;
+    max-width: 15rem;
+  }
+  /* Four columns in the toast's order, each button in its own column whatever the row offers: Junk, Trash, Block and Mute stand
+     at one x from the top of the list to its bottom, and a button a row lacks leaves its place empty (Ali 2026-11-24). Every column
+     is 4rem, an empty one too, while each label fits in it (the widest, "Trash", is about 53 px of the 64): a longer label would
+     widen its column on its own row only and put that row out of line. The grid sits at the right, so the columns line up also
+     when a narrow window (640 px) puts it below the choice. */
+  .rc-buttons {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(max-content, 4rem));
+    gap: 8px;
+    margin-inline-start: auto;
+  }
+  /* One line always: a later column never moves a button to a second row, whichever order they come in. */
+  .rc-buttons > button {
+    grid-row: 1;
+  }
+  .rc-buttons [data-act="junk"] {
+    grid-column: 1;
+  }
+  .rc-buttons [data-act="trash"] {
+    grid-column: 2;
+  }
+  .rc-buttons [data-act="reject"] {
+    grid-column: 3;
+  }
+  .rc-buttons [data-act="mute"] {
+    grid-column: 4;
+  }
 
   /* A notice that asks for an action (restart). */
   .bar {
@@ -459,6 +532,8 @@
     overflow: hidden;
     white-space: nowrap;
     font-family: var(--font-data);
+    /* 12 px: Cascadia Mono is wider and darker than the UI face at the same size; 13 px read heavier than the words around it. */
+    font-size: var(--text-xs);
     align-items: baseline;
   }
   /* The local part gives way first: the domain is what a look-alike has to change, so it stays whole. */
@@ -478,7 +553,7 @@
   }
   .value .domain,
   .value.plain {
-    font-weight: 700;
+    font-weight: 600;
   }
   .line {
     display: flex;

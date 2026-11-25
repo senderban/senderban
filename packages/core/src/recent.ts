@@ -2,6 +2,7 @@ import { z } from "zod";
 import { senderOf } from "./gmail/mail-client.js";
 import type { GmailRecentReader } from "./gmail/budget.js";
 import { sanitizeSubject } from "./watcher/watcher.js";
+import { BLOCK_SCOPES } from "./notify/block-action.js";
 
 /**
  * One mail of the Recent mail view (017), whatever the provider: read when the view opens, kept in memory only (never on disk), so
@@ -18,14 +19,24 @@ export interface RecentMail {
   readonly receivedMs: number | null;
 }
 
-/** What a row's button does: "block" the sender (the default action), or "mute" it (the "Don't ask again" list). */
-export const RECENT_ACTS = ["block", "mute"] as const;
+/**
+ * What a row's button does, as the toast's buttons (buildMailToastXml): file the sender's mail in Junk or Trash, refuse it at the
+ * server ("reject", the toast's "Block"), or "mute" it (the "Don't ask again" list). Main takes only what it offered on that row.
+ */
+export const RECENT_ACTS = ["junk", "trash", "reject", "mute"] as const;
 export type RecentAct = (typeof RECENT_ACTS)[number];
 
 /** The page asks for the rows; `refresh` is the person's Refresh button. Checked in the main process: the page is untrusted. */
 export const RecentRequestSchema = z.strictObject({ refresh: z.boolean() });
-/** A row's button: the row's key (a UUID the main process gave with the rows) and what to do. No address crosses from the page. */
-export const RecentActSchema = z.strictObject({ key: z.uuid(), act: z.enum(RECENT_ACTS) });
+/**
+ * A row's button: the row's key (a UUID the main process gave with the rows), what to do, and who for (the sender, or the whole
+ * domain where the row offered it). No address crosses from the page.
+ */
+export const RecentActSchema = z.strictObject({
+  key: z.uuid(),
+  act: z.enum(RECENT_ACTS),
+  scope: z.enum(BLOCK_SCOPES),
+});
 
 /**
  * Gmail messages one Recent read asks for at once. Unit: requests. Google counts concurrent requests per user and answers too many

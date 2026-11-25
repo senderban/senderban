@@ -521,12 +521,15 @@
         </section>
 
         <section id="view-recent" class="view" hidden>
-          <div class="row">
+          <div class="row recent-head">
             <p class="muted grow">
               The newest mail of each mailbox, read when you open this page and kept in memory for
-              up to 3 minutes. Block or mute a sender here as you would from a notification.
+              up to 3 minutes. Act on a sender here as you would from a notification.
             </p>
-            <button type="button" id="recent-refresh" class="small">Refresh</button>
+            <div class="row recent-tools">
+              <select id="recent-account" class="small" aria-label="Show mail of" hidden></select>
+              <button type="button" id="recent-refresh" class="small">Refresh</button>
+            </div>
           </div>
           <div class="list-section">
             <ul id="recent-list" class="list" aria-label="Recent mail"></ul>

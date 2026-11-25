@@ -12,11 +12,21 @@ import {
   RECENT_TIMEOUT_MS,
   RECENT_TTL_MS,
   RecentMailService,
+  offered,
+  recentAction,
   recentMarks,
+  rowOffer,
 } from "../src/recent-mail.js";
-import type { RecentDeps, RecentMarkInputs, RecentSource } from "../src/recent-mail.js";
+import type {
+  RecentDeps,
+  RecentMarkInputs,
+  RecentOffer,
+  RecentSource,
+} from "../src/recent-mail.js";
 
 const T0 = Date.UTC(2026, 10, 23, 12);
+/** What a plain IMAP row offers in the rig: the toast's Junk and Trash, no domain. */
+const OFFER: RecentOffer = { acts: ["junk", "trash"], domain: null };
 
 const mail = (
   id: string,
@@ -54,7 +64,7 @@ function rig(sources: RecentSource[], over: Partial<RecentDeps> = {}) {
     label: (id) => `${id}@mail.example`,
     marks: () => () => null,
     announced,
-    blockAct: () => "junk",
+    offer: () => OFFER,
     tag: (id) => `acct-${id}`,
     log: (event, fields) => logs.push([event, fields ?? {}]),
     now: () => clock.t,
@@ -79,7 +89,17 @@ describe("RecentMailService", () => {
       ["b@mail.example", "z@two.example"],
     ]);
     expect(Object.keys(view.rows[0] ?? {}).sort()).toEqual(
-      ["account", "blockAct", "from", "key", "mark", "receivedMs", "subject"].sort(),
+      [
+        "account",
+        "acts",
+        "domain",
+        "domainLabel",
+        "from",
+        "key",
+        "mark",
+        "receivedMs",
+        "subject",
+      ].sort(),
     );
     expect(view.problems).toEqual([]);
   });
@@ -261,9 +281,41 @@ describe("RecentMailService", () => {
     const next = (await service.view()).rows[0]?.key ?? "";
     expect(service.take(row?.key ?? "")).toBeNull();
     // One click per key, as a toast's id.
-    expect(service.take(next)).toEqual({ accountId: "a", sender: "x@one.example" });
+    expect(service.take(next)).toEqual({ accountId: "a", sender: "x@one.example", ...OFFER });
     expect(service.take(next)).toBeNull();
     expect(service.take("not-a-key")).toBeNull();
+  });
+
+  it("gives each row the toast's buttons for its sender and account, and a row with nothing to click none", async () => {
+    const a = source("a", () =>
+      Promise.resolve([
+        mail("1", "x@one.example", T0 - 1),
+        mail("2", null, T0 - 2),
+        mail("3", "me@mine.example", T0 - 3),
+      ]),
+    );
+    const asked: [string, string][] = [];
+    const { service } = rig([a], {
+      marks: () => (_id, sender) => (sender === "me@mine.example" ? "own" : null),
+      offer: (id, sender) => {
+        asked.push([id, sender]);
+        return { acts: ["junk", "trash", "reject"], domain: "one.example" };
+      },
+    });
+    const view = await service.view();
+    expect(view.rows.map((r) => [r.from, r.acts, r.domain, r.domainLabel])).toEqual([
+      ["x@one.example", ["junk", "trash", "reject"], "one.example", "one.example"],
+      [null, [], null, null],
+      ["me@mine.example", [], null, null],
+    ]);
+    // Asked only for a row a click can act on.
+    expect(asked).toEqual([["a", "x@one.example"]]);
+    expect(service.take(view.rows[0]?.key ?? "")).toEqual({
+      accountId: "a",
+      sender: "x@one.example",
+      acts: ["junk", "trash", "reject"],
+      domain: "one.example",
+    });
   });
 
   it("marks what the list already says, at each look, without reading again", async () => {
@@ -335,7 +387,7 @@ describe("RecentMailService", () => {
       clock.t += RECENT_TTL_MS;
       await vi.advanceTimersByTimeAsync(RECENT_TTL_MS);
       // The page still shows the row: a click on it works (perf review 2026-11-24 W2).
-      expect(service.take(key)).toEqual({ accountId: "g", sender: "x@one.example" });
+      expect(service.take(key)).toEqual({ accountId: "g", sender: "x@one.example", ...OFFER });
       await service.view();
       expect(memos).toEqual([0, 1, 0]);
     } finally {
@@ -441,7 +493,7 @@ describe("RecentMailService", () => {
     service.release();
     expect(service.take(first)).toBeNull();
     const second = (await service.view()).rows[0]?.key ?? "";
-    expect(service.take(second)).toEqual({ accountId: "a", sender: "x@one.example" });
+    expect(service.take(second)).toEqual({ accountId: "a", sender: "x@one.example", ...OFFER });
   });
 
   it("keeps no keys from a look that was still waiting when the page closed", async () => {
@@ -563,6 +615,83 @@ describe("recentMarks", () => {
     expect(service.take(view.rows[0]?.key ?? "")).toEqual({
       accountId: "g",
       sender: "news@spam.example",
+      ...OFFER,
+    });
+  });
+});
+
+describe("offered", () => {
+  const imap: RecentOffer = { acts: ["junk", "trash", "reject"], domain: "one.example" };
+  const gmail: RecentOffer = { acts: ["trash"], domain: null };
+
+  it("takes what the row showed", () => {
+    for (const act of ["junk", "trash", "reject", "mute"] as const) {
+      expect(offered(imap, act, "address")).toBe(true);
+      expect(offered(imap, act, "domain")).toBe(true);
+    }
+    expect(offered(gmail, "trash", "address")).toBe(true);
+    expect(offered(gmail, "mute", "address")).toBe(true);
+  });
+
+  it("refuses a button the row did not show, and the whole domain where it had no such choice", () => {
+    expect(offered(gmail, "junk", "address")).toBe(false);
+    expect(offered(gmail, "reject", "address")).toBe(false);
+    expect(offered(gmail, "trash", "domain")).toBe(false);
+    expect(offered(gmail, "mute", "domain")).toBe(false);
+    expect(offered({ acts: ["junk", "trash"], domain: "one.example" }, "reject", "address")).toBe(
+      false,
+    );
+    expect(offered({ acts: [], domain: null }, "junk", "address")).toBe(false);
+  });
+});
+
+describe("recentAction", () => {
+  it("does what the toast's button does: a whole domain is filed in the default folder, never refused at the server", () => {
+    expect(recentAction("reject", "domain", "trash")).toBe("trash");
+    expect(recentAction("reject", "domain", "junk")).toBe("junk");
+    expect(recentAction("reject", "address", "trash")).toBe("reject");
+    expect(recentAction("junk", "domain", "trash")).toBe("junk");
+    expect(recentAction("trash", "address", "junk")).toBe("trash");
+    expect(recentAction("mute", "domain", "junk")).toBe("quiet");
+  });
+});
+
+describe("rowOffer", () => {
+  const own = { domains: new Set(["spam.example.net"]), addresses: new Set(["me@home.example"]) };
+
+  it("gives a Gmail row Trash alone and no domain, as its toast", () => {
+    expect(rowOffer("gmail", "news@shop.example", own, true)).toEqual({
+      acts: ["trash"],
+      domain: null,
+    });
+  });
+
+  it("gives an IMAP row Junk and Trash and the domain, and Block only where the server refuses", () => {
+    expect(rowOffer("imap", "news@shop.example", own, false)).toEqual({
+      acts: ["junk", "trash"],
+      domain: "shop.example",
+    });
+    expect(rowOffer("imap", "news@shop.example", own, true)).toEqual({
+      acts: ["junk", "trash", "reject"],
+      domain: "shop.example",
+    });
+  });
+
+  it("offers no whole domain where the toast has none: a free-mail domain, one of the person's own domains", () => {
+    expect(rowOffer("imap", "friend@gmail.com", own, false).domain).toBeNull();
+    expect(rowOffer("imap", "other@spam.example.net", own, false).domain).toBeNull();
+    expect(rowOffer("microsoft", "friend@outlook.com", own, false).domain).toBeNull();
+  });
+
+  it("gives an Outlook row Junk and Trash, never Block, and the domain only where its text match is safe", () => {
+    expect(rowOffer("microsoft", "news@shop.example", own, true)).toEqual({
+      acts: ["junk", "trash"],
+      domain: "shop.example",
+    });
+    // A text match on spam.example would also reach the person's spam.example.net.
+    expect(rowOffer("microsoft", "x@spam.example", own, false)).toEqual({
+      acts: ["junk", "trash"],
+      domain: null,
     });
   });
 });

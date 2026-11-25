@@ -6,8 +6,8 @@ contextBridge.exposeInMainWorld("senderban", {
   unblock: (id) => ipcRenderer.invoke("manage:unblock", id),
   /** The Recent mail rows; `refresh` is the Refresh button. */
   recent: (refresh) => ipcRenderer.invoke("manage:recent", { refresh }),
-  /** A row's Block or Mute: the row's key and the word, nothing else. */
-  recentAct: (key, act) => ipcRenderer.invoke("manage:recent-act", { key, act }),
+  /** A row's button: the row's key, the word, and who for ("address" or "domain"); no address. */
+  recentAct: (key, act, scope) => ipcRenderer.invoke("manage:recent-act", { key, act, scope }),
   mxrouteList: () => ipcRenderer.invoke("manage:mxroute-list"),
   mxrouteSave: (input) => ipcRenderer.invoke("manage:mxroute-save", input),
   mxrouteRemove: (key) => ipcRenderer.invoke("manage:mxroute-remove", key),

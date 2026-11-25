@@ -67,7 +67,7 @@ let saveSpamFilter: Mock<(accountId: string, filter: unknown) => Promise<string>
 let openHelp: Mock<(target: string) => Promise<void>>;
 let saveLoginItem: Mock<(on: boolean) => void>;
 let recent: Mock<(refresh: boolean) => Promise<unknown>>;
-let recentAct: Mock<(key: string, act: string) => Promise<unknown>>;
+let recentAct: Mock<(key: string, act: string, scope: string) => Promise<unknown>>;
 let recentClosed: Mock<() => void>;
 let page: InstanceType<typeof ManageWindow>;
 
@@ -537,56 +537,68 @@ describe("manage:recent", () => {
 describe("manage:recent-act", () => {
   it("ignores an untrusted sender: nothing is blocked", async () => {
     for (const event of [otherFrame, otherWindow, noFrame]) {
-      expect(await call("manage:recent-act", event, { key: ID, act: "block" })).toBeNull();
+      expect(
+        await call("manage:recent-act", event, { key: ID, act: "junk", scope: "address" }),
+      ).toBeNull();
     }
     expect(recentAct).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["an address for a key", { key: "spam@example.com", act: "block" }],
-    ["a domain block", { key: ID, act: "domain" }],
-    ["an extra key", { key: ID, act: "block", sender: "spam@example.com" }],
-    ["no act", { key: ID }],
+    ["an address for a key", { key: "spam@example.com", act: "junk", scope: "address" }],
+    ["the old word", { key: ID, act: "block", scope: "address" }],
+    ["a domain as an act", { key: ID, act: "domain", scope: "address" }],
+    ["an unknown scope", { key: ID, act: "junk", scope: "everyone" }],
+    ["no scope", { key: ID, act: "junk" }],
+    ["an extra key", { key: ID, act: "junk", scope: "address", sender: "spam@example.com" }],
+    ["no act", { key: ID, scope: "address" }],
     ["a bare key", ID],
   ])("refuses %s", async (_name, payload) => {
     expect(await call("manage:recent-act", trusted, payload)).toBeNull();
     expect(recentAct).not.toHaveBeenCalled();
   });
 
-  it("passes a valid click on, and ignores the same key again while it runs", async () => {
+  it("passes a valid click on with its scope, and ignores the same key again while it runs", async () => {
     const gate = Promise.withResolvers<{ tone: string; text: string }>();
     recentAct.mockReturnValueOnce(gate.promise);
-    const first = call("manage:recent-act", trusted, { key: ID, act: "mute" });
-    expect(await call("manage:recent-act", trusted, { key: ID, act: "block" })).toBeNull();
+    const first = call("manage:recent-act", trusted, { key: ID, act: "mute", scope: "domain" });
+    expect(
+      await call("manage:recent-act", trusted, { key: ID, act: "reject", scope: "address" }),
+    ).toBeNull();
     gate.resolve({ tone: "ok", text: "Muted." });
     expect(await first).toEqual({ tone: "ok", text: "Muted." });
-    expect(recentAct).toHaveBeenCalledExactlyOnceWith(ID, "mute");
+    expect(recentAct).toHaveBeenCalledExactlyOnceWith(ID, "mute", "domain");
   });
 
   it("ignores a click on another row while one runs, and takes the next once it ended", async () => {
     const other = "6f1d2c3b-4a5e-4f60-8b71-9c8d7e6f5a4b";
     const gate = Promise.withResolvers<{ tone: string; text: string }>();
     recentAct.mockReturnValueOnce(gate.promise);
-    const first = call("manage:recent-act", trusted, { key: ID, act: "block" });
-    expect(await call("manage:recent-act", trusted, { key: other, act: "block" })).toBeNull();
+    const first = call("manage:recent-act", trusted, { key: ID, act: "trash", scope: "address" });
+    expect(
+      await call("manage:recent-act", trusted, { key: other, act: "junk", scope: "address" }),
+    ).toBeNull();
     gate.resolve({ tone: "ok", text: "Blocked." });
     await first;
     recentAct.mockResolvedValueOnce({ tone: "ok", text: "Blocked." });
-    expect(await call("manage:recent-act", trusted, { key: other, act: "block" })).not.toBeNull();
+    expect(
+      await call("manage:recent-act", trusted, { key: other, act: "junk", scope: "address" }),
+    ).not.toBeNull();
     expect(recentAct.mock.calls).toEqual([
-      [ID, "block"],
-      [other, "block"],
+      [ID, "trash", "address"],
+      [other, "junk", "address"],
     ]);
   });
 
   it("answers a failing click with an error line, logs the channel and takes the next click", async () => {
     recentAct.mockRejectedValueOnce(new Error("sync broke"));
-    expect(await call("manage:recent-act", trusted, { key: ID, act: "block" })).toEqual({
+    const click = { key: ID, act: "junk", scope: "address" };
+    expect(await call("manage:recent-act", trusted, click)).toEqual({
       tone: "error",
       text: "Something went wrong. See the log.",
     });
     expect(onError).toHaveBeenCalledWith("manage:recent-act", expect.any(Error));
-    expect(await call("manage:recent-act", trusted, { key: ID, act: "block" })).not.toBeNull();
+    expect(await call("manage:recent-act", trusted, click)).not.toBeNull();
   });
 });
 

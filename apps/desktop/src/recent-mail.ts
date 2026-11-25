@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
   AdapterError,
+  DOMAIN_CHOICE_MAX,
+  QUIET_CHOICE,
   RECENT_MAX,
   RecentTooLargeError,
+  blockableDomain,
   coverLookup,
+  domainTail,
   isOwnMailbox,
   readGmailRecent,
 } from "@senderban/core";
@@ -12,10 +16,13 @@ import type { Log } from "./log.js";
 import { outlookCover } from "./microsoft-lanes.js";
 import type {
   AccountWatcher,
+  BlockAction,
+  BlockScope,
   Blocklist,
   OwnMail,
   GmailRecentReader,
   GraphRecentClient,
+  RecentAct,
   RecentMail,
 } from "@senderban/core";
 
@@ -90,8 +97,12 @@ export interface RecentRowView {
   readonly subject: string;
   readonly receivedMs: number | null;
   readonly mark: RecentMark;
-  /** Where the row's block button puts the sender's mail, so the button carries the toast's own word for it (Junk, Trash). */
-  readonly blockAct: "junk" | "trash";
+  /** The buttons the toast of this mail would have (beside Mute), in the toast's order. Empty for a row with nothing to click. */
+  readonly acts: RecentOffer["acts"];
+  /** The domain the row offers to act on as a whole, as the toast's "Whole domain" choice; null when it must not be offered. */
+  readonly domain: string | null;
+  /** `domain` as the toast's choice shows it: cut from its start behind a mark (domainTail), so the end a look-alike cannot fake stays. */
+  readonly domainLabel: string | null;
 }
 
 export interface RecentView {
@@ -102,10 +113,70 @@ export interface RecentView {
   readonly problems: readonly { readonly account: string; readonly status: RecentAccountStatus }[];
 }
 
-/** The account and sender behind a row: what a click blocks or quiets. */
-export interface RecentTarget {
+/**
+ * What a row offers, as the toast of the same mail on the same account offers it (buildMailToastXml): Junk and Trash, "reject" (the
+ * toast's red "Block") only where the server refuses and the person turned it on, Trash alone on Gmail; and the whole domain where the
+ * toast has that choice. Mute is on every row that has a sender to click. One difference: while "Whole domain" is chosen the page
+ * hides "Block" (recent.js), where the toast keeps it with a small line, so the row shows only what its click does.
+ */
+export interface RecentOffer {
+  readonly acts: readonly ("junk" | "trash" | "reject")[];
+  readonly domain: string | null;
+}
+
+/** The account and sender behind a row, and what the row offered: what a click blocks or quiets, and what it may ask for. */
+export interface RecentTarget extends RecentOffer {
   readonly accountId: string;
   readonly sender: string;
+}
+
+/**
+ * What the toast of a mail from `sender` on an account of this provider offers, for its Recent row (one rule, so the two cannot drift):
+ * Gmail Trash alone and no domain (gmail-watchers `toast`: a Gmail filter takes single addresses and Trash only); Outlook Junk and
+ * Trash and the domain where its rules take it (outlook-watchers `toast`); IMAP Junk and Trash, the domain where it may be blocked
+ * (imapOffer), and "Block" when `refuses`: the server refuses this sender and the person's switch is on (buildMailToastXml).
+ */
+export function rowOffer(
+  provider: RecentProvider,
+  sender: string,
+  own: OwnMail,
+  refuses: boolean,
+): RecentOffer {
+  if (provider === "gmail") return { acts: ["trash"], domain: null };
+  const domain = blockableDomain(sender, own);
+  if (provider === "microsoft") {
+    return {
+      acts: ["junk", "trash"],
+      domain:
+        domain !== null && outlookCover({ match: "subdomains", value: domain }, own) !== "no"
+          ? domain
+          : null,
+    };
+  }
+  return { acts: refuses ? ["junk", "trash", "reject"] : ["junk", "trash"], domain };
+}
+
+/**
+ * True when a click asks only for what its row offered, as a toast button carries only its own act: Mute on any row with a target,
+ * a block act the row showed, the whole domain only where the row had that choice. The page is not trusted to ask for more.
+ */
+export function offered(target: RecentOffer, act: RecentAct, scope: BlockScope): boolean {
+  if (scope === "domain" && target.domain === null) return false;
+  return act === "mute" || target.acts.includes(act);
+}
+
+/**
+ * What an offered click does, as parseActivation reads the toast's: a whole domain is never refused at the server, so "Block" with
+ * the domain chosen files it in the person's default folder (the toast's small line says so: "Block is for one sender"). The page
+ * no longer sends that pair (it hides "Block" while "Whole domain" is chosen); kept for an out-of-date or hand-made call.
+ */
+export function recentAction(
+  act: RecentAct,
+  scope: BlockScope,
+  defaultAction: "junk" | "trash",
+): BlockAction | typeof QUIET_CHOICE {
+  if (act === "mute") return QUIET_CHOICE;
+  return act === "reject" && scope === "domain" ? defaultAction : act;
 }
 
 /** Who was announced when, per account, in memory: "Not notified" is the absence of a line here. */
@@ -151,8 +222,8 @@ export interface RecentDeps {
    */
   readonly marks: () => (accountId: string, sender: string) => "blocked" | "muted" | "own" | null;
   readonly announced: Announcements;
-  /** What a block from a row of the account does: the default action, Trash on Gmail (a Gmail filter has one effect). */
-  readonly blockAct: (accountId: string) => "junk" | "trash";
+  /** What a row of this sender on this account offers: the toast's buttons and choice for the same mail (RecentOffer). */
+  readonly offer: (accountId: string, sender: string) => RecentOffer;
   /** The account as the log may name it: never an address. */
   readonly tag: (accountId: string) => string;
   readonly log: Log;
@@ -473,7 +544,6 @@ export class RecentMailService {
     for (const source of sources) {
       const cached = this.#cache.get(source.accountId);
       const account = this.#deps.label(source.accountId);
-      const blockAct = this.#deps.blockAct(source.accountId);
       if (cached === undefined) {
         if (this.#inFlight.has(source.accountId)) problems.push({ account, status: "reading" });
         continue;
@@ -482,8 +552,12 @@ export class RecentMailService {
       for (const mail of cached.mails) {
         const key = randomUUID();
         const mark = this.#markOf(markOf, source.accountId, mail, now);
+        const offer: RecentOffer =
+          mail.from !== null && mark !== "own"
+            ? this.#deps.offer(source.accountId, mail.from)
+            : { acts: [], domain: null };
         if (mail.from !== null && mark !== "own") {
-          targets.set(key, { accountId: source.accountId, sender: mail.from });
+          targets.set(key, { accountId: source.accountId, sender: mail.from, ...offer });
         }
         rows.push({
           key,
@@ -492,7 +566,9 @@ export class RecentMailService {
           subject: mail.subject,
           receivedMs: mail.receivedMs,
           mark,
-          blockAct,
+          acts: offer.acts,
+          domain: offer.domain,
+          domainLabel: offer.domain === null ? null : domainTail(offer.domain, DOMAIN_CHOICE_MAX),
         });
       }
     }
